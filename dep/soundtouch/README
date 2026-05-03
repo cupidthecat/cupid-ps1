@@ -1,0 +1,12 @@
+SoundTouch 2.3.3 (LGPL 2.1) -- audio time-stretch / resample library.
+Project home: https://www.surina.net/soundtouch/
+
+Vendored as a prebuilt linux-x64 binary (include/ + lib/).  Only the C
+wrapper API (SoundTouchDLL.h) is consumed; the underlying C++ runtime
+is provided by libsoundtouch.so.
+
+Used by src/util/core_audio_stream.c to implement audio_stretch_mode_t
+{ Off, Resample, TimeStretch }.
+
+The .so is loaded via -rpath '$ORIGIN/../dep/soundtouch/lib' so
+`./build/cupid-ps1` finds it without LD_LIBRARY_PATH.
