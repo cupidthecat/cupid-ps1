@@ -1,0 +1,16 @@
+glad (OpenGL + EGL function loader, generated)
+================================================
+
+SPDX-License-Identifier: (WTFPL OR CC0-1.0) AND Apache-2.0
+
+The generated loader sources at dep/glad/src/{gl.c,egl.c} carry the SPDX
+header above. The choice of WTFPL or CC0-1.0 covers the loader code
+itself; the Apache-2.0 component covers the generator boilerplate from
+the glad project.
+
+See the canonical license texts:
+  - WTFPL.txt          (this folder)
+  - CC0-1.0.txt        (this folder)
+  - Apache-2.0.txt     (this folder)
+
+Upstream: https://github.com/Dav1dde/glad (version 2.0.5).

@@ -1,0 +1,12 @@
+SoundTouch 2.3.3 (vendored prebuilt binary at dep/soundtouch/lib/libsoundtouch.so)
+==================================================================================
+
+License: GNU Lesser General Public License v2.1 (LGPL-2.1).
+Upstream: https://www.surina.net/soundtouch/
+Source repository (per upstream): https://gitlab.com/soundtouch/soundtouch
+
+Per LGPL-2.1, the corresponding source for the binary distributed in this
+repo is available from the upstream project at the link above. SoundTouch
+upstream is the canonical source.
+
+Full license text: see LGPL-2.1.txt in this folder.
