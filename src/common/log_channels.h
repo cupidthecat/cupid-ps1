@@ -1,0 +1,74 @@
+#ifndef CUPID_COMMON_LOG_CHANNELS_H
+#define CUPID_COMMON_LOG_CHANNELS_H
+
+#define ENUMERATE_LOG_CHANNELS(X)                                                                                      \
+  X(Achievements)                                                                                                      \
+  X(AudioStream)                                                                                                       \
+  X(BIOS)                                                                                                              \
+  X(Bus)                                                                                                               \
+  X(CDImage)                                                                                                           \
+  X(CDROM)                                                                                                             \
+  X(CDROMAsyncReader)                                                                                                  \
+  X(CPU)                                                                                                               \
+  X(Cheats)                                                                                                            \
+  X(CodeCache)                                                                                                         \
+  X(CPUDiffBlock)                                                                                                      \
+  X(CompressHelpers)                                                                                                   \
+  X(Controller)                                                                                                        \
+  X(Core)                                                                                                              \
+  X(CueParser)                                                                                                         \
+  X(DMA)                                                                                                               \
+  X(DynamicLibrary)                                                                                                    \
+  X(FileLoader)                                                                                                        \
+  X(FileSystem)                                                                                                        \
+  X(FullscreenUI)                                                                                                      \
+  X(GDBServer)                                                                                                         \
+  X(GPU)                                                                                                               \
+  X(GPUBackend)                                                                                                        \
+  X(GPUDevice)                                                                                                         \
+  X(GPUDump)                                                                                                           \
+  X(GPU_SW)                                                                                                            \
+  X(GPU_HW)                                                                                                            \
+  X(GameDatabase)                                                                                                      \
+  X(GameList)                                                                                                          \
+  X(HTTPCache)                                                                                                         \
+  X(HTTPDownloader)                                                                                                    \
+  X(Host)                                                                                                              \
+  X(ImGuiManager)                                                                                                      \
+  X(Image)                                                                                                             \
+  X(InputManager)                                                                                                      \
+  X(InterruptController)                                                                                               \
+  X(Log)                                                                                                               \
+  X(MDEC)                                                                                                              \
+  X(MediaCapture)                                                                                                      \
+  X(MemMap)                                                                                                            \
+  X(MemoryCard)                                                                                                        \
+  X(Multitap)                                                                                                          \
+  X(PCDrv)                                                                                                             \
+  X(Pad)                                                                                                               \
+  X(PerfMon)                                                                                                           \
+  X(PlatformMisc)                                                                                                      \
+  X(PostProcessing)                                                                                                    \
+  X(PGXP)                                                                                                              \
+  X(PIO)                                                                                                               \
+  X(ReShadeFXShader)                                                                                                   \
+  X(Recompiler)                                                                                                        \
+  X(SDL)                                                                                                               \
+  X(SIO)                                                                                                               \
+  X(SPU)                                                                                                               \
+  X(Settings)                                                                                                          \
+  X(ShaderGen)                                                                                                         \
+  X(Sockets)                                                                                                           \
+  X(SoundEffectManager)                                                                                                \
+  X(StateWrapper)                                                                                                      \
+  X(System)                                                                                                            \
+  X(TTY)                                                                                                               \
+  X(Threading)                                                                                                         \
+  X(Timers)                                                                                                            \
+  X(TimingEvents)                                                                                                      \
+  X(Ungrouped)                                                                                                         \
+  X(VideoThread)                                                                                                       \
+  X(WAV)                                                                                                               \
+  X(WindowInfo)
+
+#endif /* CUPID_COMMON_LOG_CHANNELS_H */
