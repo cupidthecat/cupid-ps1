@@ -1,0 +1,64 @@
+/*
+ *
+
+ * SCPH-1110 Analog Joystick (the original "flight stick" pre-DualShock).
+ * No rumble; mode toggle is a switch on real hardware so analog defaults
+ * on at construction.  Identical protocol shape to AnalogController minus
+ * config-mode + rumble registers.
+ */
+#ifndef CUPID_CORE_ANALOG_JOYSTICK_H
+#define CUPID_CORE_ANALOG_JOYSTICK_H
+
+#include "core/controller.h"
+
+#include "common/types.h"
+
+typedef enum : u8 {
+  ANALOG_JOYSTICK_AXIS_LEFT_X = 0,
+  ANALOG_JOYSTICK_AXIS_LEFT_Y,
+  ANALOG_JOYSTICK_AXIS_RIGHT_X,
+  ANALOG_JOYSTICK_AXIS_RIGHT_Y,
+  ANALOG_JOYSTICK_AXIS_COUNT,
+} analog_joystick_axis_t;
+
+typedef enum : u8 {
+  ANALOG_JOYSTICK_BUTTON_SELECT   = 0,
+  ANALOG_JOYSTICK_BUTTON_L3       = 1,
+  ANALOG_JOYSTICK_BUTTON_R3       = 2,
+  ANALOG_JOYSTICK_BUTTON_START    = 3,
+  ANALOG_JOYSTICK_BUTTON_UP       = 4,
+  ANALOG_JOYSTICK_BUTTON_RIGHT    = 5,
+  ANALOG_JOYSTICK_BUTTON_DOWN     = 6,
+  ANALOG_JOYSTICK_BUTTON_LEFT     = 7,
+  ANALOG_JOYSTICK_BUTTON_L2       = 8,
+  ANALOG_JOYSTICK_BUTTON_R2       = 9,
+  ANALOG_JOYSTICK_BUTTON_L1       = 10,
+  ANALOG_JOYSTICK_BUTTON_R1       = 11,
+  ANALOG_JOYSTICK_BUTTON_TRIANGLE = 12,
+  ANALOG_JOYSTICK_BUTTON_CIRCLE   = 13,
+  ANALOG_JOYSTICK_BUTTON_CROSS    = 14,
+  ANALOG_JOYSTICK_BUTTON_SQUARE   = 15,
+  ANALOG_JOYSTICK_BUTTON_MODE     = 16,
+  ANALOG_JOYSTICK_BUTTON_COUNT,
+} analog_joystick_button_t;
+
+typedef enum : u8 {
+  ANALOG_JOYSTICK_HALFAXIS_L_LEFT = 0,
+  ANALOG_JOYSTICK_HALFAXIS_L_RIGHT,
+  ANALOG_JOYSTICK_HALFAXIS_L_DOWN,
+  ANALOG_JOYSTICK_HALFAXIS_L_UP,
+  ANALOG_JOYSTICK_HALFAXIS_R_LEFT,
+  ANALOG_JOYSTICK_HALFAXIS_R_RIGHT,
+  ANALOG_JOYSTICK_HALFAXIS_R_DOWN,
+  ANALOG_JOYSTICK_HALFAXIS_R_UP,
+  ANALOG_JOYSTICK_HALFAXIS_COUNT,
+} analog_joystick_halfaxis_t;
+
+#define ANALOG_JOYSTICK_HALFAXIS_BIND_START_INDEX  ((u32)ANALOG_JOYSTICK_BUTTON_COUNT)
+#define ANALOG_JOYSTICK_LED_BIND_START_INDEX       (ANALOG_JOYSTICK_HALFAXIS_BIND_START_INDEX + (u32)ANALOG_JOYSTICK_HALFAXIS_COUNT)
+
+controller_t* analog_joystick_create(u32 index);
+
+extern const controller_info_t g_analog_joystick_info;
+
+#endif
