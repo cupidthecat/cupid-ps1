@@ -1,0 +1,7 @@
+stb_image.h v2.30
+upstream: https://github.com/nothings/stb
+commit:   31c1ad37456438565541f4919958214b6e762fb4
+fetched:  2026-05-01
+license:  dual MIT / public domain (Unlicense)
+usage:    #define STB_IMAGE_IMPLEMENTATION + #define STBI_ONLY_PNG before include.
+          c-ps1 instantiates the implementation only inside src/core/tc_image_loader.c.
