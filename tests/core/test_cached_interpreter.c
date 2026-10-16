@@ -5,6 +5,7 @@
 #include "core/cpu_code_cache.h"
 #include "core/cpu_core.h"
 #include "core/cpu_core_private.h"
+#include "core/cpu_execution_stats.h"
 #include "core/settings.h"
 #include "core/timing_event.h"
 
@@ -15,6 +16,7 @@ typedef struct {
   u8*                            ram;
   u32                            ram_size;
   cpu_cached_interpreter_stats_t stats;
+  cpu_execution_stats_t          execution;
 } execution_result_t;
 
 static u32 imm(u32 op, u32 rs, u32 rt, s32 value)
@@ -41,6 +43,7 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
   g_settings.cpu_fastmem_mode   = CPU_FASTMEM_MODE_DISABLED;
   g_settings.gpu_pgxp_enable    = false;
   timing_events_initialize();
+  cpu_execution_stats_initialize(true);
 
   Error error;
   Error_init(&error);
@@ -83,9 +86,10 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
     result->checkpoints[phase].memory_handlers = NULL;
     result->checkpoints[phase].fastmem_base    = NULL;
   }
-  result->stats    = cpu_code_cache_get_cached_interpreter_stats();
-  result->ram_size = bus_get_ram_size();
-  result->ram      = malloc(result->ram_size);
+  result->execution = *cpu_execution_stats_get();
+  result->stats     = cpu_code_cache_get_cached_interpreter_stats();
+  result->ram_size  = bus_get_ram_size();
+  result->ram       = malloc(result->ram_size);
   EXPECT_NOT_NULL(result->ram);
   memcpy(result->ram, bus_get_unprotected_ram_pointer(), result->ram_size);
 
@@ -261,5 +265,22 @@ TEST(CachedInterpreter, failed_prefetch_preserves_event_and_exception_boundary)
   const u32           words[] = {imm(9, 0, 8, 0x1234)};
   execution_result_t* result  = compare_program(0xBFC7FFFCu, words, 1, true);
   EXPECT_EQ(result->checkpoints[3].cop0_regs.cause.bits & 0x7Cu, 0x18u);
+  release_result(result);
+}
+
+TEST(ExecutionProgress, native_linked_blocks_and_scheduler_execute)
+{
+  const u32           words[] = {imm(9, 0, 8, 0x1234), imm(9, 0, 9, 0x5678), 0x1000FFFFu, 0};
+  execution_result_t* result =
+      run_program(CPU_EXECUTION_MODE_RECOMPILER, 0xA0010000u, words, sizeof(words) / sizeof(*words), false);
+  EXPECT_EQ(result->checkpoints[0].regs.r[8], 0x1234);
+  EXPECT_EQ(result->checkpoints[0].regs.r[9], 0x5678);
+  EXPECT_TRUE(result->execution.native_blocks_entered > 10);
+  EXPECT_TRUE(result->execution.native_blocks_completed > 10);
+  EXPECT_EQ(result->execution.interpreted_instructions, 0);
+  EXPECT_TRUE(result->global_ticks[0] >= 1000);
+  /* Event and global counters use distinct commit points. Check progress here;
+   * independent checkpoint comparisons retain both timing domains. */
+  EXPECT_TRUE(result->event_ticks[0] >= 1000);
   release_result(result);
 }

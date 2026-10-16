@@ -16,8 +16,7 @@
 #include "cpu_code_cache.h"
 #include "cpu_core.h"
 #include "cpu_core_private.h"
-#include "cpu_diff_block.h"
-#include "cpu_diff_runner.h"
+#include "cpu_execution_stats.h"
 #include "cpu_pc_trigger.h"
 #include "cpu_recompiler.h"
 #include "gte.h"
@@ -351,17 +350,6 @@ static void hook_begin_block(cpu_recompiler_t* r)
   }
 #endif
 
-  /* Per-block recomp/interp diff: emit a call to cpu_diff_block_enter at
-   * the very top of the prologue, *before* any fastmem/icache/SMC work.
-   * At this point the allocator is empty and EFLAGS is clean; the call
-   * cannot perturb subsequent codegen.  When diff mode is off, the C
-   * function returns after one mem-load + branch. */
-  if (cpu_diff_block_is_active() && r->block != NULL) {
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG1, (s32)r->block->pc);
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG2, (s32)r->block->size);
-    x64_call_abs64 (e, (const void*)&cpu_diff_block_enter);
-  }
-
   /* Per-block execution ring (CUPID_TRACE_EXEC=1).  Records every block
    * dispatch into a ring so the safety-net diag can show the actual
    * execution chain (not just the compile order). */
@@ -373,7 +361,7 @@ static void hook_begin_block(cpu_recompiler_t* r)
   /* PC-trigger GPR-dump hook (CUPID_PC_TRIGGER_PC=0x...).  Compile-time PC
    * compare against the latched target; only matching blocks emit a call.
    * Zero codegen impact in non-matching blocks.  Allocator empty + EFLAGS
-   * clean here (same constraint as cpu_diff_block_enter above). */
+   * clean here. */
   if (cpu_pc_trigger_is_active() && r->block != NULL &&
       r->block->pc == cpu_pc_trigger_target_pc()) {
     x64_mov_r_imm32(e, X64_SZ_32, RWARG1, (s32)r->block->pc);
@@ -392,6 +380,13 @@ static void hook_begin_block(cpu_recompiler_t* r)
 
   if (r->block != NULL && r->v && r->v->generate_icache_check_and_update)
     r->v->generate_icache_check_and_update(r);
+
+  /* The allocator is empty here. Count entry only after protection/cache checks.
+   * No C call, replay, CPU-state mutation or device access is involved. */
+  if (cpu_execution_stats_is_enabled()) {
+    x64_mov_r_imm64(e, RWARG1, (u64)(uintptr_t)&cpu_execution_stats_get()->native_blocks_entered);
+    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(RWARG1, 0), 1);
+  }
 
   if (cpu_code_cache_is_using_fastmem())
     x64_mov_r_m(e, X64_SZ_64, RMEMBASE,
@@ -434,55 +429,14 @@ static void emit_end_and_link_block(cpu_recompiler_t* r,
 
   const s32 cycles = r->cycles;
   r->cycles = 0;
-  const bool diff_active = cpu_diff_block_is_active();
+  /* All architectural registers have been flushed before reaching this epilogue.
+   * Count normal block exits, including linked exits, before the event test. */
+  if (cpu_execution_stats_is_enabled()) {
+    x64_mov_r_imm64(e, RWARG3, (u64)(uintptr_t)&cpu_execution_stats_get()->native_blocks_completed);
+    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(RWARG3, 0), 1);
+  }
 
-  /* When the per-block diff harness is active we MUST emit the
-   * cpu_diff_block_exit call AFTER pending_ticks has been advanced by the
-   * block's accumulated cycles, otherwise the harness's pending_ticks
-   * snapshot misses the per-block tail (only the prefix + mid-block
-   * mid-flushes are captured, not the cycles still sitting in r->cycles
-   * at end_block).  Without this, the harness reports a phantom
-   * recomp/interp tick divergence on every block.  When diff is off, we
-   * keep the original fast/slow paths byte-for-byte. */
-  if (diff_active) {
-    /* 1. Tick flush (mirrors slow-path's add). */
-    if (cycles == 1) {
-      x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32,
-                    x64_mem(RSTATE, STATE_DISP(pending_ticks)), 1);
-    } else if (cycles > 0) {
-      x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32,
-                    x64_mem(RSTATE, STATE_DISP(pending_ticks)), cycles);
-    }
-    /* 2. GTE completion-tick stash (mirrors slow-path branch). */
-    if (r->gte_done_cycle > cycles) {
-      x64_mov_r_m(e, X64_SZ_32, RWARG1,
-                  x64_mem(RSTATE, STATE_DISP(pending_ticks)));
-      const s32 add = r->gte_done_cycle - cycles;
-      if (add == 1)
-        x64_inc_r(e, X64_SZ_32, RWARG1);
-      else
-        x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, add);
-      x64_mov_m_r(e, X64_SZ_32,
-                  x64_mem(RSTATE, STATE_DISP(gte_completion_tick)), RWARG1);
-    }
-    /* 3. The diff hook itself.  Snapshot now sees the post-flush
-     *    pending_ticks; comparison against the interp replay matches. */
-    x64_call_abs64(e, (const void*)&cpu_diff_block_exit);
-    /* 4. Event test (re-issue cmp; the C call clobbered EFLAGS). */
-    if (force_run_events) {
-      u8* j = x64_jmp_rel32(e);
-      x64_patch_rel32(j, g_run_events_and_dispatch);
-      return;
-    }
-    if (do_event_test) {
-      x64_mov_r_m(e, X64_SZ_32, RWARG1,
-                  x64_mem(RSTATE, STATE_DISP(pending_ticks)));
-      x64_alu_r_m(e, X64_ALU_CMP, X64_SZ_32, RWARG1,
-                  x64_mem(RSTATE, STATE_DISP(downcount)));
-      u8* j = x64_jcc_rel32(e, X64_CC_GE);
-      x64_patch_rel32(j, g_run_events_and_dispatch);
-    }
-  } else if (!do_event_test && r->gte_done_cycle <= cycles) {
+  if (!do_event_test && r->gte_done_cycle <= cycles) {
     /* Fast path: only need to advance pending_ticks. */
     if (cycles == 1) {
       x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32,
@@ -579,12 +533,6 @@ static void hook_end_block(cpu_recompiler_t* r, const u32* newpc, bool do_event_
 
   cpu_recompiler_flush(r, CPU_RC_FLUSH_END_BLOCK);
 
-  /* Per-block diff: cpu_diff_block_exit is emitted from inside
-   * emit_end_and_link_block, AFTER the per-block cycles flush, so the
-   * harness's pending_ticks snapshot includes the end-of-block tick tail.
-   * Calling it before the cycles flush would leak the tail into the next
-   * block and produce spurious tick-divergence reports. */
-
   emit_end_and_link_block(r, newpc, do_event_test, false);
 }
 
@@ -612,10 +560,6 @@ static void hook_end_block_with_exception(cpu_recompiler_t* r, cpu_exception_t e
     x64_mov_r_imm32(e, X64_SZ_32, RWARG3, (s32)r->inst->bits);
     x64_call_abs64(e, (const void*)&cpu_raise_break_exception);
   }
-
-  /* Per-block diff: same insertion point as the no-exception path. */
-  if (cpu_diff_block_is_active())
-    x64_call_abs64(e, (const void*)&cpu_diff_block_exit);
 
   r->dirty_pc = false;
   emit_end_and_link_block(r, NULL, /*do_event_test=*/true, /*force=*/false);
@@ -2378,10 +2322,6 @@ static void hook_compile_swc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
   cpu_recompiler_free_host_reg(r, data_idx);
 }
 
-/* (Per-instruction emit_diff_trace_record removed; replaced by
- * per-block snapshot pairs in cpu_diff_block.{c,h}.  See hook_begin_block
- * and hook_end_block for the new dispatch points.) */
-
 static u32 emit_asm_functions(void* code, u32 code_size)
 {
   x64_emit_t e;
@@ -2585,6 +2525,7 @@ void x64_backend_register(void)
 
 void x64_backend_shutdown(void)
 {
+  cpu_recompiler_shutdown(&s_backend.base);
   cpu_code_cache_set_emit_jump(NULL);
   cpu_code_cache_set_emit_asm_functions(NULL);
   g_cpu_compiler = NULL;

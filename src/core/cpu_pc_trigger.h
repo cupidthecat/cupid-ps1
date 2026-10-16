@@ -37,8 +37,7 @@ bool cpu_pc_trigger_is_active(void);
 u32  cpu_pc_trigger_target_pc(void);
 
 /* One-shot setup.  Parses CUPID_PC_TRIGGER_PC / _LOG / _LIMIT once and
- * opens the log file.  Idempotent.  Called from system_boot near
- * cpu_diff_block_install(). */
+ * opens the log file.  Idempotent.  Called during system boot. */
 void cpu_pc_trigger_install(void);
 
 /* Hook callee: dump current GPR + COP0 + GTE state to the log.

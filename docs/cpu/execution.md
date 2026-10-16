@@ -17,8 +17,9 @@ with ordinary interpreter execution, including branch/load delays, exceptions,
 interrupted blocks and self-modifying code. These tests cover their generated
 cases; they do not establish complete CPU accuracy.
 
-Set `CUPID_CPU_STATS=1` to print cached-block creation, reuse, executed-word and
-fallback counts at shutdown. The runtime smoke runner requires positive
+Set `CUPID_CPU_STATS=1` before startup to print execution configuration,
+interpreted instruction counts, native block entry/completion counts and
+cached-block creation, reuse, executed-word and fallback counts at shutdown. The runtime smoke runner requires positive
 creation, reuse and execution counts when `--mode cached` is selected.
 
 ## Recompiler backends
@@ -39,12 +40,13 @@ PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-preci
 | Mode | Strategy |
 |------|----------|
 | `off` | Always go through the C helper (slow path). |
-| `lut` | LUT lookup keyed on bits 24..28 of the address. Default. |
+| `lut` | Requested LUT mode (default). The x86-64 backend currently uses the slow C helper path; native LUT execution is unfinished. |
 | `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses through `src/util/page_fault_handler.c`. |
 
-## Diff modes
+## Execution comparisons
 
-- `make test-diff` runs the interpreter twice with `CUPID_DIFF_TRACE` set and byte-compares the per-instruction trace.
-- `make recomp-diff-test` runs the recompiler with `CUPID_RECOMP_DIFF=1`. Each compiled block snapshots GPRs at prologue and re-executes the same instructions on a scratch interpreter copy, aborting on register divergence.
-
-The trace and block-comparison tools still need progress and state-coverage qualification. See [testing limits](../development/testing.md).
+`make test-diff` compares bounded ordinary/cached instruction traces.
+`make recomp-diff-test` compares independently saved machine checkpoints,
+including serialized timing. Missing progress and any differing data fail.
+The tools do not replay instructions on live devices. See
+[comparison coverage and limits](../development/comparing-execution.md).

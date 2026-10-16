@@ -399,6 +399,9 @@ struct cpu_recompiler_vtable {
   const char* (*get_host_reg_name)(u32 reg);
 };
 
+/* Release compiler-owned allocations before destroying the host backend. */
+void cpu_recompiler_shutdown(cpu_recompiler_t* r);
+
 /* Resets per-block state at the start of CompileBlock(). */
 void  cpu_recompiler_reset_state(cpu_recompiler_t* r,
                                  cpu_code_cache_block_t* block,

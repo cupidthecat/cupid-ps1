@@ -17,7 +17,7 @@ cupid-ps1 [options] <game-path>
 | `--gpu-resolution-scale N` | Internal resolution multiplier for the HW backend. `1`..`16`. SW renderer ignores it. | `1` |
 | `--cdrom-precache` | Decompress the entire disc image into RAM at boot. Eliminates per-hunk decode for CHD. Auto-applied for CHD-backed `.m3u` entries. | off |
 | `--cpu-mode MODE` | `interp`/`interpreter`, `cached`/`cached-interpreter`, `recomp`/`recompiler`. | settings.ini default (`recompiler`). |
-| `--fastmem MODE` | `off`/`disabled`, `lut`, `mmap`/`hw`. Recompiler load/store dispatch strategy. | settings.ini default (typically `lut`). |
+| `--fastmem MODE` | `off`/`disabled`, `lut`, `mmap`/`hw`. Recompiler load/store strategy. Native LUT execution is unfinished and currently uses the slow path. | settings.ini default (typically `lut`). |
 | `--pgxp on\|off` | Enable PGXP subpixel-precision geometry. | settings.ini default (off). |
 | `--no-block-linking` | Disable recompiler block linking for diagnosis. | linking on |
 | `--no-icache` | Disable recompiler icache emulation for diagnosis. | icache on |
@@ -100,15 +100,14 @@ All `CUPID_*` env vars are read at startup unless noted otherwise.
 | `CUPID_TRACE_DISP` | Trace presentation / display-region changes. |
 | `CUPID_TRACE_GP0=PATH` | Dump GPU GP0 command stream to `PATH`. |
 | `CUPID_TRACE_EXEC` | Per-block recompiler execution trace. |
-| `CUPID_TRACE_STEP_DIFF` | Single-step interpreter cross-check on every instruction. |
 | `CUPID_TRACE_LOW_RAM` / `_RANGE` / `_LOG` / `_RING` / `_TRIP_PADDR` / `_BCDTRIP` / `_SKIP_WRITERS` | Low-RAM write-watch debugging facility. |
 | `CUPID_PC_TRIGGER_PC` / `_LIMIT` / `_LOG` / `_OPCODE` | PC-trigger module: dump CPU state when PC (or opcode) is hit. |
-| `CUPID_RECOMP_DIFF_KEEP_LINKING` / `_KEEP_FASTMEM` / `_TICKS` | Recompiler comparison options. |
 | `CUPID_TEXTURE_CACHE` | Enable HW GPU texture-cache trace. |
 | `CUPID_GPU_SW_ISA` | Force SW rasterizer backend: `SCALAR`, `SIMD` (SSE4.1), or `AVX2`. Falls back to highest available if requested ISA is missing. Default: auto-detect. |
 | `CUPID_FMV_DUMP=PATH` | Dump MDEC frames to `PATH/`. Requires the binary built with `CUPID_FMV_DUMP=1`. |
-| `CUPID_DIFF_TRACE=PATH` | Per-instruction interpreter trace output path. Used by `make test-diff`. |
-| `CUPID_RECOMP_DIFF=1` | Recompiler register-file diff mode. Used by `make recomp-diff-test`. |
+| `CUPID_DIFF_TRACE=PATH` / `CUPID_DIFF_LIMIT=N` | New trace file and positive instruction count for ordinary/cached interpretation. |
+| `CUPID_CPU_STATS=1` | Report execution configuration, interpreted instructions, native blocks and cached-block progress. |
+| `CUPID_CHECKPOINT_DIR=PATH` / `CUPID_CHECKPOINT_SCHEDULE=INTERVAL,COUNT` | Independent frame checkpoints. Use the [comparison runner](../development/comparing-execution.md) to validate them. |
 | `SDL_VIDEODRIVER=dummy`, `SDL_AUDIODRIVER=dummy` | SDL drivers for runs without a display or audio device. Used by the test harness. |
 
 ## Settings
