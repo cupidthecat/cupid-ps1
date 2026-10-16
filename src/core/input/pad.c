@@ -22,6 +22,9 @@
 
 LOG_CHANNEL(Pad);
 
+/* Bits 6-7 and 9-15 are unused on the controller port. */
+#define JOY_MODE_MASK 0x013Fu
+
 /* Optional memory-card lifecycle, transfer and save-state hooks. */
 struct memory_card;
 extern void memory_card_destroy(struct memory_card* mc) __attribute__((weak));
@@ -63,13 +66,8 @@ ALWAYS_INLINE u32 joy_ctrl_slot(u16 v) { return ((u32)v >> JOY_CTRL_SLOT_BIT) & 
 #define JOY_STAT_ACKINPUT     (1u << 7)
 #define JOY_STAT_INTR         (1u << 9)
 
-/* From @JaCzekanski (https://github.com/JaCzekanski):
- * - ACK pulse itself lasts ~96 ticks (~2.84us at 33.87MHz master clock),
- *   not modeled.
- * - ACK delay between transfer end and pulse: 6.8-13.7us total, ~338 ticks
- *   for ~9.98us on standard pads, so we use 450 to leave headroom for
- *   command-ID handling.
- * - Memory-card responds faster: ~5us = ~170 ticks. */
+/* Transfers use fixed ACK delays: 170 ticks for cards and 450 for controllers.
+ * The ACK pulse width is not modeled. */
 ALWAYS_INLINE tick_count_t pad_get_ack_ticks(bool memory_card)
 {
   return memory_card ? 170 : 450;
@@ -233,12 +231,13 @@ u32 pad_read_register(u32 offset)
       if (pad_is_transmitting())
         timing_event_invoke_early(&s_pad.transfer_event, false);
       const u32 bits = s_pad.joy_stat;
-      /* ACKINPUT auto-clears on read, matching the JaCzekanski model. */
+      /* Reading status clears the ACK input latch. */
       s_pad.joy_stat &= ~JOY_STAT_ACKINPUT;
       return bits;
     }
 
     case 0x08: /* JOY_MODE */
+      DEV_LOG("JOY_MODE (R) -> 0x%04X", (u32)s_pad.joy_mode);
       return ZeroExtend32(s_pad.joy_mode);
 
     case 0x0A: /* JOY_CTRL */
@@ -309,8 +308,8 @@ void pad_write_register(u32 offset, u32 value)
     }
 
     case 0x08: /* JOY_MODE */
-      DEBUG_LOG("JOY_MODE <- 0x%08X", value);
-      s_pad.joy_mode = Truncate16(value);
+      DEV_LOG("JOY_MODE <- 0x%08X", value);
+      s_pad.joy_mode = (u16)(value & JOY_MODE_MASK);
       return;
 
     case 0x0E: /* JOY_BAUD */
@@ -624,6 +623,8 @@ bool pad_do_state(state_wrapper_t* sw, bool is_memory_state)
   state_wrapper_do_u16(sw, &s_pad.joy_ctrl);
   state_wrapper_do_u32(sw, &s_pad.joy_stat);
   state_wrapper_do_u16(sw, &s_pad.joy_mode);
+  if (state_wrapper_is_reading(sw))
+    s_pad.joy_mode &= JOY_MODE_MASK;
   state_wrapper_do_u16(sw, &s_pad.joy_baud);
   state_wrapper_do_u8 (sw, &s_pad.receive_buffer);
   state_wrapper_do_u8 (sw, &s_pad.transmit_buffer);

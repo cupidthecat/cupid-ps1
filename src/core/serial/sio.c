@@ -10,6 +10,8 @@ LOG_CHANNEL(SIO);
 /* Registers use raw u16/u32 storage with shift/mask access. Only the
  * control register's RESET bit changes device behavior here. */
 #define SIO_CTRL_RESET_BIT  (1u << 6)
+/* Only bits 0-7 are writable on the asynchronous serial port. */
+#define SIO_MODE_MASK 0x00FFu
 /* SIO_STAT bits: TXRDY=0, TXDONE=2, DSR_INPUTLEVEL=7, CTS_INPUTLEVEL=8 */
 #define SIO_STAT_TXRDY            (1u << 0)
 #define SIO_STAT_TXDONE           (1u << 2)
@@ -48,6 +50,8 @@ bool sio_do_state(state_wrapper_t* sw)
   state_wrapper_do_u16(sw, &s_sio_ctrl);
   state_wrapper_do_u32(sw, &s_sio_stat);
   state_wrapper_do_u16(sw, &s_sio_mode);
+  if (state_wrapper_is_reading(sw))
+    s_sio_mode &= SIO_MODE_MASK;
   state_wrapper_do_u16(sw, &s_sio_baud);
   return !state_wrapper_has_error(sw);
 }
@@ -65,6 +69,7 @@ u32 sio_read_register(u32 offset)
     case 0x04: /* SIO_STAT */
       return s_sio_stat;
     case 0x08: /* SIO_MODE */
+      DEV_LOG("SIO_MODE (R) -> 0x%04X", (u32)s_sio_mode);
       return ZeroExtend32(s_sio_mode);
     case 0x0A: /* SIO_CTRL */
       return ZeroExtend32(s_sio_ctrl);
@@ -95,8 +100,8 @@ void sio_write_register(u32 offset, u32 value)
       return;
 
     case 0x08: /* SIO_MODE */
-      DEBUG_LOG("SIO_MODE <- 0x%08X", value);
-      s_sio_mode = Truncate16(value);
+      DEV_LOG("SIO_MODE <- 0x%08X", value);
+      s_sio_mode = (u16)(value & SIO_MODE_MASK);
       return;
 
     case 0x0E: /* SIO_BAUD */
