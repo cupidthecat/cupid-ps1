@@ -22,6 +22,12 @@ enum {
 
 void cpu_set_pc(u32 new_pc);
 
+struct cpu_code_cache_block;
+/* Consume the current prefetched instruction with normal fetch/tick handling. */
+void cpu_core_execute_interpreter_instruction(void);
+/* Execute cached words while their PC, pipeline word and block state match. */
+u32 cpu_core_execute_cached_block(const struct cpu_code_cache_block* block);
+
 /* Exception entry points.  RaiseException(excode) builds CAUSE for the
  * current instruction; the (CAUSE_bits, EPC) overload is used by RFE-like
  * paths that supply both directly. */

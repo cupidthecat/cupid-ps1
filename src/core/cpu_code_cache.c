@@ -16,6 +16,7 @@
 #include "cpu_recompiler.h"
 #include "settings.h"
 #include "system.h"
+#include "timing_event.h"
 #include "x64_backend.h"
 #include "arm64_backend.h"
 
@@ -33,6 +34,13 @@
 #include <string.h>
 
 LOG_CHANNEL(CodeCache);
+
+static cpu_cached_interpreter_stats_t s_cached_stats;
+
+cpu_cached_interpreter_stats_t cpu_code_cache_get_cached_interpreter_stats(void)
+{
+  return s_cached_stats;
+}
 
 enum {
 
@@ -853,11 +861,13 @@ void cpu_code_cache_invalidate_all_ram_blocks(void)
 
 static bool is_block_code_current(const cpu_code_cache_block_t* b)
 {
-  const u32 phys = cpu_virtual_to_physical(b->pc);
-  DebugAssert((phys + (CPU_INSTRUCTION_SIZE * b->size)) <= bus_get_ram_size());
-  return memcmp(bus_get_ram_pointer() + phys,
-                cpu_code_cache_block_instructions_const(b),
-                CPU_INSTRUCTION_SIZE * b->size) == 0;
+  const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(b);
+  for (u32 i = 0; i < b->size; i++) {
+    u32 word;
+    if (!cpu_safe_read_instruction(b->pc + i * CPU_INSTRUCTION_SIZE, &word) || word != instructions[i].bits)
+      return false;
+  }
+  return true;
 }
 
 static bool revalidate_block(cpu_code_cache_block_t* b)
@@ -870,6 +880,49 @@ static bool revalidate_block(cpu_code_cache_block_t* b)
   b->state = CPU_CODE_CACHE_BS_VALID;
   add_block_to_page_list(b);
   return true;
+}
+
+static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_t* metadata);
+static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile_pair_t* instructions,
+                                          u32 size, const cpu_code_cache_block_metadata_t* metadata);
+
+static NORETURN void execute_cached_interpreter(void)
+{
+  for (;;) {
+    if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
+      timing_events_run_events();
+
+    const u32 pc = g_cpu_state.pc;
+    cpu_code_cache_block_t* block = lookup_block(pc);
+    bool hit = block && block->state == CPU_CODE_CACHE_BS_VALID;
+    if (has_block_lut(pc) && (!block || block->state != CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER)) {
+      if (block && ((block->state != CPU_CODE_CACHE_BS_VALID && !revalidate_block(block)) ||
+                    (block->protection == CPU_CODE_CACHE_PROT_MANUAL_CHECK && !is_block_code_current(block)))) {
+        remove_block_from_page_list(block);
+        block = NULL;
+      }
+      if (!block) {
+        cpu_code_cache_block_metadata_t metadata = {0};
+        read_block_instructions(pc, &metadata);
+        block = create_block(pc, s_block_instructions, s_block_instructions_count, &metadata);
+        s_cached_stats.blocks_created++;
+        hit = false;
+      }
+      if (block->size > 0) {
+        const u32 executed = cpu_core_execute_cached_block(block);
+        if (executed > 0) {
+          s_cached_stats.blocks_executed++;
+          s_cached_stats.instructions_executed += executed;
+          if (hit)
+            s_cached_stats.block_hits++;
+          continue;
+        }
+      }
+    }
+
+    cpu_core_execute_interpreter_instruction();
+    s_cached_stats.fallback_instructions++;
+  }
 }
 
 static void clear_blocks(void)
@@ -1494,15 +1547,28 @@ bool cpu_code_cache_process_startup(Error* error)
 
 void cpu_code_cache_process_shutdown(void)
 {
+  Error error;
+  Error_init(&error);
+  if (!page_fault_handler_uninstall(&error))
+    ERROR_LOG("Failed to restore page-fault handlers: %s", Error_get_description(&error));
+  Error_destroy(&error);
 #if defined(__x86_64__) || defined(_M_X64)
   x64_backend_shutdown();
 #elif defined(__aarch64__) || defined(_M_ARM64)
   arm64_backend_shutdown();
 #endif
   deallocate_luts();
-  /* JIT memory release is left to OS at process exit (memmap layer doesn't
-   * expose a specific release for the JIT region; safe on Linux). */
+  if (s_code_buffer_ptr)
+    memmap_release_jit_memory(s_code_buffer_ptr, RECOMPILER_CODE_CACHE_SIZE);
   s_code_buffer_ptr = NULL;
+  s_code_ptr = NULL;
+  s_far_code_ptr = NULL;
+  g_enter_recompiler = NULL;
+  g_dispatcher = NULL;
+  g_run_events_and_dispatch = NULL;
+  g_compile_or_revalidate_block = NULL;
+  g_discard_and_recompile_block = NULL;
+  g_interpret_block = NULL;
   /* Free dynamic backpatch buffer.  Cache resets only zero the count
    * (buffer reused for next session); only process shutdown frees it. */
   free(s_fastmem_backpatch_info);
@@ -1513,6 +1579,7 @@ void cpu_code_cache_process_shutdown(void)
 void cpu_code_cache_reset(void)
 {
   clear_blocks();
+  memset(&s_cached_stats, 0, sizeof(s_cached_stats));
   if (cpu_code_cache_is_using_recompiler()) {
     reset_code_buffer();
     compile_asm_functions();
@@ -1531,12 +1598,13 @@ void cpu_code_cache_shutdown(void)
 
 NORETURN void cpu_code_cache_execute(void)
 {
+  if (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER)
+    execute_cached_interpreter();
 #ifdef CUPID_DEBUG_RECOMP_TRACE
   ERROR_LOG("execute: using_recomp=%d g_enter=%p",
             cpu_code_cache_is_using_recompiler(), (void*)g_enter_recompiler);
 #endif
-  /* Backend gate: until 6.D.2 wires g_enter_recompiler we fall through to the
-   * interpreter loop.  cpu_run_interpreter_loop() is [[noreturn]]. */
+  /* Native execution needs a registered backend and an emitted dispatcher. */
   if (cpu_code_cache_is_using_recompiler() && g_enter_recompiler != NULL) {
     g_enter_recompiler();
     /* unreachable */

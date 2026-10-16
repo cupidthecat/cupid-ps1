@@ -138,7 +138,7 @@ cpu_execution_mode_t cpu_get_current_execution_mode(void);
 bool cpu_update_debug_dispatcher_flag(void);
 void cpu_update_memory_pointers(void);
 
-/* Runs the interpreter loop. */
+/* Run the selected instruction engine until execution is interrupted. */
 void cpu_execute(void);
 
 /* Long-jumps out of the dispatcher.  Must be called from within cpu_execute

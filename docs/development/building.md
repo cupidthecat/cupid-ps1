@@ -1,8 +1,10 @@
 # Building cupid-ps1
 
 The supported build is Linux x86-64 with a C11 compiler, GNU Make and SDL2.
-On Windows, use a Linux environment such as WSL. A native Windows build is
-not provided. The bundled audio library is a Linux x86-64 binary.
+On Windows, use a Linux environment such as WSL. Native Windows support is
+to be implemented in [issue #13](https://github.com/cupidthecat/cupid-ps1/issues/13),
+including a native build, platform backends, Windows CI and runtime checks.
+The bundled audio library is currently a Linux x86-64 binary.
 
 On Ubuntu 24.04:
 

@@ -1,8 +1,4 @@
-/*
- *
-
- * x64 / ARM32 / ARM64 / RISC-V64 / LoongArch64.
- */
+/* cupid-ps1 POSIX page-fault dispatch for translated memory accesses. */
 #include "page_fault_handler.h"
 
 #include "common/assert.h"
@@ -45,6 +41,10 @@ static pthread_mutex_t          s_mu        = PTHREAD_MUTEX_INITIALIZER;
 static bool                     s_in_handler;
 static bool                     s_installed;
 static page_fault_handler_cb_t  s_cb;
+static struct sigaction s_previous_segv;
+#if defined(CPU_ARCH_ARM64)
+static struct sigaction s_previous_bus;
+#endif
 
 void page_fault_handler_set_callback(page_fault_handler_cb_t cb) { s_cb = cb; }
 
@@ -105,17 +105,53 @@ bool page_fault_handler_install(Error* err)
   sa.sa_sigaction = signal_handler;
 
   bool ok = true;
-  if (sigaction(SIGSEGV, &sa, NULL) != 0) {
+  if (sigaction(SIGSEGV, &sa, &s_previous_segv) != 0) {
     Error_set_errno_prefix(err, "sigaction(SIGSEGV) failed: ", errno);
     ok = false;
   }
 #if defined(CPU_ARCH_ARM64)
-  if (ok && sigaction(SIGBUS, &sa, NULL) != 0) {
+  if (ok && sigaction(SIGBUS, &sa, &s_previous_bus) != 0) {
     Error_set_errno_prefix(err, "sigaction(SIGBUS) failed: ", errno);
+    sigaction(SIGSEGV, &s_previous_segv, NULL);
     ok = false;
   }
 #endif
   if (ok) s_installed = true;
+  pthread_mutex_unlock(&s_mu);
+  return ok;
+}
+
+static bool restore_handler(int sig, const struct sigaction* previous, Error* err)
+{
+  struct sigaction current;
+  if (sigaction(sig, NULL, &current) != 0) {
+    Error_set_errno_prefix(err, "Reading page-fault signal handler failed: ", errno);
+    return false;
+  }
+  if (!(current.sa_flags & SA_SIGINFO) || current.sa_sigaction != signal_handler)
+    return true;
+  if (sigaction(sig, previous, NULL) != 0) {
+    Error_set_errno_prefix(err, "Restoring page-fault signal handler failed: ", errno);
+    return false;
+  }
+  return true;
+}
+
+bool page_fault_handler_uninstall(Error* err)
+{
+  pthread_mutex_lock(&s_mu);
+  bool ok = true;
+  if (s_installed) {
+    ok = restore_handler(SIGSEGV, &s_previous_segv, err);
+#if defined(CPU_ARCH_ARM64)
+    if (!restore_handler(SIGBUS, &s_previous_bus, err))
+      ok = false;
+#endif
+    if (ok) {
+      s_installed = false;
+      s_cb = NULL;
+    }
+  }
   pthread_mutex_unlock(&s_mu);
   return ok;
 }
