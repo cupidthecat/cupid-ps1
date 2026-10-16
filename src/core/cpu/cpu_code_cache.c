@@ -1566,7 +1566,13 @@ void cpu_code_cache_process_shutdown(void)
     memmap_release_jit_memory(s_code_buffer_ptr, RECOMPILER_CODE_CACHE_SIZE);
   s_code_buffer_ptr = NULL;
   s_code_ptr = NULL;
+  s_free_code_ptr = NULL;
+  s_code_size = 0;
+  s_code_used = 0;
   s_far_code_ptr = NULL;
+  s_free_far_code_ptr = NULL;
+  s_far_code_size = 0;
+  s_far_code_used = 0;
   g_enter_recompiler = NULL;
   g_dispatcher = NULL;
   g_run_events_and_dispatch = NULL;
