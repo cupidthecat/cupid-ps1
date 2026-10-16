@@ -109,6 +109,24 @@ TEST(YamlParser, simple_map)
   run_check(y, want, sizeof(want) / sizeof(want[0]), "simple_map");
 }
 
+TEST(YamlParser, crlf_plain_scalars)
+{
+  const char* y =
+    "name: Test Disc\r\n"
+    "controllers:\r\n"
+    "  - DigitalController\r\n"
+    "traits:\r\n"
+    "  - ForceRoundTextureCoordinates\r\n"
+    "count: 42\r\n";
+  const expect_t want[] = {
+    MB, K("name"), SC("Test Disc"),
+    K("controllers"), SB, SC("DigitalController"), SE,
+    K("traits"), SB, SC("ForceRoundTextureCoordinates"), SE,
+    K("count"), SC("42"), ME,
+  };
+  run_check(y, want, sizeof(want) / sizeof(want[0]), "crlf_plain_scalars");
+}
+
 TEST(YamlParser, quoted_scalar)
 {
   const char* y = "name: \"hello world\"\n";

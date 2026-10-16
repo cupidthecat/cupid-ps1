@@ -2,6 +2,10 @@
 
 A PlayStation 1 emulator written in C11. Linux-only. SDL2 frontend.
 
+See [build dependencies and commands](docs/development/building.md),
+[automated testing and its limits](docs/development/testing.md), and
+[source formatting](docs/development/formatting.md).
+
 ---
 
 ## Screenshots

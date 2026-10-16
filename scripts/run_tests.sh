@@ -3,6 +3,8 @@
 # substring (e.g. "Path" runs all tests containing "Path" in suite or name).
 set -eu
 cd "$(dirname "$0")/.."
-make -s test
-status=$?
-exit $status
+filter=${1-}
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+exec make -s test TEST_FILTER="$filter" "$@"

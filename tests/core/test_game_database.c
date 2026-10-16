@@ -18,7 +18,6 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <utime.h>
 
 /* Internal accessors (defined at the bottom of game_database.c). */
 size_t game_database_test_get_entry_count(void);
@@ -153,28 +152,39 @@ TEST(GameDatabase, cache_roundtrip)
 
 TEST(GameDatabase, cache_rejects_stale_mtime)
 {
-  /* Build a fresh cache from YAML, then back-date the cache header so the
-     gamedb.yaml mtime mismatches.  Easiest way: bump the YAML's mtime forward
-     after the cache was written. */
+  /* Corrupt only the cached timestamp; resource files stay untouched. */
   unlink("gamedb.cache");
   game_database_test_reset();
   game_database_ensure_loaded();
   EXPECT_TRUE(game_database_test_save_to_cache());
 
-  /* Push gamedb.yaml mtime 60s into the future relative to the cache. */
-  struct stat st;
-  EXPECT_EQ(0, stat("data/resources/gamedb.yaml", &st));
-  struct utimbuf ut;
-  ut.actime  = st.st_atime;
-  ut.modtime = st.st_mtime + 60;
-  EXPECT_EQ(0, utime("data/resources/gamedb.yaml", &ut));
+  FILE* fp = fopen("gamedb.cache", "r+b");
+  EXPECT_NOT_NULL(fp);
+  EXPECT_EQ(0, fseek(fp, 8, SEEK_SET));
+  const int byte = fgetc(fp);
+  EXPECT_NE(EOF, byte);
+  EXPECT_EQ(0, fseek(fp, 8, SEEK_SET));
+  EXPECT_NE(EOF, fputc(byte ^ 1, fp));
+  EXPECT_EQ(0, fclose(fp));
 
   game_database_test_reset();
   EXPECT_FALSE(game_database_test_load_from_cache());
+}
 
-  /* Restore the original mtime so we don't poison subsequent tests. */
-  ut.modtime = st.st_mtime;
-  utime("data/resources/gamedb.yaml", &ut);
+TEST(GameDatabase, cache_rejects_previous_parser_version)
+{
+  unlink("gamedb.cache");
+  game_database_test_reset();
+  game_database_ensure_loaded();
+  EXPECT_TRUE(game_database_test_save_to_cache());
+  FILE* fp = fopen("gamedb.cache", "r+b");
+  EXPECT_NOT_NULL(fp);
+  EXPECT_EQ(0, fseek(fp, 4, SEEK_SET));
+  const u8 previous_version[4] = {33, 0, 0, 0};
+  EXPECT_EQ(sizeof(previous_version), fwrite(previous_version, 1, sizeof(previous_version), fp));
+  EXPECT_EQ(0, fclose(fp));
+  game_database_test_reset();
+  EXPECT_FALSE(game_database_test_load_from_cache());
 }
 
 /* Crash Bandicoot SCUS-94900 has the ForceRoundTextureCoordinates trait per
@@ -304,21 +314,106 @@ TEST(GameDatabase, tracks_lookup_unknown_md5)
 
 /* GetSerialForDisc / GetSerialForPath / GetEntryForDisc                  */
 
-/* Exercises the SYSTEM.CNF path against the bundled Crash Bandicoot      */
-/* (USA) cue/bin in the project root.                                     */
+/* cupid-ps1: synthetic ISO9660 disc containing only generated metadata.
+ * Its boot filename exercises the database lookup without game data. */
+typedef struct {
+  char directory[64];
+  char cue[96];
+  char bin[96];
+} serial_disc_t;
+
+static void disc_write_both32(u8* out, u32 value)
+{
+  for (u32 i = 0; i < 4; i++) {
+    out[i] = (u8)(value >> (i * 8));
+    out[4 + i] = (u8)(value >> ((3 - i) * 8));
+  }
+}
+
+static u32 disc_directory_record(u8* out, u32 sector, u32 length,
+                                 u8 flags, const char* name, u8 name_length)
+{
+  const u32 size = (33u + name_length + 1u) & ~1u;
+  memset(out, 0, size);
+  out[0] = (u8)size;
+  disc_write_both32(out + 2, sector);
+  disc_write_both32(out + 10, length);
+  out[18] = 126; out[19] = 1; out[20] = 1;
+  out[25] = flags;
+  out[28] = 1; out[31] = 1;
+  out[32] = name_length;
+  memcpy(out + 33, name, name_length);
+  return size;
+}
+
+static void make_serial_disc(serial_disc_t* disc)
+{
+  strcpy(disc->directory, "/tmp/cupid-ps1-serial-XXXXXX");
+  EXPECT_NOT_NULL(mkdtemp(disc->directory));
+  snprintf(disc->cue, sizeof(disc->cue), "%s/metadata.cue", disc->directory);
+  snprintf(disc->bin, sizeof(disc->bin), "%s/metadata.bin", disc->directory);
+  static const char cnf[] = "BOOT = cdrom:\\SCUS_949.00;1\r\n";
+  FILE* bin = fopen(disc->bin, "wb");
+  EXPECT_NOT_NULL(bin);
+  for (u32 lba = 0; lba < 24; lba++) {
+    u8 sector[2352] = {0};
+    memset(sector + 1, 0xFF, 10);
+    sector[12] = 0; sector[13] = 2;
+    sector[14] = (u8)(((lba / 10) << 4) | (lba % 10));
+    sector[15] = 2;
+    sector[18] = sector[22] = 8;
+    u8* data = sector + 24;
+    if (lba == 16) {
+      data[0] = 1; memcpy(data + 1, "CD001", 5); data[6] = 1;
+      disc_write_both32(data + 80, 24);
+      data[120] = data[123] = data[124] = data[127] = 1;
+      data[129] = data[130] = 8;
+      disc_directory_record(data + 156, 20, 2048, 2, "", 1);
+      data[881] = 1;
+    } else if (lba == 17) {
+      data[0] = 255; memcpy(data + 1, "CD001", 5); data[6] = 1;
+    } else if (lba == 20) {
+      u32 pos = disc_directory_record(data, 20, 2048, 2, "", 1);
+      pos += disc_directory_record(data + pos, 20, 2048, 2, "\1", 1);
+      disc_directory_record(data + pos, 21, sizeof(cnf) - 1, 0, "SYSTEM.CNF;1", 12);
+    } else if (lba == 21) {
+      memcpy(data, cnf, sizeof(cnf) - 1);
+    }
+    EXPECT_EQ(sizeof(sector), fwrite(sector, 1, sizeof(sector), bin));
+  }
+  EXPECT_EQ(0, fclose(bin));
+  FILE* cue = fopen(disc->cue, "wb");
+  EXPECT_NOT_NULL(cue);
+  EXPECT_TRUE(fputs("FILE \"metadata.bin\" BINARY\n"
+                    "  TRACK 01 MODE2/2352\n"
+                    "    INDEX 01 00:00:00\n", cue) >= 0);
+  EXPECT_EQ(0, fclose(cue));
+}
+
+static void destroy_serial_disc(const serial_disc_t* disc)
+{
+  EXPECT_EQ(0, unlink(disc->cue));
+  EXPECT_EQ(0, unlink(disc->bin));
+  EXPECT_EQ(0, rmdir(disc->directory));
+}
 
 TEST(GameDatabase, serial_for_path_crash)
 {
-  char* s = game_database_get_serial_for_path("Crash Bandicoot (USA).cue");
+  serial_disc_t disc;
+  make_serial_disc(&disc);
+  char* s = game_database_get_serial_for_path(disc.cue);
   EXPECT_NOT_NULL(s);
   if (!s) return;
   EXPECT_STREQ("SCUS-94900", s);
   free(s);
+  destroy_serial_disc(&disc);
 }
 
 TEST(GameDatabase, get_entry_for_disc_crash)
 {
-  cd_image_t* img = cd_image_open("Crash Bandicoot (USA).cue", NULL);
+  serial_disc_t disc;
+  make_serial_disc(&disc);
+  cd_image_t* img = cd_image_open(disc.cue, NULL);
   EXPECT_NOT_NULL(img);
   if (!img) return;
 
@@ -329,6 +424,7 @@ TEST(GameDatabase, get_entry_for_disc_crash)
     EXPECT_EQ(0, memcmp(e->serial, "SCUS-94900", 10));
   }
   cd_image_destroy(img);
+  destroy_serial_disc(&disc);
 }
 
 /* Negative paths: NULL inputs are tolerated and return NULL.  Bogus path
@@ -350,13 +446,15 @@ TEST(GameDatabase, serial_for_disc_null_safe)
  * here instead of in the runtime smoke. */
 TEST(GameDatabase, gamedb_wires_crash_to_disable_auto_analog)
 {
-  cd_image_t* img = cd_image_open("Crash Bandicoot (USA).cue", NULL);
+  serial_disc_t disc;
+  make_serial_disc(&disc);
+  cd_image_t* img = cd_image_open(disc.cue, NULL);
   EXPECT_NOT_NULL(img);
   if (!img) return;
 
   game_database_ensure_loaded();
 
-  const game_database_entry_t* e = game_database_get_entry_for_serial("SCUS-94900");
+  const game_database_entry_t* e = game_database_get_entry_for_disc(img);
   EXPECT_NOT_NULL(e);
   if (!e) { cd_image_destroy(img); return; }
 
@@ -377,4 +475,5 @@ TEST(GameDatabase, gamedb_wires_crash_to_disable_auto_analog)
   EXPECT_TRUE((e->supported_controllers & digital_bit) != 0);
 
   cd_image_destroy(img);
+  destroy_serial_disc(&disc);
 }

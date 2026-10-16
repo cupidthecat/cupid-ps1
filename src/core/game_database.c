@@ -7,8 +7,8 @@
  * owned `db_data` / `discsets_data` buffers, NOT copies; the buffers live
  * for the process lifetime.
  *
- * Binary cache, ApplySettings, TrackHashes, and GetSerialForDisc lookups
- * land in subsequent subagents and remain stubs in this file.
+ * Binary-cache entries borrow strings from the owned cache buffer. Settings
+ * application and track-hash lookup helpers live in separate modules.
  */
 
 #include "core/game_database.h"
@@ -36,10 +36,9 @@
 #include <time.h>
 #include <unistd.h>
 
-/* Pinned binary header so the binary cache file is byte-for-byte
- * interoperable. */
+/* Version changes invalidate entries parsed with older scalar rules. */
 #define GAME_DATABASE_CACHE_SIGNATURE 0x45434C48u
-#define GAME_DATABASE_CACHE_VERSION   33u
+#define GAME_DATABASE_CACHE_VERSION   34u
 
 /* Resource paths (used both for the YAML loader and for mtime computation
    inside the cache header). */
