@@ -13,7 +13,6 @@
 #include "core/controller.h"
 #include "core/cpu_code_cache.h"
 #include "core/cpu_core.h"
-#include "core/cpu_diff_block.h"
 #include "core/cpu_pc_trigger.h"
 #include "core/dma.h"
 #include "core/game_database.h"
@@ -855,6 +854,12 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
     return false;
   }
 
+  const char* replay = getenv("CUPID_RECOMP_DIFF");
+  if (g_settings.cpu_recompiler_compare_register_files || (replay && *replay && *replay != '0')) {
+    Error_set_string(error, "Live block replay is unavailable; use scripts/compare_execution.py.");
+    return false;
+  }
+
   timer_t_ boot_timer;
   timer_init(&boot_timer);
 
@@ -1071,7 +1076,6 @@ static bool system_initialize(cd_image_t* disc, disc_region_t disc_region,
       return false;
     }
   }
-  cpu_diff_block_install();
   cpu_pc_trigger_install();
   cdrom_initialize();
 

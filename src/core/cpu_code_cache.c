@@ -363,11 +363,11 @@ void cpu_code_cache_dbg_maybe_install_low_ram_watch(void)
 {
   const char* env = getenv("CUPID_TRACE_LOW_RAM");
   if (env == NULL || env[0] == '\0' || env[0] == '0') return;
-  /* Avoid clobbering the diff harness tap. */
+  /* Preserve an installed diagnostic tap. */
   if (g_bus_ram_write_tap != NULL) {
     fprintf(stderr,
             "[low-ram-watch] g_bus_ram_write_tap already installed; "
-            "low-ram watch NOT enabled (run without CUPID_RECOMP_DIFF)\n");
+            "low-ram watch not enabled\n");
     return;
   }
   /* Optional range override.  Keeps the kernel-scratch default if unset. */
@@ -521,9 +521,14 @@ static void reset_code_buffer(void)
   }
   fastmem_backpatch_clear_all();
 
-  s_code_ptr = s_code_buffer_ptr;
+  /* Clang's indirect-function check reads eight bytes before the entry point.
+   * Generated code has no compiler type record. Keep a readable zero prefix
+   * inside the mapping, with the first entry still aligned to 16 bytes. */
+  enum { ENTRY_PREFIX_SIZE = 16 };
+  memset(s_code_buffer_ptr, 0, ENTRY_PREFIX_SIZE);
+  s_code_ptr = s_code_buffer_ptr + ENTRY_PREFIX_SIZE;
   s_free_code_ptr = s_code_ptr;
-  s_code_size = RECOMPILER_CODE_CACHE_SIZE - RECOMPILER_FAR_CODE_CACHE_SIZE;
+  s_code_size = RECOMPILER_CODE_CACHE_SIZE - RECOMPILER_FAR_CODE_CACHE_SIZE - ENTRY_PREFIX_SIZE;
   s_code_used = 0u;
 
   /* Half the far-code budget when memory exceptions disabled (only used by
@@ -1524,8 +1529,7 @@ bool cpu_code_cache_process_startup(Error* error)
     WARNING_LOG("Failed to install page fault handler; fastmem disabled");
     Error_clear(error);
   } else {
-    page_fault_handler_set_callback(
-      (page_fault_handler_cb_t)&cpu_code_cache_handle_fastmem_exception);
+    page_fault_handler_set_callback(&cpu_code_cache_handle_fastmem_exception);
   }
 
   /* Register the host-arch backend now that the JIT region exists.  The
@@ -1906,7 +1910,7 @@ static bool patch_fastmem_site_to_stub(
   return !patch.overflow;
 }
 
-int cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write)
+page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write)
 {
   /* SMC branch. */
   if (cpu_code_cache_is_using_fastmem()) {
@@ -1924,7 +1928,7 @@ int cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_addr
         (void)is_write;
         cpu_code_cache_invalidate_blocks_with_page_index(
           bus_get_ram_code_page_index(guest_address));
-        return 0;  /* CONTINUE_EXECUTION */
+        return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
       }
     }
   }
@@ -1970,7 +1974,7 @@ int cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_addr
       }
     }
     fflush(stderr);
-    return 1;
+    return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
   }
 
   /* Mark the guest PC as a known fastmem-fault site so subsequent compiles
@@ -1979,9 +1983,9 @@ int cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_addr
 
   void* stub = emit_fastmem_slow_path_stub(info);
   if (stub == NULL)
-    return 1;
+    return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
   if (!patch_fastmem_site_to_stub(info, stub))
-    return 1;
+    return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
 
   /* Evict the owning JIT block so a clean recompile picks up the per-PC
    * faulting flag we just set, rather than re-emitting the same broken
@@ -1999,7 +2003,7 @@ int cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_addr
   cpu_code_cache_remove_backpatch_info_for_range(info->code_address,
                                                  info->code_size);
 
-  return 0;
+  return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
 }
 
 void cpu_code_cache_dbg_dump_recent_blocks(FILE* out)

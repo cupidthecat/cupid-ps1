@@ -9,6 +9,7 @@
 #include "common/types.h"
 #include "cpu_types.h"
 #include "types.h"
+#include "util/page_fault_handler.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -267,8 +268,7 @@ void cpu_code_cache_remove_backpatch_info_for_range(const void* start, u32 size)
  * Returns CONTINUE_EXECUTION when the fault was a fastmem hit and we
  * patched the JIT site to the slow path; EXECUTE_NEXT otherwise so the
  * crash handler chain can produce a backtrace. */
-struct page_fault_handler_result;
-int cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write);
+page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write);
 
 /* Diagnostic ring: last 64 compiled blocks (pc, size, host_code).  Each
  * entry is logged in `create_block`.  Shows what the recompiler has been
@@ -285,8 +285,8 @@ void cpu_code_cache_dbg_log_safety_net_exception(u32 bad_pc);
 
 /* When CUPID_TRACE_LOW_RAM=1, install a tap that logs slow-path RAM
  * writes with paddr<0x100 along with cpu_state.  Used to find the rogue
- * `sw $ra, 0x38(sp)` that corrupts the BIOS exception save area.  No
- * effect under CUPID_RECOMP_DIFF=1 (diff harness owns the tap). */
+ * `sw $ra, 0x38(sp)` that corrupts the BIOS exception save area. An installed
+ * diagnostic tap is preserved. */
 void cpu_code_cache_dbg_maybe_install_low_ram_watch(void);
 
 /* Dump the low-RAM ring (when CUPID_TRACE_LOW_RAM_RING=N is set).

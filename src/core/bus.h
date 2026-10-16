@@ -157,13 +157,8 @@ void* bus_get_fastmem_base(bool isc);
 void  bus_remap_fastmem_views(void);
 bool  bus_can_use_fastmem_for_address(virtual_memory_address_t address);
 
-/* RAM-write tap.  When non-NULL, every successful s_ram[..] write fires
- * the callback with (paddr, size, value, writer_pc).  Default NULL --
- * production cost is one cmp/jne per RAM write.  Used by cpu_diff_block
- * to compare recomp vs interp write logs at block boundaries.  writer_pc
- * is g_cpu_state.current_instruction_pc at the time of the write (the JIT
- * sets this immediate-per-instruction in the prologue, see x64_backend.c
- * line ~627). */
+/* Optional RAM-write tap for diagnostics. Fastmem writes can bypass this hook.
+ * writer_pc is the CPU's current-instruction field and can be stale in native code. */
 typedef void (*bus_ram_write_tap_fn)(u32 paddr, u8 size, u32 value, u32 writer_pc);
 extern bus_ram_write_tap_fn g_bus_ram_write_tap;
 

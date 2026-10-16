@@ -91,7 +91,7 @@ TEST_OBJ := $(patsubst tests/%.c,$(BUILD)/tests/%.o,$(TEST_SRC))
 # test binary doesn't link glad (those symbols would be undefined).
 TEST_LIB_OBJ := $(filter-out $(BUILD)/frontend/%.o $(BUILD)/util/opengl_%.o $(BUILD)/util/gpu_device.o $(BUILD)/util/shadergen.o $(BUILD)/core/gpu_hw_shadergen.o $(BUILD)/core/gpu_hw.o $(BUILD)/core/gpu_hw_texture_cache.o,$(ALL_OBJ))
 
-.PHONY: all clean hcheck dirs test gl-smoke test-diff recomp-diff-test
+.PHONY: all clean hcheck dirs test gl-smoke test-diff recomp-diff-test recomp-diff-ticks-test
 all: dirs $(BUILD)/cupid-ps1
 
 hcheck: dirs $(HCHECK_OBJ)
@@ -99,96 +99,37 @@ hcheck: dirs $(HCHECK_OBJ)
 test: dirs $(BUILD)/cupid-ps1-tests
 	@$(BUILD)/cupid-ps1-tests $(TEST_FILTER)
 
-# Interpreter determinism / diff-trace harness.
-# Records a per-instruction trace of two interpreter boots with
-# identical inputs and compares them byte-exactly.  Recomp-side tracing
-# requires register-allocator-aware JIT instrumentation and is deferred
-# (the hook + vtable slot exist; cpu_recompiler_compile_instruction
-# does not currently dispatch it because the JIT call perturbs flag
-# and host-reg state in a way that masks real divergences).  Override:
-#   make test-diff DIFF_BIOS=path/to/bios DIFF_GAME=path/to/game.bin \
-#                  DIFF_LINES=50000 DIFF_SECONDS=10
-DIFF_BIOS    ?= ./SCPH1001.BIN
-DIFF_GAME    ?= Crash Bandicoot (USA).bin
-DIFF_LINES   ?= 50000
-DIFF_SECONDS ?= 10
+# Independent comparisons require explicit local inputs. Evidence stays in a new
+# private directory; a timeout, missing progress or unequal state fails.
+DIFF_BIOS       ?=
+DIFF_GAME       ?=
+DIFF_LINES      ?= 50000
+DIFF_SECONDS    ?= 60
+DIFF_INTERVAL   ?= 60
+DIFF_CHECKPOINTS ?= 5
+DIFF_MIN_BLOCKS ?= 100
+DIFF_FASTMEM    ?= off
+DIFF_LINKING    ?= on
+DIFF_LEFT       ?= interp
+DIFF_RIGHT      ?= cached
+DIFF_OUTPUT     ?=
+DIFF_HASH_INPUT ?=
+DIFF_OPTIONS = --binary "$(abspath $(BUILD)/cupid-ps1)" --bios "$(DIFF_BIOS)" \
+               --timeout "$(DIFF_SECONDS)" --minimum-blocks "$(DIFF_MIN_BLOCKS)" \
+               --fastmem "$(DIFF_FASTMEM)" $(if $(filter off,$(DIFF_LINKING)),--no-linking) \
+               $(if $(DIFF_OUTPUT),--output "$(DIFF_OUTPUT)") \
+               $(if $(DIFF_HASH_INPUT),--hash-input "$(DIFF_HASH_INPUT)")
 
 test-diff: dirs $(BUILD)/cupid-ps1
-	@echo "=== diff-trace: interpreter run A ($(DIFF_SECONDS)s) ==="
-	@SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy CUPID_DIFF_TRACE=/tmp/cupid-ps1-diff-A.txt \
-	  timeout $(DIFF_SECONDS) $(BUILD)/cupid-ps1 --cpu-mode interp --bios "$(DIFF_BIOS)" "$(DIFF_GAME)" \
-	  >/dev/null 2>&1; true
-	@echo "=== diff-trace: interpreter run B ($(DIFF_SECONDS)s) ==="
-	@SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy CUPID_DIFF_TRACE=/tmp/cupid-ps1-diff-B.txt \
-	  timeout $(DIFF_SECONDS) $(BUILD)/cupid-ps1 --cpu-mode interp --bios "$(DIFF_BIOS)" "$(DIFF_GAME)" \
-	  >/dev/null 2>&1; true
-	@head -n $(DIFF_LINES) /tmp/cupid-ps1-diff-A.txt > /tmp/cupid-ps1-diff-A.head
-	@head -n $(DIFF_LINES) /tmp/cupid-ps1-diff-B.txt > /tmp/cupid-ps1-diff-B.head
-	@if cmp -s /tmp/cupid-ps1-diff-A.head /tmp/cupid-ps1-diff-B.head; then \
-	  echo "PASS: interpreter is deterministic across $(DIFF_LINES) instructions"; \
-	else \
-	  echo "FAIL: interpreter diverged across two runs:"; \
-	  diff -u /tmp/cupid-ps1-diff-A.head /tmp/cupid-ps1-diff-B.head | head -40; \
-	  exit 1; \
-	fi
+	python3 scripts/compare_execution.py $(DIFF_OPTIONS) --kind trace \
+	  --left "$(DIFF_LEFT)" --right "$(DIFF_RIGHT)" --instructions "$(DIFF_LINES)" "$(DIFF_GAME)"
 
-# Per-block recomp/interp register-file diff.  Runs the
-# recompiler with CUPID_RECOMP_DIFF=1 for $(DIFF_SECONDS) seconds.  Each
-# compiled block snapshots state at prologue, then on epilogue runs the
-# interpreter on a scratch copy of the entry state and aborts on a register
-# divergence.  Skipped fields: pc/npc, pending_ticks, completion ticks
-# (control-flow + timing accumulator artifacts -- see cpu_diff_block.c).
-# Override DIFF_BIOS / DIFF_GAME / DIFF_SECONDS as for test-diff.
 recomp-diff-test: dirs $(BUILD)/cupid-ps1
-	@echo "=== recomp-diff-test: $(DIFF_SECONDS)s recomp + diff (linking=$(if $(DIFF_LINKING),on,off) fastmem=$(if $(DIFF_FASTMEM),on,off)) ==="
-	@if SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy CUPID_RECOMP_DIFF=1 \
-	    $(if $(DIFF_LINKING),CUPID_RECOMP_DIFF_KEEP_LINKING=1) \
-	    $(if $(DIFF_FASTMEM),CUPID_RECOMP_DIFF_KEEP_FASTMEM=1) \
-	    timeout $(DIFF_SECONDS) $(BUILD)/cupid-ps1 --cpu-mode recomp \
-	    --bios "$(DIFF_BIOS)" "$(DIFF_GAME)" >/tmp/cupid-ps1-recomp-diff.log 2>&1; \
-	    rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 124 ]; then \
-	  if grep -q '\[recomp-diff\] divergence' /tmp/cupid-ps1-recomp-diff.log; then \
-	    echo "FAIL: register divergence detected:"; \
-	    grep -A 4 '\[recomp-diff\]' /tmp/cupid-ps1-recomp-diff.log | head -40; \
-	    exit 1; \
-	  else \
-	    echo "PASS: 0 register-level divergences over $(DIFF_SECONDS)s of recomp."; \
-	  fi; \
-	else \
-	  echo "FAIL: cupid-ps1 exited abnormally (rc=$$rc) under diff mode:"; \
-	  tail -40 /tmp/cupid-ps1-recomp-diff.log; \
-	  exit 1; \
-	fi
+	python3 scripts/compare_execution.py $(DIFF_OPTIONS) --kind state --right recomp \
+	  --interval "$(DIFF_INTERVAL)" --checkpoints "$(DIFF_CHECKPOINTS)" "$(DIFF_GAME)"
 
-# Per-block tick-precise diff.  Same harness as recomp-diff-test
-# but adds CUPID_RECOMP_DIFF_TICKS=1 so the per-block compare strict-checks
-# pending_ticks delta + IRQ controller status/mask.  Forces both linking
-# and fastmem ON so the real production code path is exercised; the bug
-# we are hunting (interp/recomp tick drift -> shifted IRQ delivery ->
-# kernel TCB corruption -> wild PC) only surfaces under load with the
-# full code-cache pipeline live.  abort() at first divergence; the
-# emitted log shows block_pc/size/recomp_delta/interp_delta -- the block
-# PC is the fix point.
-recomp-diff-ticks-test: dirs $(BUILD)/cupid-ps1
-	@echo "=== recomp-diff-ticks-test: $(DIFF_SECONDS)s recomp + ticks-strict diff ==="
-	@if SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy CUPID_RECOMP_DIFF=1 \
-	    CUPID_RECOMP_DIFF_TICKS=1 \
-	    CUPID_RECOMP_DIFF_KEEP_LINKING=1 CUPID_RECOMP_DIFF_KEEP_FASTMEM=1 \
-	    timeout $(DIFF_SECONDS) $(BUILD)/cupid-ps1 --cpu-mode recomp \
-	    --bios "$(DIFF_BIOS)" "$(DIFF_GAME)" >/tmp/cupid-ps1-recomp-diff-ticks.log 2>&1; \
-	    rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 124 ]; then \
-	  if grep -q '\[recomp-diff\] divergence' /tmp/cupid-ps1-recomp-diff-ticks.log; then \
-	    echo "FAIL: tick/IRQ divergence detected:"; \
-	    grep -B 0 -A 8 '\[recomp-diff\]' /tmp/cupid-ps1-recomp-diff-ticks.log | head -80; \
-	    exit 1; \
-	  else \
-	    echo "PASS: 0 tick/IRQ divergences over $(DIFF_SECONDS)s of recomp."; \
-	  fi; \
-	else \
-	  echo "FAIL: cupid-ps1 exited abnormally (rc=$$rc) under ticks-diff mode:"; \
-	  tail -40 /tmp/cupid-ps1-recomp-diff-ticks.log; \
-	  exit 1; \
-	fi
+# State comparisons already include serialized CPU/scheduler timing and global ticks.
+recomp-diff-ticks-test: recomp-diff-test
 
 # GL context verification binary: needs live X11 display; not run by `make test`.
 GL_SMOKE_OBJ := $(BUILD)/tests/util/test_gl_context_smoke.o

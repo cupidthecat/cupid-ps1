@@ -9,8 +9,6 @@
 
 #include "cpu_core.h"
 #include "cpu_core_private.h"
-#include "cpu_diff_block.h"
-#include "cpu_diff_runner.h"
 #include "cpu_pgxp.h"
 #include "settings.h"
 
@@ -26,6 +24,14 @@ cpu_recompiler_t* g_cpu_compiler = NULL;
 
 static void spec_mem_grow(cpu_recompiler_t* r);
 static u32  fnv1a_u32(u32 x);
+
+void cpu_recompiler_shutdown(cpu_recompiler_t* r)
+{
+  free(r->spec_mem_entries);
+  r->spec_mem_entries = NULL;
+  r->spec_mem_cap = 0;
+  r->spec_mem_count = 0;
+}
 
 void cpu_recompiler_reset_state(cpu_recompiler_t* r,
                                 cpu_code_cache_block_t* block,

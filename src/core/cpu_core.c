@@ -11,6 +11,7 @@
 #include "cpu_code_cache.h"
 #include "cpu_core_private.h"
 #include "cpu_diff_runner.h"
+#include "cpu_execution_stats.h"
 #include "cpu_pc_trigger.h"
 #include "cpu_types.h"
 #include "gte.h"
@@ -1158,10 +1159,7 @@ static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
   }
 #endif
 
-  /* PC-trigger fires from interp dispatch the same way it fires from
-   * the JIT prologue.  cpu_core_step_for_diff (the per-block replay
-   * loop) does NOT route through this function, so the trigger cannot
-   * accidentally double-fire during a recomp-diff replay. */
+  /* Match the interpreter PC trigger to the native block-entry hook. */
   if (cpu_pc_trigger_is_active() &&
       g_cpu_state.pc == cpu_pc_trigger_target_pc())
     cpu_pc_trigger_on_block(g_cpu_state.pc);
@@ -1174,6 +1172,10 @@ static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
                                 g_cpu_state.current_instruction.bits);
   cpu_execute_instruction();
   cpu_update_load_delay();
+  if (cpu_execution_stats_is_enabled())
+    cpu_execution_stats_get()->interpreted_instructions++;
+  if (cpu_diff_after_instruction())
+    cpu_exit_execution();
   return true;
 }
 
@@ -1248,114 +1250,6 @@ NORETURN void cpu_run_interpreter_loop(void)
   cpu_execute_impl();
 }
 
-/* Per-block recomp/interp diff: replays exactly `instruction_count`
- * interpreter steps on the current g_cpu_state.  Caller (cpu_diff_block_exit)
- * has already memcpy'd the enter snapshot into g_cpu_state and is about to
- * memcpy the post-recomp state back over us once we return.  We MUST NOT:
- *   - call timing_events_run_events (would advance the scheduler that the
- *     recomp side already advanced via downcount/end_block accounting),
- *   - longjmp out of cpu_exit_execution (no setjmp here),
- *   - touch icache, RAM (RAM tap is already routed to the interp ring).
- * Mirrors the inner cpu_execute_impl loop bounded by an instruction
- * counter instead of pending_ticks < downcount. */
-void cpu_core_step_for_diff(u32 instruction_count)
-{
-  /* Re-seed the interpreter prefetch pipeline.  The JIT block we just exited
-   * does NOT maintain next_instruction.bits / npc; it executes from inline
-   * pre-decoded bits.  After a JIT exit the interpreter view is stale, so
-   * before stepping we prime next_instruction with a fresh fetch at pc.
-   * Mirrors cpu_recompiler_run_uncached_block's prologue.
-   *
-   * Fetch-count parity with recomp: an N-instruction block recompiled
-   * with a non-icache fetch-tick prefix charges exactly N fetches at the
-   * block's region cost (`imul size, [bios_access_time_ptr]; add`).
-   * Real interp pays N+1 fetches per block in aggregate; the seed +
-   * one prefetch per iter; but the +1 is the *next* block's first
-   * fetch (the prefetch reads npc which the last execute already moved
-   * to the next block's start).  For the diff harness we want
-   * step_for_diff to charge exactly N fetches per call so per-block
-   * deltas line up with recomp.  We do that by skipping the prefetch on
-   * the last iter (the cost the real interp pays then is "for the next
-   * block", which step_for_diff does not run).  Net: 1 seed + (N-1)
-   * in-loop = N fetches.  This avoids a phantom cross-region tick
-   * divergence whenever a block ends with a jr/jalr/branch whose target
-   * lives in a region with a different fetch-tick cost than the block
-   * itself (e.g. BIOS block ending with jr to a KSEG1 RAM mirror). */
-  g_cpu_state.npc = g_cpu_state.pc;
-  g_cpu_state.next_instruction_is_branch_delay_slot = false;
-  g_cpu_state.branch_was_taken = false;
-  if (!cpu_fetch_instruction()) return;
-
-  /* Env-gated per-iter trace.  When CUPID_TRACE_STEP_DIFF is set to a hex
-   * PC, dump current_instruction.bits + r[26] (K0) per iter for blocks
-   * whose enter PC matches.  Pinpoints which iteration mutates the
-   * diverging register and what opcode it ran.  Zero overhead off-path. */
-  static int s_trace_step_diff_armed = -1;
-  static u32 s_trace_step_diff_pc    = 0u;
-  if (s_trace_step_diff_armed < 0) {
-    const char* en = getenv("CUPID_TRACE_STEP_DIFF");
-    if (en && en[0] != '\0') {
-      s_trace_step_diff_armed = 1;
-      s_trace_step_diff_pc = (u32)strtoul(en, NULL, 0);
-    } else {
-      s_trace_step_diff_armed = 0;
-    }
-  }
-  /* Gate by *next_instruction.bits* (the prologue-prefetched first inst)
-   * AND instruction_count == 4; isolates the suspect 4-block at
-   * 0x80000080 (lui k0,0; addiu k0,k0,3200; jr k0; nop) from larger
-   * blocks that happen to start with the same first opcode. */
-  const bool trace_active = s_trace_step_diff_armed &&
-                            instruction_count == 4u &&
-                            (s_trace_step_diff_pc == 0u ||
-                             g_cpu_state.next_instruction.bits == s_trace_step_diff_pc);
-  if (trace_active) {
-    fprintf(stderr,
-            "[step_for_diff enter] pc=0x%08x npc=0x%08x next_inst=0x%08x "
-            "r26=0x%08x ld_reg=%u ld_val=0x%08x next_ld_reg=%u\n",
-            g_cpu_state.pc, g_cpu_state.npc, g_cpu_state.next_instruction.bits,
-            g_cpu_state.regs.r[26],
-            (unsigned)g_cpu_state.load_delay_reg, g_cpu_state.load_delay_value,
-            (unsigned)g_cpu_state.next_load_delay_reg);
-  }
-  for (u32 i = 0; i < instruction_count; i++) {
-    g_cpu_state.pending_ticks++;
-    g_cpu_state.current_instruction.bits = g_cpu_state.next_instruction.bits;
-    g_cpu_state.current_instruction_pc = g_cpu_state.pc;
-    g_cpu_state.current_instruction_in_branch_delay_slot = g_cpu_state.next_instruction_is_branch_delay_slot;
-    g_cpu_state.current_instruction_was_branch_taken = g_cpu_state.branch_was_taken;
-    g_cpu_state.next_instruction_is_branch_delay_slot = false;
-    g_cpu_state.branch_was_taken = false;
-
-    if (i + 1 < instruction_count) {
-      if (!cpu_fetch_instruction()) {
-        /* Fetch raised an exception; the interpreter's exception path
-         * already mutated state.  Stop replay so we compare at the same
-         * boundary. */
-        if (trace_active)
-          fprintf(stderr, "[step_for_diff iter=%u FETCH FAILED]\n", i);
-        break;
-      }
-    }
-    cpu_execute_instruction();
-    cpu_update_load_delay();
-
-    if (trace_active) {
-      fprintf(stderr,
-              "[step_for_diff iter=%u] cur_inst=0x%08x r26=0x%08x "
-              "ld_reg=%u ld_val=0x%08x next_ld_reg=%u next_inst=0x%08x "
-              "exc=%u\n",
-              i, g_cpu_state.current_instruction.bits, g_cpu_state.regs.r[26],
-              (unsigned)g_cpu_state.load_delay_reg, g_cpu_state.load_delay_value,
-              (unsigned)g_cpu_state.next_load_delay_reg,
-              g_cpu_state.next_instruction.bits,
-              (unsigned)g_cpu_state.exception_raised);
-    }
-
-    if (g_cpu_state.exception_raised) break;
-  }
-}
-
 void cpu_recompiler_thunk_interpret_instruction(void)
 {
   if (cpu_diff_is_enabled())
@@ -1364,6 +1258,8 @@ void cpu_recompiler_thunk_interpret_instruction(void)
   g_cpu_state.exception_raised = false;
   cpu_execute_instruction();
   cpu_update_load_delay();
+  if (cpu_execution_stats_is_enabled())
+    cpu_execution_stats_get()->interpreted_instructions++;
 }
 
 void cpu_recompiler_run_uncached_block(void)
@@ -1397,6 +1293,8 @@ void cpu_recompiler_run_uncached_block(void)
                                   g_cpu_state.current_instruction.bits);
     cpu_execute_instruction();
     cpu_update_load_delay();
+    if (cpu_execution_stats_is_enabled())
+      cpu_execution_stats_get()->interpreted_instructions++;
 
     if (g_cpu_state.exception_raised || (!branch && in_branch_delay_slot) ||
         cpu_is_exit_block_instruction(g_cpu_state.current_instruction))

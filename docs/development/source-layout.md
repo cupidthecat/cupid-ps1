@@ -39,7 +39,7 @@ Notable subsystems:
 | BIOS | `src/core/bios.{c,h}` |
 | Game database | `src/core/game_database.{c,h}`, `src/core/game_database_apply.c`, `src/core/game_database_tracks.c` |
 | FMV dump | `src/core/fmv_dump.{c,h}` |
-| Diff tooling | `src/core/cpu_diff_block.{c,h}`, `src/core/cpu_diff_runner.{c,h}`, `src/core/cpu_pc_trigger.{c,h}` |
+| Diff tooling | `scripts/compare_execution.py`, `src/core/cpu_diff_runner.{c,h}`, `src/core/cpu_execution_stats.{c,h}`, `src/core/cpu_pc_trigger.{c,h}` |
 | ELF/PSEXE reader | `src/util/elf_file.{c,h}` |
 | Page-fault handler | `src/util/page_fault_handler.c` |
 | OpenGL context (EGL/X11) | `src/util/opengl_context_egl.{c,h}`, `src/util/opengl_context_egl_xlib.c` |

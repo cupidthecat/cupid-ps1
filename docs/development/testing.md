@@ -58,12 +58,12 @@ is tested in CI with generated inputs and substitute processes:
 python3 -m unittest discover -s tests -p 'test_runtime_smoke.py'
 ```
 
-The existing `test-diff`, `recomp-diff-test` and `recomp-diff-ticks-test`
-targets are diagnostic tools requiring local authorized inputs. Their
-progress detection and comparison coverage still need qualification.
-In particular, elapsed runtime and the absence of a reported divergence
-do not prove that any instructions or blocks were compared. Do not use
-these targets as compatibility or accuracy acceptance evidence yet.
+Use [execution comparisons](comparing-execution.md) to compare bounded,
+independent runs. Instruction comparisons require exact trace counts and
+completion; checkpoint comparisons retain every saved byte and report any
+difference. Both require normal exit and positive execution progress. CI
+checks false-success cases and boots generated firmware with all three CPU
+modes, including native linking and fastmem configurations.
 
 For runtime qualification, retain the tested commit, input hashes,
 execution and rendering modes, settings, observations and failures in an

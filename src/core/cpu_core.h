@@ -128,10 +128,7 @@ void cpu_reset(void);
 bool cpu_do_state(state_wrapper_t* sw);
 void cpu_clear_icache(void);
 
-/* Per-instruction fetch cost at `address` (BIOS access time, RAM read
- * ticks, etc).  cpu_diff_block uses this to subtract step_for_diff's
- * extra seed-fetch cost from the interp side of the per-block tick
- * compare. */
+/* Per-instruction fetch cost at the specified virtual address. */
 tick_count_t cpu_get_instruction_read_ticks(virtual_memory_address_t address);
 
 cpu_execution_mode_t cpu_get_current_execution_mode(void);
@@ -234,10 +231,6 @@ void cpu_recompiler_run_uncached_block(void);
  * boundary instead of pinning g_interpret_block at the bad LUT slot. */
 bool cpu_recompiler_pc_is_executable(u32 pc);
 bool cpu_recompiler_synth_pc_exception_if_invalid(u32 pc);
-
- /* Per-block recomp/interp diff replay: runs exactly `instruction_count`
- * interpreter steps on g_cpu_state, no timing events. */
-void cpu_core_step_for_diff(u32 instruction_count);
 
 /* Recompiler memory thunks.  Delegate to the same
  * internal `cpu_read/write_memory_*` paths the interpreter uses, so MMIO

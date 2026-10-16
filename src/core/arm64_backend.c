@@ -471,6 +471,7 @@ void arm64_backend_register(void)
 
 void arm64_backend_shutdown(void)
 {
+  cpu_recompiler_shutdown(&s_backend.base);
   cpu_code_cache_set_emit_jump(NULL);
   cpu_code_cache_set_emit_asm_functions(NULL);
   g_cpu_compiler = NULL;

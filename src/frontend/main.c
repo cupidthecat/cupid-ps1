@@ -18,6 +18,9 @@
 #include "core/cpu_code_cache.h"
 #include "core/cpu_core.h"
 #include "core/cpu_disasm.h"
+#include "core/cpu_diff_runner.h"
+#include "core/cpu_execution_stats.h"
+#include "core/timing_event.h"
 #include "core/cdrom.h"
 #include "core/dma.h"
 #include "core/gpu.h"
@@ -120,8 +123,8 @@ typedef struct {
   cpu_execution_mode_t requested_cpu_mode;
 
   /* --fastmem off|lut|mmap.  Picks the recompiler's load/store dispatch
-   * strategy.  off = always slow-path C thunk; lut = per-page LUT lookup in
-   * emitted code; mmap = SIGSEGV-backed direct host addressing. */
+   * strategy. off uses the C thunk; native LUT access is unfinished and
+   * currently uses that same slow path; mmap uses direct host addressing. */
   bool                 fastmem_requested;
   cpu_fastmem_mode_t   requested_fastmem_mode;
 
@@ -143,6 +146,13 @@ typedef struct {
   bool test_rt_completed;
   bool test_rt_failed;
   u32  test_rt_quit_frame;
+
+  /* Independent checkpoint runs never restore or replay live device state. */
+  const char* checkpoint_dir;
+  u32 checkpoint_interval;
+  u32 checkpoint_count;
+  u32 checkpoints_written;
+  bool checkpoint_failed;
 
   /* Run-loop state. */
   bool quit_requested;
@@ -204,7 +214,7 @@ static void print_usage(FILE* fp, const char* argv0)
     "                      Eliminates per-hunk decode cost for .chd images.\n"
     "  --cpu-mode MODE     interp | cached | recomp (default: interp).\n"
     "  --fastmem MODE      off | lut | mmap (recompiler load/store dispatch;\n"
-    "                      mmap uses SIGSEGV-backed direct host addressing).\n"
+    "                      lut currently uses the slow path; mmap uses direct addressing).\n"
     "  --pgxp on|off       Enable PGXP subpixel-precision tracking.\n"
     "  --no-block-linking  Disable recompiler block linking (bisect knob).\n"
     "  --no-icache         Disable recompiler icache emulation (bisect knob).\n"
@@ -1396,10 +1406,71 @@ static void test_savestate_roundtrip_tick(void)
   }
 }
 
+static bool configure_execution_diagnostics(void)
+{
+  cpu_execution_stats_initialize(getenv("CUPID_CPU_STATS") != NULL);
+  s_fe.checkpoint_dir = getenv("CUPID_CHECKPOINT_DIR");
+  if (s_fe.checkpoint_dir) {
+    const char* spec = getenv("CUPID_CHECKPOINT_SCHEDULE");
+    char* end = NULL;
+    errno = 0;
+    const unsigned long interval = spec ? strtoul(spec, &end, 10) : 0;
+    if (!spec || *spec < '0' || *spec > '9' || errno || !end || *end != ',' ||
+        interval == 0 || interval > UINT32_MAX) {
+      fprintf(stderr, "[execution-checkpoint] invalid interval\n");
+      return false;
+    }
+    const char* count_start = end + 1;
+    errno = 0;
+    const unsigned long count = strtoul(count_start, &end, 10);
+    if (*count_start < '0' || *count_start > '9' || errno || *end || count == 0 || count > 32 ||
+        interval > UINT32_MAX / count || !*s_fe.checkpoint_dir ||
+        s_fe.test_rt_enabled || getenv("CUPID_DIFF_TRACE")) {
+      fprintf(stderr, "[execution-checkpoint] invalid or conflicting diagnostic configuration\n");
+      return false;
+    }
+    s_fe.checkpoint_interval = interval;
+    s_fe.checkpoint_count = count;
+  }
+  return cpu_diff_initialize();
+}
+
+static void execution_checkpoint_tick(void)
+{
+  if (!s_fe.checkpoint_dir || !system_is_valid())
+    return;
+  const u32 frame = system_get_frame_number();
+  const u32 target = (s_fe.checkpoints_written + 1u) * s_fe.checkpoint_interval;
+  if (frame < target)
+    return;
+  char path[4096];
+  const int length = snprintf(path, sizeof(path), "%s/checkpoint-%08u.sav", s_fe.checkpoint_dir, target);
+  Error error;
+  Error_init(&error);
+  if (frame != target || length < 0 || (size_t)length >= sizeof(path) ||
+      access(path, F_OK) == 0 || !system_save_state(path, &error, false, true)) {
+    fprintf(stderr, "[execution-checkpoint] failed frame=%u expected=%u: %s\n",
+            frame, target, Error_get_description(&error));
+    s_fe.checkpoint_failed = true;
+    Error_destroy(&error);
+    request_quit();
+    return;
+  }
+  Error_destroy(&error);
+  s_fe.checkpoints_written++;
+  fprintf(stderr, "[execution-checkpoint] frame=%u ticks=%llu\n", frame,
+          (unsigned long long)timing_events_get_global_tick_counter());
+  if (s_fe.checkpoints_written == s_fe.checkpoint_count)
+    request_quit();
+}
+
 void host_pump_messages_on_core_thread(void)
 {
   if (s_quit_signal)
     request_quit();
+  if (s_fe.quit_requested)
+    return;
+  execution_checkpoint_tick();
   if (s_fe.quit_requested)
     return;
   test_savestate_roundtrip_tick();
@@ -1571,6 +1642,8 @@ void host_wait_for_all_async_tasks(void)
 
 static bool boot_and_run(void)
 {
+  if (!configure_execution_diagnostics())
+    return false;
   Error e; Error_init(&e);
 
   if (!system_process_startup(&e)) {
@@ -1602,6 +1675,15 @@ static bool boot_and_run(void)
   system_boot_parameters_destroy(&p);
   Error_destroy(&e);
 
+  if (cpu_execution_stats_is_enabled()) {
+    const char* mode = g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER ? "recomp" :
+                       g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER ? "cached" : "interp";
+    const char* fastmem = !cpu_code_cache_is_using_recompiler() || !cpu_code_cache_is_using_fastmem() ? "off" :
+                          g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP ? "mmap" : "lut";
+    fprintf(stderr, "[cpu-stats] configuration mode=%s fastmem=%s linking=%s\n", mode, fastmem,
+            g_settings.cpu_recompiler_block_linking ? "on" : "off");
+  }
+
   /* Optional low-RAM write watch (CUPID_TRACE_LOW_RAM=1).  Must run AFTER
    * system_boot_system so the bus tap pointer survives any reset during
    * boot.  (Exec-trace init was already done before BIOS boot.) */
@@ -1623,6 +1705,11 @@ static bool boot_and_run(void)
   if (system_is_valid())
     system_shutdown_system(false);
   if (getenv("CUPID_CPU_STATS")) {
+    const cpu_execution_stats_t* execution = cpu_execution_stats_get();
+    fprintf(stderr, "[cpu-stats] execution interpreted=%llu native_entered=%llu native_completed=%llu\n",
+            (unsigned long long)execution->interpreted_instructions,
+            (unsigned long long)execution->native_blocks_entered,
+            (unsigned long long)execution->native_blocks_completed);
     const cpu_cached_interpreter_stats_t stats = cpu_code_cache_get_cached_interpreter_stats();
     fprintf(stderr, "[cpu-stats] cached created=%llu hits=%llu blocks=%llu instructions=%llu fallback=%llu\n",
             (unsigned long long)stats.blocks_created, (unsigned long long)stats.block_hits,
@@ -1692,7 +1779,9 @@ int main(int argc, char** argv)
   if (!audio_setup())
     goto fail;
 
-  const bool ok = boot_and_run();
+  bool ok = boot_and_run();
+  if (!cpu_diff_shutdown())
+    ok = false;
 
   audio_teardown();
   sdl_teardown();
@@ -1706,6 +1795,13 @@ int main(int argc, char** argv)
   settings_destroy(&g_gpu_settings);
   settings_destroy(&g_settings);
 
+  if (s_fe.checkpoint_dir) {
+    if (!ok || s_fe.checkpoint_failed || s_fe.checkpoints_written != s_fe.checkpoint_count) {
+      fprintf(stderr, "[execution-checkpoint] incomplete\n");
+      return 2;
+    }
+    fprintf(stderr, "[execution-checkpoint] completed count=%u\n", s_fe.checkpoints_written);
+  }
   if (s_fe.test_rt_enabled) {
     if (!ok || s_fe.test_rt_failed || !s_fe.test_rt_completed) {
       fprintf(stderr, "[rt-test] FAIL - round-trip validation incomplete\n");
