@@ -1,15 +1,8 @@
 /*
- * `CPU::Recompiler::Recompiler` class; per-arch backends derive from it
- * and override the virtual methods.  In cupid-ps1 we use a vtable-of-function-
- * pointers struct (cpu_recompiler_vtable_t), and the per-arch concrete
- * structs (e.g. cpu_recompiler_x64_t) start with an embedded
- * cpu_recompiler_t followed by their own state.
- *
- * Provides the full arch-agnostic register allocator, load-delay engine,
- * host-state backup/restore, speculative-constant scaffolding, the
- * per-MIPS-op compile_*_const helpers, and the compile_template /
- * compile_loadstore_template / compile_instruction dispatch.  Backends wire
- * themselves into the vtable.
+ * CPU recompiler state and backend interfaces.
+ * Each architecture backend embeds cpu_recompiler_t and supplies a vtable.
+ * Shared helpers handle register allocation, load delays, speculative constants
+ * and instruction dispatch.
  */
 
 #ifndef CUPID_CORE_CPU_RECOMPILER_H

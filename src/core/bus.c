@@ -1,12 +1,6 @@
 /*
- * Bus implementation: shared-memory backed RAM/BIOS/LUT, MMIO dispatch via
- * function-pointer tables indexed by 4 KB virtual page, code-page write
- * protection for SMC detection, and per-region memory timing.
- *
- * Cross-module callees (DMA, GPU, SPU, CDROM, timers, INTC, MDEC, PAD,
- * SIO, CPU code cache, the CPU register state, BIOS) are declared `extern`
- * here so this file links cleanly even before those modules are ported.
- * Each takes the C name the corresponding agent will emit.
+ * Memory bus: shared-memory RAM/BIOS mappings, MMIO dispatch through 4 KB
+ * page tables, code-page write protection and per-region access timing.
  */
 
 #include "bus.h"

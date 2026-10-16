@@ -7,9 +7,8 @@
 
 LOG_CHANNEL(SIO);
 
-/* Register layouts: laid out as bitfields in the original; we keep raw u16/
- * u32 storage and use shift/mask helpers for the few bits we need (only the
- * RESET bit is consumed). */
+/* Registers use raw u16/u32 storage with shift/mask access. Only the
+ * control register's RESET bit changes device behavior here. */
 #define SIO_CTRL_RESET_BIT  (1u << 6)
 /* SIO_STAT bits: TXRDY=0, TXDONE=2, DSR_INPUTLEVEL=7, CTS_INPUTLEVEL=8 */
 #define SIO_STAT_TXRDY            (1u << 0)
@@ -17,12 +16,10 @@ LOG_CHANNEL(SIO);
 #define SIO_STAT_DSR_INPUT_LEVEL  (1u << 7)
 #define SIO_STAT_CTS_INPUT_LEVEL  (1u << 8)
 
-/* Forward decl for the optional TTY hook; bus.c provides the real symbol
- * once it lands.  Made weak so the SIO unit links standalone. */
+/* Optional TTY output hook; weak linkage permits standalone SIO tests. */
 extern void bus_add_tty_character(char c) __attribute__((weak));
 
-/* Settings flag is owned by the parallel settings agent; we read it via an
- * extern accessor that returns false until the settings module is wired in. */
+/* Optional settings flag for redirecting serial output to the TTY. */
 extern bool g_sio_redirect_to_tty __attribute__((weak));
 
 static u16 s_sio_ctrl;

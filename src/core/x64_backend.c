@@ -1649,10 +1649,8 @@ static u32 pad_to_min_size(x64_emit_t* e, void* start_cursor, u32 min_size)
   return (u32)((u8*)x64_emit_cursor(e) - (u8*)start_cursor);
 }
 
-/* Load compile path.  PGXP deferred (M6).  Fastmem path
- * (M4c): emit `mov data, [RBX + addr]` (with size variants), pad to >=5
- * bytes for backpatch, register backpatch info.  Slow-path: existing
- * thunk call. */
+/* Fastmem loads use [RBX + addr], padded to at least five bytes for
+ * backpatching. Other accesses call the slow-path thunk. */
 static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                              memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr)
@@ -2502,12 +2500,12 @@ static const struct cpu_recompiler_vtable s_vtable = {
 
   .compile_fallback = hook_compile_fallback,
 
-  /* Chunk 1: trivial ALU-imm. */
+  /* Bitwise immediate operations. */
    .compile_andi = hook_compile_andi,
   .compile_ori  = hook_compile_ori,
   .compile_xori = hook_compile_xori, 
 
-  /* Chunk 2: ALU + immediate. */
+  /* Arithmetic and register ALU operations. */
    .compile_addi  = hook_compile_addi,
   .compile_addiu = hook_compile_addiu,
   .compile_slti  = hook_compile_slti,
@@ -2523,7 +2521,7 @@ static const struct cpu_recompiler_vtable s_vtable = {
   .compile_slt   = hook_compile_slt,
   .compile_sltu  = hook_compile_sltu, 
 
-  /* Chunk 3: shifts (LUI is base-layer). */
+  /* Shifts; LUI uses the shared compiler. */
    .compile_sll   = hook_compile_sll,
   .compile_srl   = hook_compile_srl,
   .compile_sra   = hook_compile_sra,
@@ -2531,32 +2529,30 @@ static const struct cpu_recompiler_vtable s_vtable = {
   .compile_srlv  = hook_compile_srlv,
   .compile_srav  = hook_compile_srav, 
 
-  /* Chunk 5: branches + jumps (J/JAL handled by base layer). */
+  /* Branches and register jumps; J/JAL use the shared compiler. */
    .compile_jr    = hook_compile_jr,
   .compile_jalr  = hook_compile_jalr,
   .compile_bxx   = hook_compile_bxx, 
 
-  /* Chunk 4: mul/div (HI/LO handled by base layer move-reg template). */
+  /* Multiply/divide; HI/LO moves use the shared register template. */
    .compile_mult  = hook_compile_mult,
   .compile_multu = hook_compile_multu,
   .compile_div   = hook_compile_div,
   .compile_divu  = hook_compile_divu, 
 
-  /* Chunk 6: memory loads/stores (M1a closes lwx/swx; LWC2/SWC2 land in M1b). */
+  /* Memory loads and stores, including unaligned word operations. */
    .compile_lxx   = hook_compile_lxx,
   .compile_sxx   = hook_compile_sxx,
   .compile_lwx   = hook_compile_lwx,
   .compile_swx   = hook_compile_swx, 
 
-  /* Chunk 7: COP0 (mfc0 handled by base layer).
-   * Stale-Isc bug fixed: hook_compile_mtc0 reloads RMEMBASE post-
-   * cpu_update_memory_pointers, so fastmem store sites emitted later in
-   * the block see the right pointer.  Spec-layer cop0_sr remains
-   * coherent because spec_exec_mtc0 / spec_exec_rfe update it. */
+  /* COP0 writes reload RMEMBASE after memory-pointer updates. Speculative
+   * COP0 state is updated by spec_exec_mtc0 and spec_exec_rfe. MFC0 uses
+   * the shared compiler. */
    .compile_mtc0  = hook_compile_mtc0,
   .compile_rfe   = hook_compile_rfe, 
 
-  /* Chunk 8: COP2 / GTE.  M1b adds LWC2/SWC2 native codegen. */
+  /* COP2 register transfers, GTE commands and COP2 memory operations. */
    .compile_mfc2  = hook_compile_mfc2,
   .compile_mtc2  = hook_compile_mtc2,
   .compile_cop2  = hook_compile_cop2,

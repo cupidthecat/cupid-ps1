@@ -1,17 +1,8 @@
 /*
- * R3000A interpreter.  Single dispatcher is a giant switch on
- * InstructionOp / InstructionFunct - laid out so each PS1 quirk (load
- * delay, branch delay, divide-by-zero, COP0 mode-stack) stays auditable
- * against Sony's docs.
- *
- * Out of scope here:
- *  - PGXP (cpu_pgxp deferred) - replaced with no-ops via
- *    CUPID_PGXP_ENABLED guard which is never defined here.
- *  - Cached interpreter / dynarec interop.  Always interpreter, always
- *    fetches from icache.
- *  - Breakpoint / debugger callbacks - debug_dispatcher flag stays for
- *    state-struct ABI but never lights up.
- *  - fastmem; pointer kept on the state struct but unused.
+ * R3000A instruction execution, register state and exception handling.
+ * The instruction dispatcher implements branch and load delays, division
+ * edge cases and COP0 mode-stack transitions. Cached execution and recompiler
+ * dispatch use the shared CPU state and code-cache interfaces.
  */
 
 #include "cpu_core.h"
@@ -96,9 +87,8 @@ void cpu_recomp_trace_block_entry(u32 pc)
 }
 #endif
 
-/* Re-entered by cpu_code_cache.c when the recompiler driver falls back to
- * interpretation (skeleton, and any backend's Compile_Fallback path).
- * Hidden from the rest of the code base. */
+/* Internal interpreter entry point used when cached execution has no
+ * registered compiler backend. */
 NORETURN void cpu_run_interpreter_loop(void);
 
 static void cpu_execute_instruction(void);

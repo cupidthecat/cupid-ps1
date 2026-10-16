@@ -1,8 +1,7 @@
 /*
- * namespace BIOS -> bios_ prefix.  std::optional<Image> becomes a bool
- * return + out-pointer.  std::span<const u8> becomes (const u8*, size_t).
- * DynamicHeapArray<u8> in the original Image becomes a heap (data, len) pair
- * the caller frees with free().
+ * BIOS image metadata, loading and patching interfaces.
+ * Image data is heap allocated; the caller releases it with free().
+ * Loading functions report success with a bool and write through out-pointers.
  */
 
 #ifndef CUPID_CORE_BIOS_H

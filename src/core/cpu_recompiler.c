@@ -1,30 +1,8 @@
 /*
- * Recompiler base - arch-agnostic helpers.  Provides:
- *
- *   ✓ reset_state                         (per-block init)
- *   ✓ has_constant_reg / set_constant_reg / clear / flush
- *   ✓ get_cop0_reg_ptr / write_mask
- *   ✓ mips_signed/unsigned_divide         (called from compiled blocks)
- *   ✓ Register allocator                  - get_free / allocate / check / swap /
- *                                           flush / free / clear / mark / rename /
- *                                           delete_mips_reg / try_rename / counters
- *   ✓ Composite Flush(u32 flags)
- *   ✓ Load-delay engine                   - has / cancel / update / finish /
- *                                           finish_to_reg / get_flags_for_new
- *   ✓ Host-state backup / restore         (for delay-slot rollback)
- *   ✓ Speculative-constant infrastructure - init / invalidate / read/write_reg /
- *                                           copy_reg / read/write_mem /
- *                                           invalidate_mem (open-addressed hashmap)
- *   ✓ spec_is_cache_isolated
- *
- * Allocator hooks (load_host_reg_with_constant, load_host_reg_from_cpu_pointer,
- * store_host_reg_to_cpu_pointer, store_constant_to_cpu_pointer, copy_host_reg,
- * flush) call into r->v->* - the backend vtable.  Until 6.D registers a backend,
- * these are NULL function pointers; cpu_code_cache_execute() guards against
- * dispatching to a NULL backend, so this code is unreachable until 6.D wires it.
- *
- * The per-MIPS-op compile_*_const helpers, compile_template,
- * compile_loadstore_template, and compile_instruction switch land in 6.C3.
+ * Architecture-independent CPU recompiler helpers.
+ * These manage register allocation, load delays, host-state backup, speculative
+ * constants and instruction compilation. Host register operations and machine
+ * code emission call the selected backend through its vtable.
  */
 
 #include "cpu_recompiler.h"

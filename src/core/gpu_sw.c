@@ -88,9 +88,7 @@ static void sw_draw_polygon(gpu_backend_t* self, const gpu_backend_draw_polygon_
 
 static void sw_draw_rectangle(gpu_backend_t* self, const gpu_backend_draw_rectangle_cmd_t* c)
 {
-  /* Cull fully off-screen rectangles before dispatch (matches upstream
-   * GPU_SW::DrawSprite). The rasterizer loop also clips per-row, but a
-   * fully-out rect still pays the loop cost without this short-circuit. */
+  /* Reject off-screen rectangles before entering the per-row rasterizer loop. */
   const s32 x0 = c->x;
   const s32 y0 = c->y;
   const s32 x1 = x0 + (s32)c->width;

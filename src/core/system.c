@@ -1,8 +1,7 @@
 /*
- * See system.h for scope cuts.  The bulk of the original system module is
- * OSD / achievements / cheats / netplay / runahead / media-capture plumbing;
- * those are dropped.  We keep boot, reset, run loop, frame timing, save
- * states, memory-card lifecycle, and region detection.
+ * System lifecycle, boot, reset and execution loop.
+ * This module coordinates frame timing, save states, memory cards, media and
+ * region detection across the emulated devices and frontend.
  */
 
 #include "core/system.h"
@@ -73,8 +72,7 @@ enum {
 /* weak-extern fallbacks for sibling modules whose headers don't yet  */
 /* expose every helper we touch.                                       */
 
- /* GPU clock-changed hook: gpu.h doesn't declare one, but we emit an explicit
- * weak ref so a future port can wire it. */
+ /* Optional notification when the GPU clock changes. */
 __attribute__((weak)) extern void gpu_clock_changed(void);
 /* PGXP lifecycle.  Names declared in cpu_pgxp.h are `pgxp_*` (no
  * `cpu_` prefix); the prior weak `cpu_pgxp_*` externs silently resolved
@@ -658,10 +656,8 @@ static bool system_read_executable_from_image_inner(iso_reader_t* iso,
   return true;
 }
 
-/* xxhash is not yet ported.  We approximate the gamehash with a stable
- * FNV-1a over (exe_name, exe_data, pvd, track_1_length).  cupid-ps1 doesn't
- * ship a database, so the value just needs to be stable per (image, exe)
- * tuple. */
+/* Compute a stable FNV-1a game identifier from the executable name and
+ * bytes, primary volume descriptor and first-track length. */
 static game_hash_t system_compute_game_hash(const char* exe_name, const u8* exe_data, size_t exe_size,
                                             const void* pvd, size_t pvd_size, u32 track_1_length)
 {

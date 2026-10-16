@@ -1,10 +1,6 @@
 /*
- * Two MMIO registers (I_STATUS at +0x00, I_MASK at +0x04) plus a hidden
- * "line state" mirror used to keep edge-triggered detection honest.  Whenever
- * STATUS & MASK is non-zero we raise the CPU IRQ line.
- *
- * External (parallel-agent) dependencies:
- *   cpu_core_set_irq_request(bool); forwarded by cpu_core when ported.
+ * Interrupt status and mask registers, with line state for edge detection.
+ * The CPU IRQ request is asserted whenever I_STATUS & I_MASK is nonzero.
  */
 
 #include "core/interrupt_controller.h"
