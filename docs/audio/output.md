@@ -1,6 +1,6 @@
 # Audio output
 
-| Knob | Source | Default |
+| Setting | Source | Default |
 |------|--------|---------|
 | Backend | `src/util/sdl_audio_stream.c` | SDL2 |
 | Sample rate | (PSX native) | 44 100 Hz stereo |

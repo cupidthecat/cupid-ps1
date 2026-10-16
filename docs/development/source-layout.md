@@ -14,7 +14,7 @@ data/
 └── resources/ # gamedb.yaml, discsets.yaml, discdb.yaml
 ```
 
-Roughly 121 `.c` files and 129 `.h` files under `src/`. Largest subdir is `core/` (55 `.c` files); the frontend is a single-file SDL2 driver.
+`core/` contains the emulation subsystems. `frontend/` contains the SDL2 run loop and input mapping.
 
 Notable subsystems:
 
@@ -23,7 +23,7 @@ Notable subsystems:
 | MIPS interpreter / decode | `src/core/cpu_core.{c,h}`, `src/core/cpu_types.{c,h}` |
 | Recompiler core | `src/core/cpu_recompiler.{c,h}`, `src/core/cpu_code_cache.{c,h}` |
 | x86-64 backend | `src/core/x64_emit.{c,h}`, `src/core/x64_backend.{c,h}` |
-| AArch64 backend (scaffold-only, not actively worked on) | `src/core/arm64_emit.{c,h}`, `src/core/arm64_backend.{c,h}` |
+| AArch64 backend (interpreter fallback) | `src/core/arm64_emit.{c,h}`, `src/core/arm64_backend.{c,h}` |
 | GTE coprocessor | `src/core/gte.{c,h}`, `src/core/gte_types.h` |
 | GPU command processor | `src/core/gpu.{c,h}`, `src/core/gpu_commands.c` |
 | Software rasterizer | `src/core/gpu_sw.{c,h}`, `src/core/gpu_sw_rasterizer.{c,h}`, `gpu_sw_rasterizer_simd.c`, `gpu_sw_rasterizer_avx2.c` |

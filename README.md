@@ -7,6 +7,14 @@ The emulator is under development. It includes an interpreter, cached
 interpreter, x86-64 recompiler, software renderer and experimental OpenGL
 renderer. Complete hardware accuracy and game compatibility remain unverified.
 
+## Screenshots
+
+<p align="center">
+  <img src="demo/crash.png" alt="Crash Bandicoot title screen" width="32%" />
+  <img src="demo/re2.png" alt="Resident Evil 2 title screen" width="32%" />
+  <img src="demo/screenshot_104223.png" alt="CPU test program display" width="32%" />
+</p>
+
 ## Build and run
 
 Install the [build dependencies](docs/development/building.md), then run:

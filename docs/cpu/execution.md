@@ -6,14 +6,14 @@ Defined in `src/core/types.h`, dispatched by `cpu_execute()` in `src/core/cpu_co
 |------|-----------|
 | `interpreter` | MIPS R3000A interpreter; also used by the trace diagnostics. |
 | `cached_interpreter` | Block-level decode cache wrapping the interpreter. Execution-path consistency still needs qualification. |
-| `recompiler` | JIT to native code. Default on x86-64 hosts. The AArch64 backend is scaffold-only (per-block interpreter fallback) and not actively maintained; ARM hosts are not qualified by the current build workflow. |
+| `recompiler` | JIT to native code. Default on x86-64 hosts. The AArch64 backend uses a per-block interpreter fallback; ARM hosts are not qualified by the current build workflow. |
 
 ## Recompiler backends
 
 | Backend | Status | Files |
 |---------|--------|-------|
 | x86-64 | Native-code backend with instruction codegen, fastmem, icache and PGXP hooks. | `src/core/x64_emit.c`, `src/core/x64_backend.c` |
-| AArch64 | Scaffold only. Lifecycle + dispatcher + per-block interpreter fallback. Per-op codegen / fastmem / icache / PGXP hooks all NULL. **Not actively worked on.** | `src/core/arm64_emit.c`, `src/core/arm64_backend.c` |
+| AArch64 | Lifecycle and dispatcher with a per-block interpreter fallback. Per-op codegen, fastmem, icache and PGXP hooks are NULL. | `src/core/arm64_emit.c`, `src/core/arm64_backend.c` |
 
 ## PGXP
 
@@ -27,7 +27,7 @@ PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-preci
 |------|----------|
 | `off` | Always go through the C helper (slow path). |
 | `lut` | LUT lookup keyed on bits 24..28 of the address. Default. |
-| `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses. Lowest overhead; uses the page-fault handler in `src/util/page_fault_handler.c`. |
+| `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses through `src/util/page_fault_handler.c`. |
 
 ## Diff modes
 
