@@ -198,4 +198,7 @@ ALWAYS_INLINE tick_count_t cpu_get_div_ticks(void)
 void cpu_handle_a0_syscall(void);
 void cpu_handle_b0_syscall(void);
 
+/* The native prefix has already observed the first fallback instruction. */
+void cpu_recompiler_run_uncached_block_after_tty(void);
+
 #endif /* CUPID_CORE_CPU_CORE_PRIVATE_H */

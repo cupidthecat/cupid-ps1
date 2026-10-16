@@ -1201,6 +1201,10 @@ bool cpu_recompiler_try_swap_delay_slot(cpu_recompiler_t* r, cpu_reg_t rs, cpu_r
   if (!CPU_RECOMP_SWAP_BRANCH_DELAY_SLOTS)
     return false;
 
+  const u32 slot_pc = cpu_virtual_to_physical(r->current_instruction_pc + CPU_INSTRUCTION_SIZE);
+  if (slot_pc == 0xA0u || slot_pc == 0xB0u)
+    return false;
+
   if (g_settings.cpu_recompiler_icache && cpu_is_cached_address(r->block->pc) &&
       ((r->current_instruction_pc ^ (r->current_instruction_pc + CPU_INSTRUCTION_SIZE)) &
        CPU_ICACHE_TAG_ADDRESS_MASK))
@@ -1983,6 +1987,16 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
       cpu_get_icache_line_word_offset(r->current_instruction_pc) == 0 &&
       r->v && r->v->generate_icache_line_check)
     r->v->generate_icache_line_check(r);
+
+  const u32 physical_pc = cpu_virtual_to_physical(r->current_instruction_pc);
+  const void* tty = physical_pc == 0xA0u ? (const void*)&cpu_handle_a0_syscall :
+                    (physical_pc == 0xB0u ? (const void*)&cpu_handle_b0_syscall : NULL);
+  if (tty && r->v && r->v->generate_call) {
+    /* Make arguments visible without retiring a pending load. The handler
+     * checks the logging setting at runtime, including in reused blocks. */
+    cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_C_CALL | CPU_RC_FLUSH_FLUSH_MIPS_REGISTERS);
+    r->v->generate_call(r, tty, -1, -1, -1);
+  }
 
   r->cycles++;
 

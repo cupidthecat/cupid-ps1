@@ -55,6 +55,7 @@ typedef struct {
   x64_emit_t       far_emit;
   bool             is_far;   /* current emitter target */
   const u8*        block_near_start; /* block-host-code start (for self-link) */
+  const void*     interpret_after_tty;
 } x64_backend_state_t;
 
 static x64_backend_state_t s_backend;
@@ -778,9 +779,11 @@ static void hook_compile_fallback(cpu_recompiler_t* r)
   }
   r->cycles = 0;
 
-  /* Jump to g_interpret_block; never returns to JIT for this block. */
+  /* Shared execution must not repeat the first instruction's TTY observation. */
+  const u32 physical_pc = cpu_virtual_to_physical(r->current_instruction_pc);
   u8* j = x64_jmp_rel32(e);
-  x64_patch_rel32(j, g_interpret_block);
+  x64_patch_rel32(j, physical_pc == 0xA0u || physical_pc == 0xB0u ?
+                       s_backend.interpret_after_tty : g_interpret_block);
 
   cpu_recompiler_truncate_block(r);
   r->block_ended = true;  /* skip the agnostic-loop end_block emission */
@@ -2385,6 +2388,7 @@ static u32 emit_asm_functions(void* code, u32 code_size)
 
   g_interpret_block = x64_emit_cursor(&e);
   x64_call_abs64(&e, (const void*)&cpu_recompiler_run_uncached_block);
+  const void* const after_interpret = x64_emit_cursor(&e);
   x64_mov_r_m  (&e, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(pending_ticks)));
   x64_alu_r_m  (&e, X64_ALU_CMP, X64_SZ_32, RWARG1,
                 x64_mem(RSTATE, STATE_DISP(downcount)));
@@ -2394,6 +2398,10 @@ static u32 emit_asm_functions(void* code, u32 code_size)
     u8* j = x64_jmp_rel32(&e);
     x64_patch_rel32(j, dispatch_addr);
   }
+
+  s_backend.interpret_after_tty = x64_emit_cursor(&e);
+  x64_call_abs64(&e, (const void*)&cpu_recompiler_run_uncached_block_after_tty);
+  { u8* j = x64_jmp_rel32(&e); x64_patch_rel32(j, after_interpret); }
 
   Assert(!e.overflow);
   return (u32)x64_emit_size(&e);

@@ -91,7 +91,7 @@ void cpu_recomp_trace_block_entry(u32 pc)
  * registered compiler backend. */
 NORETURN void cpu_run_interpreter_loop(void);
 
-static void cpu_execute_instruction(void);
+static void cpu_execute_instruction(bool observe_tty);
 
 static bool cpu_fetch_instruction(void);
 static bool cpu_fetch_instruction_for_interp_fallback(void);
@@ -427,7 +427,7 @@ static void cpu_handle_write_syscall(void)
   const u32 count = regs->named.a2;
   for (u32 i = 0; i < count; i++) {
     u8 value;
-    if (!cpu_safe_read_memory_byte(addr++, &value) || value == 0u)
+    if (!cpu_safe_read_memory_byte(addr++, &value))
       break;
     bus_add_tty_character((char)value);
   }
@@ -454,10 +454,11 @@ static void cpu_handle_puts_syscall(void)
 
 void cpu_handle_a0_syscall(void)
 {
+  if (!g_settings.bios_tty_logging) return;
   const u32 call = g_cpu_state.regs.named.t1;
   if (call == 0x03u)
     cpu_handle_write_syscall();
-  else if (call == 0x09u || call == 0x3cu)
+  else if (call == 0x3cu || (call == 0x09u && g_cpu_state.regs.named.a1 == 1u))
     cpu_handle_putc_syscall();
   else if (call == 0x3eu)
     cpu_handle_puts_syscall();
@@ -465,10 +466,11 @@ void cpu_handle_a0_syscall(void)
 
 void cpu_handle_b0_syscall(void)
 {
+  if (!g_settings.bios_tty_logging) return;
   const u32 call = g_cpu_state.regs.named.t1;
   if (call == 0x35u)
     cpu_handle_write_syscall();
-  else if (call == 0x3bu || call == 0x3du)
+  else if (call == 0x3du || (call == 0x3bu && g_cpu_state.regs.named.a1 == 1u))
     cpu_handle_putc_syscall();
   else if (call == 0x3fu)
     cpu_handle_puts_syscall();
@@ -484,8 +486,13 @@ ALWAYS_INLINE static bool cpu_sub_overflow(u32 old_value, u32 sub_value, u32* ne
   return __builtin_sub_overflow((s32)old_value, (s32)sub_value, (s32*)new_value);
 }
 
-static void cpu_execute_instruction(void)
+static void cpu_execute_instruction(bool observe_tty)
 {
+  if (observe_tty && g_settings.bios_tty_logging) {
+    const u32 pc = cpu_virtual_to_physical(g_cpu_state.current_instruction_pc);
+    if (pc == 0xA0u) cpu_handle_a0_syscall();
+    else if (pc == 0xB0u) cpu_handle_b0_syscall();
+  }
 restart_instruction:;
   const cpu_instruction_t inst = g_cpu_state.current_instruction;
 
@@ -1179,7 +1186,7 @@ static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
   if (cpu_diff_is_enabled())
     cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
                                 g_cpu_state.current_instruction.bits);
-  cpu_execute_instruction();
+  cpu_execute_instruction(true);
   cpu_update_load_delay();
   if (cpu_execution_stats_is_enabled())
     cpu_execution_stats_get()->interpreted_instructions++;
@@ -1305,13 +1312,13 @@ void cpu_recompiler_thunk_interpret_instruction(void)
     cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
                                 g_cpu_state.current_instruction.bits);
   g_cpu_state.exception_raised = false;
-  cpu_execute_instruction();
+  cpu_execute_instruction(true);
   cpu_update_load_delay();
   if (cpu_execution_stats_is_enabled())
     cpu_execution_stats_get()->interpreted_instructions++;
 }
 
-void cpu_recompiler_run_uncached_block(void)
+static void cpu_recompiler_run_uncached_block_impl(bool observe_tty)
 {
   g_cpu_state.npc = g_cpu_state.pc;
   g_cpu_state.exception_raised = false;
@@ -1340,7 +1347,8 @@ void cpu_recompiler_run_uncached_block(void)
     if (cpu_diff_is_enabled())
       cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
                                   g_cpu_state.current_instruction.bits);
-    cpu_execute_instruction();
+    cpu_execute_instruction(observe_tty);
+    observe_tty = true;
     cpu_update_load_delay();
     if (cpu_execution_stats_is_enabled())
       cpu_execution_stats_get()->interpreted_instructions++;
@@ -1355,6 +1363,16 @@ void cpu_recompiler_run_uncached_block(void)
 
     in_branch_delay_slot = branch;
   }
+}
+
+void cpu_recompiler_run_uncached_block(void)
+{
+  cpu_recompiler_run_uncached_block_impl(true);
+}
+
+void cpu_recompiler_run_uncached_block_after_tty(void)
+{
+  cpu_recompiler_run_uncached_block_impl(false);
 }
 
 u32 cpu_recompiler_thunk_read_memory_byte(u32 address)
