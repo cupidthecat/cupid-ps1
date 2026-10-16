@@ -143,6 +143,9 @@ void* cpu_get_direct_read_memory_pointer (virtual_memory_address_t address, memo
                                           tick_count_t* read_ticks);
 void* cpu_get_direct_write_memory_pointer(virtual_memory_address_t address, memory_access_size_t size);
 
+/* The caller has waited for the previous command and committed its issue tick. */
+void cpu_execute_gte(u32 instruction);
+
 /* GTE pipeline stall.  COP2 instructions take a variable number of cycles;
  * a cfc/mfc that reads back from the GTE before completion has to wait. */
 ALWAYS_INLINE void cpu_add_gte_ticks(tick_count_t ticks)

@@ -333,6 +333,7 @@ struct cpu_recompiler_vtable {
   void        (*flush)                       (cpu_recompiler_t*, u32 flags);
 
   void (*compile_fallback)(cpu_recompiler_t*);
+  void (*check_cop2_enabled)(cpu_recompiler_t*);
 
   void (*compile_jr)   (cpu_recompiler_t*, cpu_recomp_compile_flags_t);
   void (*compile_jalr) (cpu_recompiler_t*, cpu_recomp_compile_flags_t);

@@ -427,6 +427,9 @@ static void emit_end_and_link_block(cpu_recompiler_t* r,
   DebugAssert(!r->dirty_pc && !r->block_ended);
   r->block_ended = true;
 
+  /* A multiply/divide may still be busy when this block hands off. Commit
+   * its deadline before the tail cycles are added and the scheduler runs. */
+  cpu_recompiler_flush(r, CPU_RC_FLUSH_MULDIV_DONE_CYCLE);
   const s32 cycles = r->cycles;
   r->cycles = 0;
   /* All architectural registers have been flushed before reaching this epilogue.
@@ -713,44 +716,24 @@ static void hook_flush(cpu_recompiler_t* r, u32 flags)
     r->dirty_muldiv_done_cycle = false;
   }
 
-  if ((flags & CPU_RC_FLUSH_GTE_DONE_CYCLE) && r->gte_done_cycle > r->cycles) {
+  /* Store absolute deadlines before any cycle flush changes the tick base.
+   * A completed deadline is still valid; it must not become a future offset
+   * after a later runtime wait resets the compiler's cycle accumulator. */
+  if ((flags & CPU_RC_FLUSH_GTE_DONE_CYCLE) && r->gte_done_cycle > 0) {
     x64_mov_r_m(e, X64_SZ_32, RWARG1,
                 x64_mem(RSTATE, STATE_DISP(pending_ticks)));
-    if ((flags & CPU_RC_FLUSH_CYCLES) && r->cycles > 0) {
-      if (r->cycles == 1) x64_inc_r  (e, X64_SZ_32, RWARG1);
-      else                x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->cycles);
-      x64_mov_m_r(e, X64_SZ_32,
-                  x64_mem(RSTATE, STATE_DISP(pending_ticks)), RWARG1);
-      r->gte_done_cycle -= r->cycles;
-      r->cycles = 0;
-    }
-    if (r->gte_done_cycle == 1) x64_inc_r  (e, X64_SZ_32, RWARG1);
-    else                        x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->gte_done_cycle);
+    x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->gte_done_cycle);
     x64_mov_m_r(e, X64_SZ_32,
                 x64_mem(RSTATE, STATE_DISP(gte_completion_tick)), RWARG1);
     r->gte_done_cycle = 0;
     r->dirty_gte_done_cycle = true;
   }
 
-  /* Mirrors FLUSH_GTE_DONE_CYCLE for muldiv: writes the in-block-tracked
-   * r->muldiv_done_cycle out to muldiv_completion_tick state, so a
-   * subsequent block (whose dirty_muldiv_done_cycle starts true) can
-   * stall against it.  Only fires for the clean (static-cycle) producer
-   * path; dirty was already written to state by MULT/MULTU runtime emit. */
   if ((flags & CPU_RC_FLUSH_MULDIV_DONE_CYCLE) && !r->dirty_muldiv_done_cycle &&
-      r->muldiv_done_cycle > r->cycles) {
+      r->muldiv_done_cycle > 0) {
     x64_mov_r_m(e, X64_SZ_32, RWARG1,
                 x64_mem(RSTATE, STATE_DISP(pending_ticks)));
-    if ((flags & CPU_RC_FLUSH_CYCLES) && r->cycles > 0) {
-      if (r->cycles == 1) x64_inc_r  (e, X64_SZ_32, RWARG1);
-      else                x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->cycles);
-      x64_mov_m_r(e, X64_SZ_32,
-                  x64_mem(RSTATE, STATE_DISP(pending_ticks)), RWARG1);
-      r->muldiv_done_cycle -= r->cycles;
-      r->cycles = 0;
-    }
-    if (r->muldiv_done_cycle == 1) x64_inc_r  (e, X64_SZ_32, RWARG1);
-    else                           x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->muldiv_done_cycle);
+    x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->muldiv_done_cycle);
     x64_mov_m_r(e, X64_SZ_32,
                 x64_mem(RSTATE, STATE_DISP(muldiv_completion_tick)), RWARG1);
     r->muldiv_done_cycle = 0;
@@ -894,6 +877,17 @@ static void switch_to_near_code(cpu_recompiler_t* r, bool emit_jump,
     x64_patch_rel32(site, near_target);
   }
   b->is_far = false;
+}
+
+static void hook_check_cop2_enabled(cpu_recompiler_t* r)
+{
+  x64_emit_t* e = current_emit(be_from(r));
+  x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 1u << 30);
+  switch_to_far_code(r, true, true, X64_CC_E);
+  cpu_recompiler_backup_host_state(r);
+  hook_end_block_with_exception(r, CPU_EXCEPTION_CPU);
+  cpu_recompiler_restore_host_state(r);
+  switch_to_near_code(r, false, false, X64_CC_E);
 }
 
 /* Emit a `jo` into far code that raises an Overflow exception, then
@@ -2203,15 +2197,17 @@ static void hook_compile_mtc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
   }
 }
 
-/* GTE op (cop2 with non-common encoding): stall+ticks already handled by
- * the template (CPU_RC_TF_GTE_STALL).  Just call gte_execute(inst.bits). */
+/* The template waits for the previous command. Commit the issue cycle before
+ * the shared producer stores its completion deadline in CPU state. */
 static void hook_compile_cop2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf)
 {
   (void)cf;
   x64_emit_t* e = current_emit(be_from(r));
-  cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_C_CALL);
+  cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_C_CALL | CPU_RC_FLUSH_CYCLES);
   x64_mov_r_imm32(e, X64_SZ_32, RWARG1, (s32)r->inst->bits);
-  x64_call_abs64 (e, (const void*)&gte_execute);
+  x64_call_abs64(e, (const void*)&cpu_execute_gte);
+  r->gte_done_cycle = 0;
+  r->dirty_gte_done_cycle = true;
 }
 
 static void hook_compile_lwc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
@@ -2493,6 +2489,7 @@ static const struct cpu_recompiler_vtable s_vtable = {
   .compile_rfe   = hook_compile_rfe, 
 
   /* COP2 register transfers, GTE commands and COP2 memory operations. */
+  .check_cop2_enabled = hook_check_cop2_enabled,
    .compile_mfc2  = hook_compile_mfc2,
   .compile_mtc2  = hook_compile_mtc2,
   .compile_cop2  = hook_compile_cop2,

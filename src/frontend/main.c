@@ -147,11 +147,13 @@ typedef struct {
   bool test_rt_failed;
   u32  test_rt_quit_frame;
 
-  /* Independent checkpoint runs never restore or replay live device state. */
+  /* Save independent checkpoints, optionally reload one and compare later frames. */
   const char* checkpoint_dir;
   u32 checkpoint_interval;
   u32 checkpoint_count;
   u32 checkpoints_written;
+  u32 checkpoint_restore_at;
+  bool checkpoint_restored;
   bool checkpoint_failed;
 
   /* Run-loop state. */
@@ -1410,6 +1412,11 @@ static bool configure_execution_diagnostics(void)
 {
   cpu_execution_stats_initialize(getenv("CUPID_CPU_STATS") != NULL);
   s_fe.checkpoint_dir = getenv("CUPID_CHECKPOINT_DIR");
+  const char* restore = getenv("CUPID_CHECKPOINT_RESTORE");
+  if (restore && !s_fe.checkpoint_dir) {
+    fprintf(stderr, "[execution-checkpoint] restore requires checkpoint configuration\n");
+    return false;
+  }
   if (s_fe.checkpoint_dir) {
     const char* spec = getenv("CUPID_CHECKPOINT_SCHEDULE");
     char* end = NULL;
@@ -1431,6 +1438,15 @@ static bool configure_execution_diagnostics(void)
     }
     s_fe.checkpoint_interval = interval;
     s_fe.checkpoint_count = count;
+    if (restore) {
+      errno = 0;
+      const unsigned long index = strtoul(restore, &end, 10);
+      if (*restore < '0' || *restore > '9' || errno || *end || index == 0 || index >= count) {
+        fprintf(stderr, "[execution-checkpoint] restore index must precede the final checkpoint\n");
+        return false;
+      }
+      s_fe.checkpoint_restore_at = index;
+    }
   }
   return cpu_diff_initialize();
 }
@@ -1458,8 +1474,25 @@ static void execution_checkpoint_tick(void)
   }
   Error_destroy(&error);
   s_fe.checkpoints_written++;
+  const global_ticks_t ticks = timing_events_get_global_tick_counter();
   fprintf(stderr, "[execution-checkpoint] frame=%u ticks=%llu\n", frame,
-          (unsigned long long)timing_events_get_global_tick_counter());
+          (unsigned long long)ticks);
+  if (s_fe.checkpoints_written == s_fe.checkpoint_restore_at) {
+    Error_init(&error);
+    const bool loaded = system_load_state(path, &error, false, false) != 0;
+    if (!loaded || system_get_frame_number() != frame || timing_events_get_global_tick_counter() != ticks) {
+      fprintf(stderr, "[execution-checkpoint] restore failed index=%u: %s\n",
+              s_fe.checkpoints_written, Error_get_description(&error));
+      s_fe.checkpoint_failed = true;
+      Error_destroy(&error);
+      request_quit();
+      return;
+    }
+    Error_destroy(&error);
+    s_fe.checkpoint_restored = true;
+    fprintf(stderr, "[execution-checkpoint] restored index=%u frame=%u ticks=%llu\n",
+            s_fe.checkpoints_written, frame, (unsigned long long)ticks);
+  }
   if (s_fe.checkpoints_written == s_fe.checkpoint_count)
     request_quit();
 }
@@ -1796,7 +1829,8 @@ int main(int argc, char** argv)
   settings_destroy(&g_settings);
 
   if (s_fe.checkpoint_dir) {
-    if (!ok || s_fe.checkpoint_failed || s_fe.checkpoints_written != s_fe.checkpoint_count) {
+    if (!ok || s_fe.checkpoint_failed || s_fe.checkpoints_written != s_fe.checkpoint_count ||
+        (s_fe.checkpoint_restore_at && !s_fe.checkpoint_restored)) {
       fprintf(stderr, "[execution-checkpoint] incomplete\n");
       return 2;
     }

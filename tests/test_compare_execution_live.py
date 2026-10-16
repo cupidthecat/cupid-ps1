@@ -22,15 +22,19 @@ class LiveExecutionComparisonTest(unittest.TestCase):
         # Store/load RAM, consume the load delay, then stay in a stable branch loop.
         words = (0x3C08A003, 0x24091234, 0xAD090000, 0x8D0A0000, 0,
                  0x254B0001, 0x1000FFFF, 0)
-        firmware = bytearray(512 * 1024)
-        struct.pack_into('<8I', firmware, 0, *words)
-        self.bios.write_bytes(firmware)
-        executable = bytearray(2048 + 32)
-        executable[:8] = b'PS-X EXE'
-        struct.pack_into('<4I', executable, 16, 0x80010000, 0, 0x80010000, 32)
-        struct.pack_into('<8I', executable, 2048, *words)
-        self.media.write_bytes(executable)
+        self.write_program(words)
         self.binary = Path(os.environ['CUPID_TEST_BINARY']).resolve(strict=True)
+
+    def write_program(self, words):
+        firmware = bytearray(512 * 1024)
+        struct.pack_into('<' + 'I' * len(words), firmware, 0, *words)
+        self.bios.write_bytes(firmware)
+        size = len(words) * 4
+        executable = bytearray(2048 + size)
+        executable[:8] = b'PS-X EXE'
+        struct.pack_into('<4I', executable, 16, 0x80010000, 0, 0x80010000, size)
+        struct.pack_into('<' + 'I' * len(words), executable, 2048, *words)
+        self.media.write_bytes(executable)
 
     def run_pair(self, modes, kind, fastmem='off'):
         result = compare.run_comparison(self.binary, self.bios, self.media, self.root / 'run',
@@ -60,6 +64,24 @@ class LiveExecutionComparisonTest(unittest.TestCase):
 
     def test_native_linked_mmap_checkpoints(self):
         self.run_pair(('recomp', 'recomp'), 'state', 'mmap')
+
+    def test_saved_machine_continues_identically_after_restore(self):
+        for mode, fastmem in (('interp', 'off'), ('cached', 'off'),
+                              ('recomp', 'off'), ('recomp', 'mmap')):
+            with self.subTest(mode=mode, fastmem=fastmem):
+                result = compare.run_comparison(self.binary, self.bios, self.media,
+                                                self.root / ('restore-' + mode + '-' + fastmem),
+                                                kind='state', modes=(mode, mode), fastmem=fastmem,
+                                                interval=2, checkpoints=3, restore_at=1,
+                                                min_blocks=10, timeout=30)
+                self.assertTrue(result['passed'], result)
+
+    def test_gte_and_divide_loop_continues_identically_after_restore(self):
+        # Enable COP2, loop through independent divide/GTE work and store results.
+        self.write_program((0x3C084000, 0x40886000, 0x3C10A003, 0x24083039, 0x24090007,
+                            0x0109001A, 0x4A000030, 0x480AC000, 0x00005812,
+                            0xAE0B0000, 0x1000FFFA, 0))
+        self.test_saved_machine_continues_identically_after_restore()
 
     def test_native_cross_engine_checkpoint_difference_is_reported(self):
         for fastmem in ('off', 'mmap'):

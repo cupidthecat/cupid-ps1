@@ -112,7 +112,8 @@ def first_difference(left, right):
             offset += len(x)
 
 
-def inspect_run(directory, result, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking):
+def inspect_run(directory, result, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking,
+                restore_at=0):
     log = (directory / "boot.log").read_text(encoding="utf-8", errors="replace")
     failures = []
     if result["timed_out"] or result["exit_code"] != 0:
@@ -152,6 +153,19 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
                 raise ValueError("checkpoint ticks did not advance")
             if re.findall(r"\[execution-checkpoint\] completed count=(\d+)", log) != [str(checkpoints)]:
                 raise ValueError("missing or repeated completion report")
+            restores = list(re.finditer(r"^\[execution-checkpoint\] restored index=(\d+) frame=(\d+) ticks=(\d+)$",
+                                        log, re.MULTILINE))
+            result["restores"] = [tuple(map(int, match.groups())) for match in restores]
+            expected = [(restore_at, *observed[restore_at - 1])] if restore_at else []
+            if (result["restores"] != expected
+                    or log.count("[execution-checkpoint] restored") != len(restores)):
+                raise ValueError("missing, repeated or unexpected restore report")
+            if restore_at:
+                before, after = observed[restore_at - 1:restore_at + 1]
+                if not (log.index(f"[execution-checkpoint] frame={before[0]} ticks={before[1]}")
+                        < restores[0].start()
+                        < log.index(f"[execution-checkpoint] frame={after[0]} ticks={after[1]}")):
+                    raise ValueError("restore did not precede its continuation checkpoints")
             for frame, _ in observed:
                 state = directory / f"checkpoint-{frame:08d}.sav"
                 validate_checkpoint(state)
@@ -166,13 +180,15 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
 
 def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp", "cached"),
                    instructions=50000, interval=60, checkpoints=5, min_blocks=100,
-                   fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=()):
+                   fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=(), restore_at=0):
     if (kind not in COVERAGE or len(modes) != 2 or any(mode not in ("interp", "cached", "recomp") for mode in modes)
             or (kind == "trace" and "recomp" in modes) or fastmem not in ("off", "lut", "mmap")):
         raise ValueError("unsupported comparison configuration")
     if (not math.isfinite(timeout) or timeout <= 0 or not 0 < instructions <= 0xffffffffffffffff or interval <= 0
             or not 1 <= checkpoints <= 32 or interval * checkpoints > 0xffffffff or min_blocks <= 0):
         raise ValueError("counts and timeout must be positive and within supported bounds")
+    if restore_at and (kind != "state" or modes[0] != modes[1] or not 1 <= restore_at < checkpoints):
+        raise ValueError("restore requires matching modes and a state checkpoint before the final checkpoint")
     paths = [Path(p).resolve(strict=True) for p in (binary, bios, media, *hash_inputs)]
     if not all(path.is_file() for path in paths):
         raise ValueError("binary and inputs must be regular files")
@@ -183,6 +199,7 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
     result = {"revision": revision, "kind": kind, "coverage": COVERAGE[kind], "sha256": hashes,
               "configuration": {"modes": modes, "instructions": instructions, "interval": interval,
                                 "checkpoints": checkpoints, "minimum_blocks": min_blocks,
+                                "right_restore_at": restore_at,
                                 "fastmem": fastmem, "linking": linking, "timeout_seconds": timeout,
                                 "timing": "native", "renderer": "scalar software", "pgxp": False},
               "runs": [], "differences": []}
@@ -202,10 +219,13 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
             env.update(CUPID_DIFF_TRACE=str(directory / "cpu.trace"), CUPID_DIFF_LIMIT=str(instructions))
         else:
             env.update(CUPID_CHECKPOINT_DIR=str(directory), CUPID_CHECKPOINT_SCHEDULE=f"{interval},{checkpoints}")
+            if restore_at and label == "right":
+                env["CUPID_CHECKPOINT_RESTORE"] = str(restore_at)
         observed = wait_child(command, directory, env, timeout)
         observed["environment"] = {key: env[key] for key in env if key.startswith(("CUPID_", "SDL_"))}
         observed["mode"] = mode
-        artifacts.append(inspect_run(directory, observed, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking))
+        artifacts.append(inspect_run(directory, observed, kind, mode, instructions, interval, checkpoints,
+                                     min_blocks, fastmem, linking, restore_at if label == "right" else 0))
         result["runs"].append(observed)
     if all(run["passed"] for run in result["runs"]):
         if kind == "state" and result["runs"][0]["checkpoints"] != result["runs"][1]["checkpoints"]:
@@ -232,6 +252,8 @@ def main():
     parser.add_argument("--instructions", type=int, default=50000)
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--checkpoints", type=int, default=5)
+    parser.add_argument("--restore-at", type=int, default=0,
+                        help="reload this checkpoint in the right process, then compare its continuation")
     parser.add_argument("--minimum-blocks", type=int, default=100)
     parser.add_argument("--fastmem", choices=("off", "lut", "mmap"), default="off")
     parser.add_argument("--no-linking", action="store_true")
@@ -248,7 +270,8 @@ def main():
                                 modes=(args.left, args.right), instructions=args.instructions,
                                 interval=args.interval, checkpoints=args.checkpoints,
                                 min_blocks=args.minimum_blocks, fastmem=args.fastmem, linking=not args.no_linking,
-                                timeout=args.timeout, revision=args.revision, hash_inputs=args.hash_input)
+                                timeout=args.timeout, revision=args.revision, hash_inputs=args.hash_input,
+                                restore_at=args.restore_at)
     except (OSError, ValueError) as error:
         parser.exit(2, f"comparison failed: {error}\n")
     print(f"{'PASS' if result['passed'] else 'FAIL'}: {output.resolve() / 'result.json'}")

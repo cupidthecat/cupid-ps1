@@ -13,7 +13,7 @@ spec.loader.exec_module(compare)
 
 @unittest.skipUnless(os.name == "posix", "Linux process runner")
 class ExecutionComparisonTest(unittest.TestCase):
-    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5):
+    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary, bios, media = (root / name for name in ("emulator", "bios", "media"))
@@ -31,6 +31,9 @@ cached = "[cpu-stats] cached created=3 hits=30 blocks=50 instructions=100 fallba
 if mode == 'recomp':
     progress = "[cpu-stats] execution interpreted=0 native_entered=100 native_completed=100"
 state_payload = b'generated-state'
+restore = os.environ.get('CUPID_CHECKPOINT_RESTORE')
+restore_report = f'[execution-checkpoint] restored index={{restore}} frame=2 ticks=200' if restore else ''
+restore_after = False
 {change}
 if 'CUPID_DIFF_TRACE' in os.environ:
     pathlib.Path(os.environ['CUPID_DIFF_TRACE']).write_text(header + ''.join(rows) + footer)
@@ -42,6 +45,10 @@ else:
         struct.pack_into('<4I', state, 200, 0, len(state_payload), len(state_payload), 216)
         (directory / f'checkpoint-{{frame:08d}}.sav').write_bytes(state + state_payload)
         print(f'[execution-checkpoint] frame={{frame}} ticks={{frame * 100}}')
+        if frame == 2 and restore_report and not restore_after:
+            print(restore_report)
+    if restore_report and restore_after:
+        print(restore_report)
     print('[execution-checkpoint] completed count=2')
 print(f'[cpu-stats] configuration mode={{mode}} fastmem=off linking=on')
 print(progress)
@@ -51,13 +58,50 @@ print(cached)
             binary.chmod(0o700)
             return compare.run_comparison(binary, bios, media, root / "run", kind=kind,
                                           modes=modes, instructions=4, interval=2, checkpoints=2,
-                                          min_blocks=1, timeout=timeout)
+                                          min_blocks=1, timeout=timeout, restore_at=restore_at)
 
     def test_complete_trace(self):
         self.assertTrue(self.run_fake()["passed"])
 
     def test_complete_state(self):
         self.assertTrue(self.run_fake(kind="state", modes=("interp", "recomp"))["passed"])
+
+    def test_complete_restored_continuation(self):
+        result = self.run_fake(kind="state", modes=("recomp", "recomp"), restore_at=1)
+        self.assertTrue(result["passed"], result)
+        self.assertEqual(result["runs"][0]["restores"], [])
+        self.assertEqual(result["runs"][1]["restores"], [(1, 2, 200)])
+
+    def test_missing_or_incorrect_restore_fails(self):
+        for report in ("", "[execution-checkpoint] restored index=1 frame=2 ticks=199",
+                       "[execution-checkpoint] restored index=2 frame=4 ticks=400",
+                       "[execution-checkpoint] restored malformed",
+                       "[execution-checkpoint] restored index=1 frame=2 ticks=200\n" * 2):
+            with self.subTest(report=report):
+                result = self.run_fake(f"if right: restore_report = {report!r}", kind="state",
+                                       modes=("recomp", "recomp"), restore_at=1)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(result["runs"][0]["passed"], result)
+                self.assertIn("restore report", " ".join(result["runs"][1]["failures"]))
+
+    def test_late_restore_cannot_qualify_continuation(self):
+        result = self.run_fake("restore_after = right", kind="state",
+                               modes=("recomp", "recomp"), restore_at=1)
+        self.assertFalse(result["passed"], result)
+        self.assertIn("restore did not precede", " ".join(result["runs"][1]["failures"]))
+
+    def test_unrequested_restore_fails(self):
+        result = self.run_fake("restore_report = '[execution-checkpoint] restored index=1 frame=2 ticks=200'",
+                               kind="state")
+        self.assertFalse(result["passed"], result)
+
+    def test_restore_requires_continuation_and_matching_modes(self):
+        for configuration in ({"kind": "trace", "modes": ("interp", "interp"), "restore_at": 1},
+                              {"kind": "state", "modes": ("interp", "recomp"), "restore_at": 1},
+                              {"kind": "state", "restore_at": -1},
+                              {"kind": "state", "modes": ("interp", "interp"), "restore_at": 5}):
+            with self.subTest(configuration=configuration), self.assertRaises(ValueError):
+                compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
 
     def test_startup_failure(self):
         self.assertFalse(self.run_fake("raise SystemExit(2)")["passed"])

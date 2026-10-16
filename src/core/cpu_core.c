@@ -38,7 +38,6 @@ LOG_CHANNEL(CPU);
 extern u32  gte_read_register(u32 index);
 extern void gte_write_register(u32 index, u32 value);
 extern void pgxp_reset(void);
-void        gte_execute_instruction(cpu_instruction_t inst); /* defined in gte.c */
 
 cpu_state_t g_cpu_state;
 
@@ -243,8 +242,6 @@ bool cpu_do_state(state_wrapper_t* sw)
         : ((g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_INTERPRETER)
              ? CPU_EXECUTION_MODE_CACHED_INTERPRETER 
              : g_settings.cpu_execution_mode);
-    g_cpu_state.gte_completion_tick = 0u;
-    g_cpu_state.muldiv_completion_tick = 0u;
     cpu_update_memory_pointers();
     cpu_update_debug_dispatcher_flag();
   }
@@ -1045,7 +1042,7 @@ restart_instruction:;
         }
       } else {
         cpu_stall_until_gte_complete();
-        gte_execute_instruction(inst);
+        cpu_execute_gte(inst.bits);
       }
     } break;
 
@@ -1226,13 +1223,43 @@ NORETURN static void cpu_execute_interpreter(void)
 
 static void cpu_check_for_execution_mode_change(void)
 {
-  /* Settings can request RECOMPILER / CACHED_INTERPRETER, but if no backend
-   * is registered, the code-cache driver falls through to the interpreter
-   * loop.  We still record the requested mode (lets save-states and tooling
-   * see what the user asked for) but flag using_interpreter so sibling
-   * modules know there is no native code being emitted. */
-  s_locals.current_execution_mode = g_settings.cpu_execution_mode;
-  g_cpu_state.using_interpreter = !cpu_code_cache_is_using_recompiler();
+  const cpu_execution_mode_t requested = g_settings.cpu_execution_mode;
+  const bool native = cpu_code_cache_is_using_recompiler();
+  const bool was_native = !g_cpu_state.using_interpreter;
+  if (s_locals.current_execution_mode == requested && native == was_native)
+    return;
+
+  /* A native block starts at an instruction boundary outside a branch slot.
+   * Finish pending slots with the same prefetch/load-delay path that produced
+   * them. Event callbacks can interrupt this work through cpu_execute's scope. */
+  if (native && !was_native) {
+    while (g_cpu_state.next_instruction_is_branch_delay_slot) {
+      if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
+        timing_events_run_events();
+      cpu_core_execute_interpreter_instruction();
+    }
+  }
+
+  g_cpu_state.bus_error = false;
+  if (native != was_native) {
+    /* Native execution maintains cache tags but does not maintain line data.
+     * Those tags cannot validate the shared interpreter's instruction words. */
+    cpu_clear_icache();
+    if (!native) {
+      const u32 pc = g_cpu_state.pc;
+      if (IsAlignedPow2(pc, 4u) && cpu_safe_read_instruction(pc, &g_cpu_state.next_instruction.bits)) {
+        g_cpu_state.npc = pc + CPU_INSTRUCTION_SIZE;
+      } else {
+        g_cpu_state.npc = pc;
+        (void)cpu_fetch_instruction_for_interp_fallback();
+      }
+    }
+  }
+
+  s_locals.current_execution_mode = requested;
+  g_cpu_state.using_interpreter = !native;
+  if (requested != CPU_EXECUTION_MODE_INTERPRETER)
+    cpu_code_cache_reset();
 }
 
 NORETURN void cpu_exit_execution(void)
@@ -1248,6 +1275,12 @@ NORETURN void cpu_exit_execution(void)
 NORETURN void cpu_run_interpreter_loop(void)
 {
   cpu_execute_impl();
+}
+
+void cpu_execute_gte(u32 instruction)
+{
+  cpu_add_gte_ticks(gte_get_instruction_cycles(instruction));
+  gte_execute(instruction);
 }
 
 void cpu_recompiler_thunk_interpret_instruction(void)
@@ -1344,10 +1377,10 @@ void cpu_recompiler_thunk_write_memory_word(u32 address, u32 value)
 
 void cpu_execute(void)
 {
-  cpu_check_for_execution_mode_change();
-
   if (setjmp(s_locals.exit_jmp_buf) != 0)
     return;
+
+  cpu_check_for_execution_mode_change();
 
   if (s_locals.current_execution_mode == CPU_EXECUTION_MODE_INTERPRETER)
     cpu_execute_interpreter();

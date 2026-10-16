@@ -22,6 +22,29 @@ interpreted instruction counts, native block entry/completion counts and
 cached-block creation, reuse, executed-word and fallback counts at shutdown. The runtime smoke runner requires positive
 creation, reuse and execution counts when `--mode cached` is selected.
 
+## Execution state and timing
+
+Ordinary and cached interpretation share a prefetch pipeline. Switching between
+these modes retains prefetched words and instruction-cache data. Before native
+dispatch starts, pending branch-delay instructions finish through the shared
+executor. Leaving native execution rebuilds prefetch at the current PC and
+preserves pending loads. Native blocks maintain cache tags without line data,
+so transitions involving native execution invalidate that cache. This remains
+a limitation of the native cache model.
+
+GTE commands arm a completion deadline. Result-register reads wait for that
+deadline, including native reads whose destination is register zero. Outstanding
+GTE and multiply/divide deadlines remain in CPU save states and cross native
+block boundaries. Generated cases compare complete CPU and event serializations
+after uninterrupted and restored continuations. They cover those programs;
+full native timing and instruction-cache behavior remain under qualification.
+
+Native COP2 register transfers and commands check the current status register
+before accessing the GTE. A disabled GTE raises the coprocessor-unusable
+exception, including for reads to register zero. These instructions remain
+after their branch condition when compiled in a delay slot, so the exception
+retains the branch outcome and target.
+
 ## Recompiler backends
 
 | Backend | Status | Files |

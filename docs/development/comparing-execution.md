@@ -35,13 +35,28 @@ python3 scripts/compare_execution.py --kind state --right recomp \
   --interval 60 --checkpoints 5 --revision COMMIT_SHA /path/to/game.cue
 ```
 
-This saves independent files at frames 60, 120, 180, 240 and 300. Neither run
-loads a state or replays instructions on live devices. The tool compares every
+This saves independent files at frames 60, 120, 180, 240 and 300. By default,
+both runs continue without loading a state. The tool compares every
 byte of each uncompressed save-state file, plus the frame and global tick
 observations. It checks headers, sizes, checkpoint order and completion.
 A differing byte fails the comparison and records its first file offset.
 It does not omit timing fields, pipeline/cache contents or the execution-mode
 flag to make different runs match.
+
+To check save-state continuation within one execution mode:
+
+```sh
+python3 scripts/compare_execution.py --kind state --left recomp --right recomp \
+  --restore-at 2 --interval 60 --checkpoints 5 --bios /path/to/bios.bin \
+  --hash-input /path/to/game.bin --revision COMMIT_SHA /path/to/game.cue
+```
+
+The right process reloads its second checkpoint at frame 120. The left process
+continues uninterrupted. The runner requires one successful reload at the
+expected frame and tick, followed by all remaining checkpoints. It compares
+every saved byte, including the later continuation files. `--restore-at` must
+precede the final checkpoint and both modes must match. A successful load or
+continued frame count alone does not establish equivalent continuation.
 
 The file comparison covers the version 84 save-state serializers, including
 CPU, GTE, RAM, VRAM, device state, controller/card data and event records.
@@ -90,7 +105,8 @@ side effects live, and its linked/fastmem snapshots were not reliably paired.
 The independent runner removes that restoration/pairing requirement.
 
 CI exercises generated firmware loops and loader inputs, ordinary/cached
-comparisons, native repeatability with linking and mmap fastmem, rejection of
+comparisons, uninterrupted/restored continuation in all three modes, native
+repeatability with linking and mmap fastmem, rejection of
 an unimplemented LUT request, and native-versus-interpreter checkpoint
 mismatches. These checks cover those
 programs and configurations. They do not establish native/interpreter equality

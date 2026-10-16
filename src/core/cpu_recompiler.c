@@ -1152,44 +1152,28 @@ void cpu_recompiler_add_gte_ticks(cpu_recompiler_t* r, tick_count_t ticks)
 
 void cpu_recompiler_stall_until_gte_complete(cpu_recompiler_t* r)
 {
-  /* Subtract one for the current-instruction tick before stall, add it back. */
-  DebugAssert(r->cycles > 0);
-  r->cycles--;
-
   if (!r->dirty_gte_done_cycle) {
     if (r->gte_done_cycle > r->cycles)
-      r->cycles += (r->gte_done_cycle - r->cycles);
+      r->cycles = r->gte_done_cycle;
   } else {
+    /* A runtime wait changes the tick base by an unknown amount. Preserve the
+     * independent multiply/divide deadline in CPU state first. */
+    cpu_recompiler_flush(r, CPU_RC_FLUSH_MULDIV_DONE_CYCLE);
     cpu_recompiler_flush(r, CPU_RC_FLUSH_GTE_STALL_FROM_STATE);
   }
-  r->cycles++;
 }
 
-/* MULT/MULTU/DIV/DIVU update muldiv_completion_tick (or r->muldiv_done_cycle
- * when the cycle count is known statically); MFHI/MFLO/MTHI/MTLO wait for
- * it (see interp cpu_stall_until_muldiv_complete()).  Two cases:
- *
- * 1. Clean (in-block scheduling): the producer was DIV/DIVU (35 cycles
- *    static) or MULT/MULTU with constant rs (cycle count statically
- *    known); r->muldiv_done_cycle holds the cycle offset and we just
- *    bump r->cycles up to it without touching pending_ticks state.
- *
- * 2. Dirty (state-resident): the producer was non-const-rs MULT/MULTU
- *    (or it crossed a block boundary).  muldiv_completion_tick is in
- *    state; flush via the backend's CPU_RC_FLUSH_MULDIV_STALL_FROM_STATE
- *    handler (which performs `pending_ticks = max(pending_ticks + cycles,
- *    muldiv_completion_tick)` and zeroes r->cycles).
- *
- * Unlike GTE's stall (which subtracts/re-adds the current inst tick to
- * mirror cpu_add_gte_ticks's `+ 1`), muldiv's interp helper
- * cpu_add_muldiv_ticks uses NO `+ 1` (cpu_core_private.h:152), so the
- * consumer just compares against the post-incremented r->cycles directly. */
+/* Known producer durations stay relative to the block: DIV/DIVU use 35 ticks,
+ * while MULT/MULTU with a constant operand use its computed duration. Dynamic
+ * operands and cross-block producers keep the deadline in CPU state. The
+ * consumer's current instruction cycle is included in r->cycles. */
 void cpu_recompiler_stall_until_muldiv_complete(cpu_recompiler_t* r)
 {
   if (!r->dirty_muldiv_done_cycle) {
     if (r->muldiv_done_cycle > r->cycles)
       r->cycles = r->muldiv_done_cycle;
   } else {
+    cpu_recompiler_flush(r, CPU_RC_FLUSH_GTE_DONE_CYCLE);
     cpu_recompiler_flush(r, CPU_RC_FLUSH_MULDIV_STALL_FROM_STATE);
   }
 }
@@ -1280,7 +1264,12 @@ bool cpu_recompiler_try_swap_delay_slot(cpu_recompiler_t* r, cpu_reg_t rs, cpu_r
       }
     } break;
 
-    case CPU_OP_COP0: case CPU_OP_COP1: case CPU_OP_COP2: case CPU_OP_COP3: {
+    case CPU_OP_COP2:
+      /* A permission fault in the slot needs the resolved branch outcome and
+       * target. Emit it after the branch rather than before its condition. */
+      return false;
+
+    case CPU_OP_COP0: case CPU_OP_COP1: case CPU_OP_COP3: {
       if (cpu_cop_is_common_instruction(*next)) {
         switch (cpu_cop_common_op(*next)) {
           case CPU_COP_COMMON_MFCN: case CPU_COP_COMMON_CFCN: {
@@ -1298,9 +1287,7 @@ bool cpu_recompiler_try_swap_delay_slot(cpu_recompiler_t* r, cpu_reg_t rs, cpu_r
             return false;
         }
       } else {
-        if ((cpu_instruction_op_t)next->any.op != CPU_OP_COP2)
-          return false;
-        safe = true;
+        return false;
       }
     } break;
 
@@ -2176,11 +2163,15 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
     } break;
 
     case CPU_OP_COP2: {
+      if (r->v && r->v->check_cop2_enabled)
+        r->v->check_cop2_enabled(r);
       if (cpu_cop_is_common_instruction(*r->inst)) {
         switch (cpu_cop_common_op(*r->inst)) {
           case CPU_COP_COMMON_MFCN: case CPU_COP_COMMON_CFCN:
             if (r->inst->r.rt != 0u)
               CTNB(mfc2, NULL, CPU_RC_TF_GTE_STALL);
+            else
+              cpu_recompiler_stall_until_gte_complete(r);
             break;
           case CPU_COP_COMMON_MTCN: case CPU_COP_COMMON_CTCN:
             CTNB(mtc2, &pgxp_cpu_mtc2, CPU_RC_TF_READS_T | CPU_RC_TF_PGXP_WITHOUT_CPU);
