@@ -1549,7 +1549,7 @@ void cpu_recompiler_compile_j(cpu_recompiler_t* r)
     r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
   r->delay_slot_branch_was_taken = true;
   cpu_recompiler_compile_branch_delay_slot(r, true);
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, &newpc, true);
   r->block_ended = true;
 }
@@ -1558,18 +1558,12 @@ void cpu_recompiler_compile_jr_const(cpu_recompiler_t* r, cpu_recomp_compile_fla
 {
   DebugAssert(HASK(r, MS(cf)));
   const u32 newpc = KU32(r, MS(cf));
-  if ((newpc & 3u) && g_settings.cpu_recompiler_memory_exceptions) {
-    if (r->v && r->v->end_block_with_exception)
-      r->v->end_block_with_exception(r, CPU_EXCEPTION_ADEL);
-    r->block_ended = true;
-    return;
-  }
   if (r->v && r->v->store_constant_to_cpu_pointer)
     r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
   r->delay_slot_branch_was_taken = true;
   cpu_recompiler_compile_branch_delay_slot(r, true);
-  if (r->v && r->v->end_block)
-    r->v->end_block(r, &newpc, true);
+  if (!r->block_ended && r->v && r->v->end_block)
+    r->v->end_block(r, (newpc & 3u) ? NULL : &newpc, true);
   r->block_ended = true;
 }
 
@@ -1583,7 +1577,7 @@ void cpu_recompiler_compile_jal(cpu_recompiler_t* r)
     r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
   r->delay_slot_branch_was_taken = true;
   cpu_recompiler_compile_branch_delay_slot(r, true);
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, &newpc, true);
   r->block_ended = true;
 }
@@ -1600,8 +1594,8 @@ void cpu_recompiler_compile_jalr_const(cpu_recompiler_t* r, cpu_recomp_compile_f
     r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
   r->delay_slot_branch_was_taken = true;
   cpu_recompiler_compile_branch_delay_slot(r, true);
-  if (r->v && r->v->end_block)
-    r->v->end_block(r, &newpc, true);
+  if (!r->block_ended && r->v && r->v->end_block)
+    r->v->end_block(r, (newpc & 3u) ? NULL : &newpc, true);
   r->block_ended = true;
 }
 
@@ -1640,7 +1634,7 @@ void cpu_recompiler_compile_b_const(cpu_recompiler_t* r, cpu_recomp_compile_flag
     r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
   r->delay_slot_branch_was_taken = taken;
   cpu_recompiler_compile_branch_delay_slot(r, true);
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, &newpc, true);
   r->block_ended = true;
 }
@@ -1695,7 +1689,7 @@ void cpu_recompiler_compile_bxx_const(cpu_recompiler_t* r, cpu_recomp_compile_fl
     r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
   r->delay_slot_branch_was_taken = taken;
   cpu_recompiler_compile_branch_delay_slot(r, true);
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, &newpc, true);
   r->block_ended = true;
 }

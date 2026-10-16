@@ -88,6 +88,8 @@ typedef struct {
   bool branch_was_taken;
   bool exception_raised;
   bool bus_error;
+  /* A failed prefetch is delivered when that instruction reaches execution. */
+  u8 next_instruction_fetch_exception;
 
   /* load-delay slot bookkeeping.  MIPS R3000A defers the value of an
    * LB/LH/LW/etc by one instruction; the destination reads its old value

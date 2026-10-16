@@ -43,7 +43,8 @@ A differing byte fails the comparison and records its first file offset.
 It does not omit timing fields, pipeline/cache contents or the execution-mode
 flag to make different runs match.
 
-The file comparison covers the version 84 save-state serializers, including
+The file comparison accepts save-state versions 84 and 85 and compares the
+complete files, including
 CPU, GTE, RAM, VRAM, device state, controller/card data and event records.
 It excludes host mappings and dispatch flags, generated code, CPU PGXP shadow
 arrays not written by the CPU serializer, external BIOS/disc contents, host
