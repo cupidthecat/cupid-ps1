@@ -66,6 +66,10 @@ in both taken and untaken branch slots.
 Enabled memory transfers involving absent coprocessors still differ between
 engines and remain unqualified. Coprocessor branches also need further work.
 
+With COP2 enabled, unsupported GTE command encodings are logged and execution
+continues without a CPU exception. Their arithmetic effects and exact timing
+[remain unqualified](https://github.com/cupidthecat/cupid-ps1/issues/18).
+
 ## Recompiler backends
 
 | Backend | Status | Files |

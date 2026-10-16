@@ -27,9 +27,12 @@
 
 #include "common/assert.h"
 #include "common/bitutils.h"
+#include "common/log.h"
 #include "common/types.h"
 
 #include <string.h>
+
+LOG_CHANNEL(CPU);
 
 /* Architectural clamp limits. */
 #define MAC0_MIN_VALUE     (-((s64)1 << 31))
@@ -982,7 +985,7 @@ void gte_execute(u32 inst_bits)
     case 0x3E: gte_execute_gpl(inst_bits); break;
     case 0x3F: gte_execute_ncct(inst_bits); break;
     default:
-      Panic("Unhandled GTE instruction");
+      ERROR_LOG("Unhandled GTE instruction: 0x%08X", inst_bits);
       break;
   }
 }
