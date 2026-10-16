@@ -10,6 +10,8 @@
 
 typedef struct {
   cpu_state_t                    checkpoints[4];
+  global_ticks_t                 global_ticks[4];
+  global_ticks_t                 event_ticks[4];
   u8*                            ram;
   u32                            ram_size;
   cpu_cached_interpreter_stats_t stats;
@@ -74,7 +76,9 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
     cpu_execute();
     timing_event_deactivate(&event);
     timing_event_destroy(&event);
-    result->checkpoints[phase] = g_cpu_state;
+    result->checkpoints[phase]  = g_cpu_state;
+    result->global_ticks[phase] = timing_events_get_global_tick_counter();
+    result->event_ticks[phase]  = timing_events_get_event_run_tick_counter();
     /* Host mapping addresses are not emulated CPU state. */
     result->checkpoints[phase].memory_handlers = NULL;
     result->checkpoints[phase].fastmem_base    = NULL;
@@ -117,6 +121,8 @@ static execution_result_t* compare_program(u32 start, const u32* words, size_t c
       test_fail(__FILE__, __LINE__, "CPU checkpoint byte %zu differs: interp=%u cached=%u", i, expected[i], actual[i]);
   }
   EXPECT_EQ(interpreter->ram_size, cached->ram_size);
+  EXPECT_EQ(memcmp(interpreter->global_ticks, cached->global_ticks, sizeof(cached->global_ticks)), 0);
+  EXPECT_EQ(memcmp(interpreter->event_ticks, cached->event_ticks, sizeof(cached->event_ticks)), 0);
   EXPECT_EQ(memcmp(interpreter->ram, cached->ram, cached->ram_size), 0);
   release_result(interpreter);
   return cached;
