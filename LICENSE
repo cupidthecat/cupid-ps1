@@ -1,0 +1,38 @@
+# Licensing and attribution
+
+Full license texts for every redistributed component live in [`licenses/`](licenses/). Mapping by component:
+
+### Vendored dependencies (`dep/`)
+
+| Component | SPDX | License file(s) in `licenses/` |
+|-----------|------|-------------------------------|
+| `dep/glad/` (OpenGL + EGL loader, generated) | `(WTFPL OR CC0-1.0) AND Apache-2.0` | `glad-SPDX.txt`, `WTFPL.txt`, `CC0-1.0.txt`, `Apache-2.0.txt` |
+| `dep/libchdr/` (CHD reader) | `BSD-3-Clause` | `libchdr-BSD-3-Clause.txt` |
+| `dep/lzma/` (LZMA SDK, consumed by libchdr) | Public domain | `lzma-public-domain.txt` |
+| `dep/soundtouch/` (prebuilt `libsoundtouch.so` + C wrapper header) | `LGPL-2.1` | `soundtouch-LGPL-2.1.txt`, `LGPL-2.1.txt` |
+| `dep/stb/stb_image.h` (PNG decode) | `MIT OR Unlicense` | `stb_image-MIT-or-Unlicense.txt` |
+
+### Source licensing and attribution
+
+The existing source licensing notice specifies **CC-BY-NC-ND-4.0**
+(Attribution-NonCommercial-NoDerivatives 4.0 International), with attribution
+to cupid-ps1 and [DuckStation](https://github.com/stenzek/duckstation).
+The full license text is in [licenses/CC-BY-NC-ND-4.0.txt](licenses/CC-BY-NC-ND-4.0.txt).
+
+The existing notice requires attribution, limits use to noncommercial purposes,
+and does not permit public redistribution of modified versions. Vendored
+dependencies retain their own notices and licenses listed above.
+
+### System libraries (linked, not vendored, not redistributed)
+
+Linked dynamically against the host system's copies; nothing from these projects is shipped in this repo, so their license texts are not bundled. Listed for transparency:
+
+| Library | Typical license |
+|---------|-----------------|
+| SDL2 | zlib |
+| zlib (`-lz`) | zlib |
+| zstd (`-lzstd`) | BSD-3-Clause / GPLv2 dual |
+| Mesa / GL (`-lGL`, `-lEGL`) | MIT-style (Mesa) |
+| X11 (`-lX11`) | MIT |
+| udev (`-ludev`) | LGPL-2.1+ |
+| glibc (libc, libm, libpthread, libdl) | LGPL-2.1+ |
