@@ -1,15 +1,9 @@
 /*
- * SIO0 device implementing the standard PS1 1Mbit memory card protocol.
- * Each Transfer() call advances a one-byte state machine; reads return
- * fixed handshake bytes interleaved with sector data, writes echo the
- * previous byte while the card stages 128 bytes into its frame buffer,
- * and the GET_ID command returns a static {04 00 00 80} block.
- *
- * Externs (see core/system.* once ported):
- *   system_get_ticks_per_second ; for the lazy save-back delay
- *   system_on_memory_card_accessed; OSD "card touched" hook
- * Both are declared __attribute__((weak)) so this TU compiles before either
- * lands; the weak fallback returns the PS1 master clock / does nothing.
+ * SIO0 protocol for a standard 1 Mbit PS1 memory card.
+ * Byte transfers advance the command state machine. Reads interleave handshake
+ * bytes and sector data; writes stage 128-byte sectors. GET_ID returns
+ * {04 00 00 80}. Optional system callbacks provide save-delay timing and report
+ * card accesses; absent callbacks use the PS1 master clock and no notification.
  */
 
 #include "core/memory_card.h"

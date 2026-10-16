@@ -1,23 +1,8 @@
 /*
- * fields exposed.  Bitfield members lose their `:1` packing (saves space at
- * the cost of cache: still <1 KiB total) so plain `bool` is fine.
- *
- * Serialization mapping:
- *   void Settings::Load(const SI& si, const SI& controller_si)
- *     -> void settings_load(settings_t* s, settings_interface_t* si,
- *                           settings_interface_t* controller_si);
- *   void Settings::Save(SI& si, bool ignore_base) const
- *     -> void settings_save(const settings_t* s, settings_interface_t* si,
- *                           bool ignore_base);
- *
- * Per-game cheats / hotkeys / achievements config is *stored* in the struct
- * (so callers can configure it later) but `settings_load` / `settings_save`
- * skip the achievements + per-controller binding sections - the input/cheevo
- * subsystems are deferred and pull in too many dependencies to load right
- * now.  See "// achievements: not loaded yet" markers in the .c.
- *
- * std::string fields are heap `char*`; settings_init() / settings_destroy()
- * own them.  Memory card path entries are similarly owned.
+ * Core configuration and settings serialization interfaces.
+ * String fields and memory-card paths are heap allocated and managed by
+ * settings_init() and settings_destroy(). Input and frontend code handle
+ * controller bindings and hotkeys.
  */
 
 #ifndef CUPID_CORE_SETTINGS_H

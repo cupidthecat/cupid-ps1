@@ -817,8 +817,7 @@ static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ti
 
     case MDEC_DATA_OUTPUT_DEPTH_15BIT: {
       if (g_settings.mdec_use_old_routines) {
-        /* Old path: bit positions extracted at >>3 windows; matches
-         * Mednafen's pre-2018 reference decoder. */
+        /* The older path extracts five-bit channels at bit offsets 3, 11 and 19. */
         const u16 a = (u16)((u16)s_state.status.bits.data_output_bit15 << 15);
         for (u32 i = 0; i < 256u;) {
           u32 color = s_state.block_rgb[i++];
@@ -921,7 +920,7 @@ static bool mdec_decode_rle_old(s16* blk, const u8* qt)
 
     s_state.current_coefficient += ((n >> 10) & 0x3Fu) + 1u;
     if (s_state.current_coefficient < 64) {
-      /* Mednafen-style rounding: (val * qt * scale + 4) / 8. */
+      /* Round the scaled coefficient with (val * qt * scale + 4) / 8. */
        s32 val =
         ((s32)SignExtendN_u32((u32)(n & 0x3FFu), 10) *
            (s32)ZeroExtend32_u8(qt[s_state.current_coefficient]) * 
@@ -1027,8 +1026,8 @@ static bool mdec_decode_rle_new(s16* blk, const u8* qt)
     s_state.current_coefficient = 0;
     s_state.current_q_scale = n >> 10;
 
-    /* Store DCT blocks with 4 extra bits of precision; the +/- 8 bias
-     * mirrors Mednafen's rounding so RGB output matches bit-for-bit. */
+    /* Store DCT blocks with four extra bits of precision and apply the
+     * sign-dependent +/-8 bias to nonzero coefficients. */
     const s32 val = (s32)SignExtendN_u32((u32)n, 10);
     const s32 coeff =
       (s_state.current_q_scale == 0) ? (val << 5)
@@ -1088,15 +1087,14 @@ static void mdec_idct_new(s16* blk)
 
 static void mdec_yuv_to_rgb_new(u32 xx, u32 yy, const s16* Crblk, const s16* Cbblk, const s16* Yblk)
 {
-  /* BT.601 YUV->RGB integer coefficients, rounding formula from Mednafen:
+  /* BT.601 YUV-to-RGB conversion with integer coefficients and rounding:
    *   r = clamp(sext9(Y + (((359 * Cr) + 0x80) >> 8)), -128, 127) + addval
    *   g = clamp(sext9(Y + ((((-88 * Cb) & ~0x1F) + ((-183 * Cr) & ~0x07) + 0x80) >> 8)), -128, 127) + addval
    *   b = clamp(sext9(Y + (((454 * Cb) + 0x80) >> 8)), -128, 127) + addval
    *
-   * The sext9-then-add-128 dance on the chroma side is hardware-accurate;
-   * 0x80 is added *after* sign-extension, matching the real PS1 decoder.
-   * The masks (~0x1F, ~0x07) preserve the LSB-truncation quirk of the
-   * Sony silicon.
+   * Sign-extend the chroma result to nine bits before adding 0x80 for
+   * unsigned output. The green-channel masks truncate the low bits of
+   * the Cb and Cr products before summation.
    *
    * Note: the chroma block is subsampled 2:1 in both axes, so we sample
    * Crblk/Cbblk at (xx/2 + (y+yy)/2 * 8) and reuse it across an 8-wide

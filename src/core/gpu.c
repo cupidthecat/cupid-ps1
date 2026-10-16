@@ -1,20 +1,10 @@
 /*
- * The C++ class GPU collapses into a file-static gpu_state_t struct here.
- * The CRTC / command tick events route through timing_event_t.  The FIFO is
- * a fixed-size (4096) circular buffer of u64 entries (the upper 32 bits are
- * an MADDR shadow used by PGXP; we keep them around for layout parity but
- * the lower 32 bits are what every command actually pops).
+ * GPU command processing, register state and CRTC timing.
  *
- * Dropped vs C++:
- *   - PGXP-precise polygon/line paths (fixed-point sub-pixel)
- *   - GPU dump recorder/player
- *   - Hardware-renderer aware codepaths (IsUsingHardwareBackend, sync etc.)
- *   - imgui debug window, screenshot capture, media capture
- *   - Aspect-ratio / draw-rect calc (frontend will redo it)
- *   - System::* feedback (resolution autoscale etc.)
- *
- * All the actual per-command implementations are #included from
- * gpu_commands.c so we keep one TU per source module.
+ * The file-static gpu_state_t owns a 4096-entry u64 FIFO. Each entry holds a
+ * command word in the low 32 bits and a PGXP memory-address shadow in the high
+ * 32 bits. Command and CRTC events use timing_event_t.
+ * Command handlers are included from gpu_commands.c in this translation unit.
  */
 
 #include "core/gpu.h"
@@ -350,11 +340,8 @@ void gpu_initialize(void)
   g.fifo_size = 128;
   g.max_run_ahead = 128;
   g.console_is_pal = system_is_pal_region ? system_is_pal_region() : false;
-  /* Mirror duckstation gpu.cpp:84: DeinterlacingMode=Progressive forces 240p
-   * scanout (height_shift=y_shift instead of vert_int) so 480i games render
-   * as half-height progressive.  Without this the user's INI knob is a no-op
-   * and Crash Bandicoot's BIOS logo + intro display as 480i with stale-field
-   * weave / flicker artifacts. */
+  /* Progressive deinterlacing uses half-height progressive scanout for
+   * interlaced modes (height_shift=y_shift instead of vert_int). */
   g.force_progressive_scan =
     (g_settings.display_deinterlacing_mode == DISPLAY_DEINTERLACING_MODE_PROGRESSIVE);
   gpu_alloc_blit_buf();

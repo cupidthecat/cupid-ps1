@@ -1,17 +1,6 @@
 /*
- * GameDatabase::Entry::ApplySettings.
- *
- * For each trait/optional override, the C++ source either flips a settings
- * field, accumulates a human-readable "compatibility settings have been
- * applied" message, or logs a warning.  We collapse the OSD message
- * accumulator into INFO_LOG calls gated on display_osd_messages; the
- * cupid-ps1 frontend doesn't have an icon-OSD layer yet, so all per-trait
- * flips simply log inline rather than emitting a single bulleted summary
- * at the end.
- *
- * Field/enum availability: every settings_t field referenced here is
- * already present in core/settings.h (verified by the porting subagent
- * before writing this file); no scaffolding fields were added.
+ * Apply game-database traits and optional settings overrides.
+ * Compatibility-setting messages use INFO_LOG when display_osd_messages is set.
  */
 
 #include "core/game_database.h"

@@ -1,23 +1,8 @@
 /*
- * CDImage (abstract base) is a (struct, vtable) pair:
- *
- *   typedef struct cd_image           cd_image_t;
- *   typedef struct cd_image_vtable    cd_image_vtable_t;
- *   struct cd_image { const cd_image_vtable_t* vtbl; ... };
- *
- * Concrete implementations (currently only cue/bin via cd_image_cue.c) embed
- * cd_image_t as their first member and supply a vtable.  Callers go through
- * the inline wrappers (cd_image_read_sector_from_index, ...).
- *
- * Type-mapping notes:
- *   std::vector<Track>/<Index>  -> heap arrays + counts (tracks/indices)
- *   std::optional<T>            -> bool return + out pointer
- *   std::string m_filename      -> heap-allocated char* (owned by cd_image_t)
- *   BitField<>  control bits    -> u8 + setter/getter helpers + named accessors
- *
- * Format support: only .bin/.cue (cue with BINARY/WAVE files) and .m3u
- * playlists referencing them.  CHD/PBP/MDS/CCD/PPF/SBI/Device paths are not
- * ported.
+ * Disc-image interfaces implemented through a base struct and vtable.
+ * Concrete image types embed cd_image_t as their first member. The base owns
+ * track/index arrays and its heap-allocated filename; inline wrappers dispatch
+ * reads and other operations to the selected format implementation.
  */
 
 #ifndef CUPID_UTIL_CD_IMAGE_H
@@ -254,9 +239,8 @@ struct cd_image {
 u32  cd_image_get_bytes_per_sector(cd_image_track_mode_t mode);
 void cd_image_deinterleave_subcode(const u8* subcode_in, u8* subcode_out);
 
-/* Opens a cue (the only supported entry point in the C port). Caller owns
- * the returned image; free with cd_image_destroy. NULL on failure (error
- * populated). */
+/* Open an image by path. The caller owns the result and releases it with
+ * cd_image_destroy(). On failure, return NULL and populate error. */
 cd_image_t* cd_image_open(const char* path, Error* error);
 
 cd_image_t* cd_image_open_cue(const char* path, Error* error);

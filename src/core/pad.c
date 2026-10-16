@@ -1,18 +1,7 @@
 /*
- * SIO0 controller / memory-card arbiter at 0x1F801040.
- *
- *   - Memory-card backup-on-rollback path: the cupid-ps1 port doesn't yet have
- *     runahead, so the BackupMemoryCardState/RestoreMemoryCardState pair
- *     and the associated frame-window logic in DoState are simplified to
- *     "always serialize the memcards" when running.  When runahead lands
- *     this path can be revisited.
- *   - Save-state mismatch OSD messages (Host:: not ported); state slot
- *     mismatches just log instead of popping a notification.
- *   - The dummy memory card used for save-state cross-checks.
- *
- * Memory cards themselves are a future port; the slot getter/setter exists
- * so the plumbing stays ready for them, but the file currently holds NULL
- * card pointers and skips any per-card state.
+ * SIO0 controller and memory-card arbitration at 0x1F801040.
+ * The module handles byte transfers, slot selection and device save states.
+ * Save-state device mismatches are reported through the log.
  */
 
 #include "core/pad.h"
@@ -33,7 +22,7 @@
 
 LOG_CHANNEL(Pad);
 
-/* Forward decl: the memory card module is a sibling parallel agent. */
+/* Optional memory-card lifecycle, transfer and save-state hooks. */
 struct memory_card;
 extern void memory_card_destroy(struct memory_card* mc) __attribute__((weak));
 extern void memory_card_reset(struct memory_card* mc) __attribute__((weak));

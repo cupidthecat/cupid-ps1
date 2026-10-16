@@ -181,9 +181,7 @@ void gte_write_register(u32 index, u32 value);
 /* Direct pointer for the cpu_core MFC2/MTC2 fast paths. */
 u32* gte_get_register_ptr(u32 index);
 
-/* Decode and execute a single GTE instruction word.  Per the porting plan
- * we resolve the sf/mx/v/cv/lm flags at runtime here rather than via the
- * C++ template specialization the original used. */
+/* Decode and execute a GTE instruction, resolving sf/mx/v/cv/lm at runtime. */
 void gte_execute(u32 inst_bits);
 
 /* cpu_core.c-facing variant: the dispatcher hands us the decoded MIPS word

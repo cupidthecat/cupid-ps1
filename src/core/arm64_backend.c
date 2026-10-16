@@ -1,26 +1,8 @@
 /*
- * AArch64 backend for the cupid-ps1 CPU recompiler.  Mirrors x64_backend.c.
- * Whole TU is gated on __aarch64__ so x86_64 hosts compile an empty TU.
- *
- * Current scope (foundation):
- *   - Dispatcher prelude (g_enter_recompiler / g_dispatcher /
- *     g_compile_or_revalidate / g_discard_and_recompile / g_interpret_block /
- *     g_run_events_and_dispatch).
- *   - Lifecycle hooks (reset / begin_block / end_compile / end_block /
- *     end_block_with_exception) with cycle accounting.
- *   - Host-reg primitives (load constant / load from ptr / store to ptr /
- *     store constant / copy / flush).
- *   - compile_fallback uses the M6 end-block-and-interpret path so all
- *     unimplemented per-MIPS-op hooks route through the uncached-block
- *     interpreter.
- *
- * Out of scope (TODO, follow-up landings):
- *   - Per-MIPS-op compile_* hooks (ALU/shifts/branches/mul-div/lxx-sxx/
- *     COP0/COP2).  Until they land, every op falls back to interpreter
- *     so blocks compile to a tiny stub that hands off to g_interpret_block.
- *   - generate_block_protect_check / generate_icache_check_and_update.
- *   - Fastmem load/store sites.
- *   - PGXP CPU-mode call.
+ * AArch64 recompiler dispatcher, block lifecycle and host-register operations.
+ * This file is compiled only on __aarch64__ targets. Per-instruction hooks use
+ * the uncached interpreter fallback. Block-protection checks, instruction-cache
+ * checks, fastmem accesses and PGXP calls remain unimplemented.
  */
 
 #include "arm64_backend.h"
@@ -385,16 +367,9 @@ static u32 emit_asm_functions(void* code, u32 code_size)
   void* const dispatch_addr = arm64_emit_cursor(&e);
   g_dispatcher = (const void*)dispatch_addr;
 
-  /* RWARG1 = pc; load g_code_lut[(pc>>16) & ...].slot[pc & ...].
-   * Two-level LUT lookup mirroring the x64 dispatcher.  TODO once UBFX +
-   * indexed [base + idx*scale] memops land in arm64_emit, this can fold to
-   * the same shape as x64.  For now: a portable fallback that performs the
-   * lookup via shifts + adds, accepting some extra instruction bytes. */
+  /* Load the guest PC for a two-level code-LUT lookup through the C helper. */
   arm64_ldr_r_m(&e, ARM64_SZ_32, RWARG1, state_mem(STATE_DISP(pc)));
-  /* Punt the LUT walk to a C helper so chunk 0 lands without needing every
-   * arithmetic primitive.  cpu_code_cache_dispatch_lookup(pc) returns the
-   * host_code address (or g_compile_or_revalidate_block / g_interpret_block
-   * for invalid blocks). */
+  /* The helper returns host code or a compile/interpret fallback address. */
   arm64_call_abs64(&e, (const void*)&cpu_code_cache_dispatch_lookup, RTMP1);
   /* Result in X0 → branch to it. */
   arm64_br(&e, ARM64_X0);

@@ -410,10 +410,8 @@ static void gte_mul_mat_vec_t(const s16* M, const s32 T[3], s16 Vx, s16 Vy, s16 
 #undef M_AT
 }
 
-/* MVMVA with cv=2 (FC translation) is documented as buggy: only the
- * first column is added to T<<12, and IR is set from that partial dot
- * (without lm), then MAC/IR is overwritten by the remaining two
- * columns.  We faithfully reproduce that behavior. */
+/* MVMVA with cv=2 (FC translation) first adds column 0 to T<<12 and
+ * updates IR without lm. The remaining columns then overwrite MAC/IR. */
 static void gte_mul_mat_vec_buggy(const s16* M, const s32 T[3], s16 Vx, s16 Vy, s16 Vz, u8 shift,
                                   bool lm)
 {

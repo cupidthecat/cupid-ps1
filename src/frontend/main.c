@@ -599,10 +599,8 @@ static void apply_frontend_settings(void)
   if (fastboot && strcmp(fastboot, "1") == 0)
     g_settings.bios_patch_fast_boot = true;
 
-  /* CUPID_OLD_MDEC=1 swaps the new (Mednafen integer) decoder for the old
-   * (float reference) one. Diagnostic toggle for FMV corruption; if old
-   * path renders correctly and new path is rainbow-noisy, the bug is in
-   * mdec_decode_rle_new / mdec_idct_new / mdec_yuv_to_rgb_new. */
+  /* Select the older floating-point MDEC routines for diagnostic comparison
+   * with the integer RLE, IDCT and YUV-to-RGB path. */
   if (getenv("CUPID_OLD_MDEC"))
     g_settings.mdec_use_old_routines = true;
 

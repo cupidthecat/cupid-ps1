@@ -1,12 +1,7 @@
 /*
- * SIO0 controller / memory-card arbiter (the chip behind 0x1F801040).  The
- * C++ namespace `Pad` collapses to a `pad_*` prefix; all storage is process-
- * wide singleton state in pad.c.
- *
- * Memory cards are not part of this port (deferred), but the API still
- * exposes the GetMemoryCard/SetMemoryCard hooks so the controller transfer
- * fall-through compiles unchanged when the memcard module lands later --
- * passing NULL keeps the slot empty.
+ * SIO0 controller and memory-card interfaces.
+ * Slot accessors manage controller, memory-card and multitap devices; a NULL
+ * device pointer leaves the slot empty. State lives in pad.c.
  */
 
 #ifndef CUPID_CORE_PAD_H

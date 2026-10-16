@@ -1,13 +1,8 @@
 /*
- * Three root counters: T0/T1 driven by GPU dotclock or hblank, T2 driven by
- * sysclk or sysclk/8.  Each can fire an IRQ at target or overflow.
- *
- * External (parallel-agent) dependencies:
- *   gpu_synchronize_crtc()          ; gpu agent
- *   gpu_is_crtc_scanline_pending()  ; gpu agent
- *   system_get_max_slice_ticks()    ; system agent
- *   system_scale_ticks_to_overclock(t)
- *   system_unscale_ticks_to_overclock(t, carry*)
+ * Three root counters with target and overflow interrupts.
+ * T0 selects the system clock or GPU dotclock; T1 selects the system clock or
+ * hblank; T2 selects the system clock or its divide-by-eight output.
+ * GPU synchronization and system tick scaling coordinate counter updates.
  */
 
 #include "core/timers.h"
@@ -31,7 +26,7 @@ extern tick_count_t system_scale_ticks_to_overclock(tick_count_t t) __attribute_
 extern tick_count_t system_unscale_ticks_to_overclock(tick_count_t t, tick_count_t* carry)
   __attribute__((weak));
 
-/* Default scaling/slice values when the system module isn't yet linked. */
+/* Default slice and identity tick scaling when optional system hooks are absent. */
 static tick_count_t default_max_slice_ticks(void) { return 1000; }
 static tick_count_t default_scale(tick_count_t t)   { return t; }
 static tick_count_t default_unscale(tick_count_t t, tick_count_t* c) { (void)c; return t; }

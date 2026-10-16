@@ -1,12 +1,6 @@
 /*
- * Settings::Save, but skip a few sections that pull in subsystems we have
- * not yet ported:
- *   - achievements (Cheevos): the *fields* are loaded for round-trip but no
- *     side-effects (Achievements::* / RAIntegration calls) happen.
- *   - per-controller bindings (Pad1..Pad8): only the controller *type* slot
- *     is read, because Controller::GetSettingsSection / GetControllerInfo
- *     belong to the input layer.
- *   - hotkeys: not touched at all yet.
+ * Core settings defaults, parsing and serialization.
+ * Controller bindings and hotkeys are managed by the input and frontend layers.
  */
 
 #include "core/settings.h"
@@ -1053,17 +1047,9 @@ void settings_load(settings_t* s, settings_interface_t* si, settings_interface_t
   s->gpu_use_thread               = settings_interface_get_bool_value(si, "GPU", "UseThread", true);
   s->gpu_max_queued_frames        = sat_u32_to_u8(settings_interface_get_uint_value(si, "GPU", "MaxQueuedFrames",
                                                                                     SETTINGS_DEFAULT_GPU_MAX_QUEUED_FRAMES));
-  /* Default true in c-ps1: SW dual-write to g_vram is always populated by the
-   * HW backend's hw_draw_polygon SW path, so reading back from g_vram for
-   * display extract is correct and free.  The GL VBO fast path's draws don't
-   * yet land visible content in vram_texture (deferred; see PLAN.md), so
-   * forcing the SW readback path is what makes OpenGL renderer show pixels
-   * instead of black.  Upstream duckstation toggles this per-game via
-   * GameDB; we flip the default. */
-  /* Default: true.  Mesa Intel iGPUs serialize `glGetTextureSubImage` through
-   * the host CPU and stall the audio thread (heavy underruns).  The SW row
-   * converter reads `g_vram` (filled by SW dual-write) at full framerate.
-   * GameDB / settings.ini can flip this off per-game on capable GPUs. */
+  /* Default to software VRAM readback. The OpenGL backend maintains g_vram
+   * alongside its GL target; this avoids a synchronous GL readback. */
+  /* Settings and game-database overrides can select GL readback instead. */
   s->gpu_use_software_renderer_for_readbacks = settings_interface_get_bool_value(si, "GPU", "UseSoftwareRendererForReadbacks", true);
   s->gpu_use_software_renderer_for_memory_states = settings_interface_get_bool_value(si, "GPU", "UseSoftwareRendererForMemoryStates", false);
   s->gpu_scaled_interlacing       = settings_interface_get_bool_value(si, "GPU", "ScaledInterlacing", true);

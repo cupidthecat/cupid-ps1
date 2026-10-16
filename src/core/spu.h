@@ -1,22 +1,8 @@
 /*
- * namespace SPU -> spu_ prefix.  All SPU state is process-wide singleton
- * (one SPU per console), so storage lives as file-static globals in spu.c.
- *
- *   - As of the SoundTouch port the SPU pushes stereo s16 frames through
- *     core_audio_stream owns the ring buffer + SoundTouch handle.
- *   - The ImGui debug window is dropped (no GUI in cupid-ps1).
- *   - SPU_DUMP_ALL_VOICES and SPU_ENABLE_VU_METER builds are dropped.
- *   - The SIMD reverb resampler is replaced with a scalar version that
- *     produces bit-identical output (the FIR taps and accumulation order
- *     match the SIMD path).
- *   - Cross-module hooks (CDROM stereo input, DMA request line, IRQ9,
- *     timing-event scheduler) come in as `extern` callbacks declared at
- *     the top of spu.c so the SPU stays self-contained until those modules
- *     land.
- *
- *   - CPU overclock honored via system_scale_ticks_to_overclock() in
- *     spu_initialize / spu_cpu_clock_changed and the (X*D)/(N*768) branch
- *     in spu_execute / internal_generate_pending_samples.
+ * SPU control, timing, DMA and CD-audio interfaces.
+ * The console's SPU state lives in spu.c. Generated stereo s16 frames pass to
+ * the core audio stream, which owns its ring buffer and SoundTouch handle.
+ * System tick scaling accounts for CPU overclock settings.
  */
 
 #ifndef CUPID_CORE_SPU_H

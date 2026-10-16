@@ -1,15 +1,8 @@
 /*
- * Path:: namespace collapsed to path_ prefix.  std::string returns become
- * char* (caller frees with free()) or are written into caller-supplied
- * small_string_t* buffers.  std::string_view args become (data, len) pairs.
- * std::vector<std::string_view> split/join are dropped here - callers walk
- * paths in-line; we only export Combine/BuildRelativePath/Canonicalize/
- * MakeRelative/GetExtension/StripExtension/GetFileName/GetDirectory/
- * RemoveLength/ChangeExtension/IsAbsolute/ToNativePath that the C port
- * actually needs.
- *
- * Native separator on Linux is '/'.  ToNativePath is effectively a slash
- * normaliser (collapses runs of '/' in source, strips trailing slashes).
+ * Path manipulation for Linux paths, using '/' as the native separator.
+ * Functions return heap strings for the caller to free or write into supplied
+ * small_string_t buffers. String views use (data, len) pairs.
+ * ToNativePath collapses repeated slashes and removes trailing slashes.
  */
 
 #ifndef CUPID_COMMON_PATH_H

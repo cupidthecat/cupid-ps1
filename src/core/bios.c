@@ -1,14 +1,7 @@
 /*
- * BIOS image loader + hash database + fast-boot patcher.  The hash table
- * for human readability, not lookup speed (we linear-scan; <100 entries).
- *
- * External (parallel-agent) dependencies:
- *   core_get_string_setting_value(section, key, def, out) ; settings agent
- *   emu_folders_get_bios()                                ; folders agent
- *   settings_get_console_region_name(region)              ; settings agent
- *
- * Stubs for the above can be supplied by the calling translation unit; until
- * the settings/folders modules land, bios_get_image() simply returns false.
+ * BIOS image loading, hash identification and fast-boot patching.
+ * Image metadata uses a linear table lookup. Optional settings and folder
+ * callbacks supply the BIOS directory, image selection and region names.
  */
 
 #include "core/bios.h"

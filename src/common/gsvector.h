@@ -1,33 +1,13 @@
 /*
- * GSVector. C port of duckstation common/gsvector.h + gsvector_sse.h.
+ * Integer vector helpers for the software rasterizer.
  *
- * Surface limited to what the SW-rasterizer SIMD body needs:
- *   - GSVector4i: 128-bit integer (4xs32 / 8xs16 / 16xs8). SSE4.1 baseline.
- *   - GSVector8i: 256-bit integer (8xs32 / 16xs16). AVX2-gated.
+ * GSVector4i holds 128 bits (4 s32, 8 s16 or 16 s8 lanes) and uses SSE4.1.
+ * GSVector8i holds 256 bits (8 s32 or 16 s16 lanes) and requires AVX2.
+ * The types are intrinsic typedefs; gsv4i_* and gsv8i_* name their operations.
  *
- * Skipped vs upstream:
- *   - Float vectors (GSVector4 / GSVector2 / GSVector2i). Rasterizer SIMD
- *     path is integer-only; will port when first caller appears.
- *   - GSMatrix2x2 / GSMatrix4x4. Unused by SW renderer.
- *   - NEON path. Linux x64 build only.
- *   - nosimd fallback. SSE2 is implicit on every x64 target we ship.
- *
- * Conventions:
- *   - Types are bare intrinsic typedefs (no wrapper struct). C lets us name
- *     ops directly so we skip the C++ operator-overloading dance.
- *   - Value ops (add/sub/mul/min/max/cmp/blend on full vectors) are
- *     `static inline` functions.
- *   - Template-param ops (immediate-encoded shifts, blends, extracts,
- *     inserts) are macros. the underlying intrinsics require compile-time
- *     constants and `static inline` with `int n` lets non-literal callers
- *     compile but then fault inside the intrinsic. Macros keep the constness
- *     contract checkable at the call site.
- *   - andnot follows duckstation convention: `andnot(this, mask) = ~this & mask`
- *     (NOT the `_mm_andnot_si128(a,b) = ~a & b` order. duckstation flips it
- *     so `x.andnot(mask)` reads as "x but only where mask is set").
- *     C wrapper keeps the duckstation order: `gsv4i_andnot(this, mask)`.
- *
- * Naming: `gsv4i_*` (128-bit int), `gsv8i_*` (256-bit int).
+ * Operations with immediate operands are macros because the intrinsics require
+ * compile-time constants. Other operations are inline functions.
+ * gsv4i_andnot(v, mask) returns ~v & mask.
  */
 
 #ifndef CUPID_COMMON_GSVECTOR_H
@@ -66,7 +46,7 @@ ALWAYS_INLINE GSVector4i gsv4i_set32(s32 a)       { return _mm_set1_epi32(a); }
 ALWAYS_INLINE GSVector4i gsv4i_set16(s16 a)       { return _mm_set1_epi16(a); }
 ALWAYS_INLINE GSVector4i gsv4i_set8(s8 a)         { return _mm_set1_epi8(a); }
 
-/* setr matches duckstation cxpr ordering (lane 0 = first arg). */
+/* setr places the first argument in lane 0. */
 ALWAYS_INLINE GSVector4i gsv4i_setr32(s32 a, s32 b, s32 c, s32 d)
 { return _mm_setr_epi32(a, b, c, d); }
 ALWAYS_INLINE GSVector4i gsv4i_setr16(s16 s0, s16 s1, s16 s2, s16 s3,
@@ -94,7 +74,7 @@ ALWAYS_INLINE GSVector4i gsv4i_or (GSVector4i a, GSVector4i b)  { return _mm_or_
 ALWAYS_INLINE GSVector4i gsv4i_xor(GSVector4i a, GSVector4i b)  { return _mm_xor_si128(a, b); }
 ALWAYS_INLINE GSVector4i gsv4i_not(GSVector4i a)
 { return _mm_xor_si128(a, _mm_cmpeq_epi32(_mm_setzero_si128(), _mm_setzero_si128())); }
-/* duckstation convention: this.andnot(mask) = ~this & mask */
+/* Returns ~v & mask. */
 ALWAYS_INLINE GSVector4i gsv4i_andnot(GSVector4i v, GSVector4i mask)
 { return _mm_andnot_si128(v, mask); }
 
@@ -109,7 +89,7 @@ ALWAYS_INLINE GSVector4i gsv4i_sub8 (GSVector4i a, GSVector4i b) { return _mm_su
 
 /* --- Mul ------------------------------------------------------------- */
 
-/* Packed s16 × s16 → low 16 of result (matches duckstation .mul16l). */
+/* Packed s16 multiplication, keeping the low 16 bits of each product. */
 ALWAYS_INLINE GSVector4i gsv4i_mul16l(GSVector4i a, GSVector4i b)
 { return _mm_mullo_epi16(a, b); }
 /* Packed s32 × s32 → low 32 of result (SSE4.1 _mm_mullo_epi32). */
@@ -127,9 +107,7 @@ ALWAYS_INLINE GSVector4i gsv4i_mul32l(GSVector4i a, GSVector4i b)
 #define gsv4i_sll64(v, n)  _mm_slli_epi64((v), (n))
 #define gsv4i_srl64(v, n)  _mm_srli_epi64((v), (n))
 
-/* Variable-shift per-lane (AVX2). For SSE4.1-only path, fall back to
- * scalar extract+shift+insert. The slow path matches duckstation's
- * non-HAS_SRLV branch. used only by GatherCLUTVector. */
+/* Per-lane variable shifts, available when compiling with AVX2. */
 #ifdef __AVX2__
 #  define gsv4i_srlv32(v, sh)  _mm_srlv_epi32((v), (sh))
 #  define gsv4i_sllv32(v, sh)  _mm_sllv_epi32((v), (sh))
@@ -201,8 +179,7 @@ ALWAYS_INLINE GSVector4i gsv4i_u16to32(GSVector4i v)
 ALWAYS_INLINE GSVector4i gsv4i_s8to16(GSVector4i v)  { return _mm_cvtepi8_epi16 (v); }
 ALWAYS_INLINE GSVector4i gsv4i_s16to32(GSVector4i v) { return _mm_cvtepi16_epi32(v); }
 
-/* Pack 4×s32 → 4×u16 with unsigned saturation. Upper 4 u16 lanes = 0
- * since input has 4 lanes only (matches duckstation .pu32() one-arg form). */
+/* Pack 4 s32 lanes into 4 u16 lanes with unsigned saturation; zero the upper lanes. */
 ALWAYS_INLINE GSVector4i gsv4i_pu32(GSVector4i v)
 { return _mm_packus_epi32(v, _mm_setzero_si128()); }
 /* Two-arg form: pack a (low 4 u16) | b (high 4 u16). Matches .pu32(b). */
@@ -211,8 +188,7 @@ ALWAYS_INLINE GSVector4i gsv4i_pu32_2(GSVector4i a, GSVector4i b)
 
 /* --- Shuffles -------------------------------------------------------- */
 
-/* xxxxl: duplicate lane 0 of low 4 u16s into all 4 lanes (matches
- * duckstation GSVector4i::xxxxl()). Implemented via _mm_shufflelo_epi16. */
+/* Duplicate u16 lane 0 into the low four lanes; preserve the upper lanes. */
 ALWAYS_INLINE GSVector4i gsv4i_xxxxl(GSVector4i v)
 { return _mm_shufflelo_epi16(v, _MM_SHUFFLE(0, 0, 0, 0)); }
 /* yyyyl: same with lane 1. */
@@ -234,8 +210,7 @@ ALWAYS_INLINE GSVector4i gsv4i_blend8(GSVector4i a, GSVector4i b, GSVector4i mas
 /* Immediate 32-bit blend (SSE4.1). imm = 4-bit mask, bit i selects lane i. */
 #define gsv4i_blend32(a, b, imm)  _mm_blend_epi32((a), (b), (imm))
 
-/* runion: rect union (lanes 0,1 = min; lanes 2,3 = max). Used by
- * upstream's drawing-area helpers. */
+/* Rectangle union: lanes 0 and 1 use min; lanes 2 and 3 use max. */
 ALWAYS_INLINE GSVector4i gsv4i_runion(GSVector4i a, GSVector4i b)
 {
   /* lanes 0,1 = min(a,b); lanes 2,3 = max(a,b). blend the two on bits 2,3. */

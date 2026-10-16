@@ -1,16 +1,7 @@
 /*
- * SSE4.1 SIMD body of the SW rasterizer.
- *
- * Mirrors duckstation gpu_sw_rasterizer.inl SIMD path with PIXELS_PER_VEC=4
- * (GSVector4i, 4xs32 lanes). The .inl's #ifdef GSVECTOR_HAS_256 path
- * (GSVector8i / 8 lanes) is what the AVX2 namespace uses upstream, gated
- * off in upstream production (`#if 0` per gpu_sw_rasterizer.cpp:111).
- *
- * Compiled with -msse4.1 per Makefile per-TU rule. Runtime dispatch picks
- * this vtable when cpu_has_sse41() is true (which is every modern x86_64).
- *
- * Output is bit-identical to the scalar path; enforced by frame-dump
- * comparison.
+ * SSE4.1 software rasterization using four 32-bit lanes per vector.
+ * The Makefile compiles this file with -msse4.1; runtime dispatch selects it
+ * when cpu_has_sse41() reports support.
  */
 
 #include "core/gpu_sw_rasterizer.h"
@@ -30,12 +21,8 @@
  * it (vector dither matrix is built per-row in VECTOR_DITHER_MATRIX). */
 extern gpu_drawing_area_t gpu_sw_drawing_area;
 
-/* Forward decls for scalar fallbacks. SIMD vtable's draw_line forwards
- * to scalar (matches upstream's "TODO: Vectorize line draw"); fill/write/
- * copy_vram forward to scalar; the AVX2 .c file has its own vectorized
- * versions for the AVX2 vtable, but the SIMD vtable doesn't add a 128-bit
- * vector path for those (would be marginal vs the existing scalar
- * `(x+w) <= VRAM_WIDTH` fast path). */
+/* Scalar fallbacks for line drawing and VRAM fill/write/copy operations.
+ * The AVX2 implementation supplies separate vectorized VRAM operations. */
 void gpu_sw_rasterizer_scalar_draw_line     (const gpu_backend_draw_cmd_t*,
                                              const gpu_backend_line_vertex_t*,
                                              const gpu_backend_line_vertex_t*);
@@ -90,8 +77,7 @@ static void init_vector_dither_matrix(void)
  *  GatherVector / GatherCLUTVector
  *
  *  Per-lane VRAM/CLUT loads. SSE4.1 has no scatter/gather, so extract each
- *  index, scalar-load the u16, insert16 it back. This is what upstream's
- *  GSVector4i path does too. see .inl:375.
+ *  index, load the u16 with a scalar access and insert it into the vector.
  * --------------------------------------------------------------------------- */
 
 static inline GSVector4i gather_vector(GSVector4i coord_x, GSVector4i coord_y)
@@ -245,10 +231,8 @@ static inline void pixel_vectors_init(pixel_vectors_t* pv,
 /* ---------------------------------------------------------------------------
  *  ShadePixel SIMD: 4 pixels at once, runtime modulation/transparency.
  *
- *  Mirrors .inl:524. Branches on modulation_mode + transparency_enable +
- *  texture_mode + transparency_mode are runtime here (vs C++ template
- *  specialization upstream); GCC reliably hoists the constant-per-primitive
- *  branches out of the inner loop via -O2 + ALWAYS_INLINE on the caller.
+ *  Modulation, transparency and texture-mode choices use runtime branches.
+ *  The caller supplies command flags that remain constant within a primitive.
  *
  *  preserve_mask = ffffffff per lane that should be UNTOUCHED (out of clip,
  *                  past width, or fully-transparent texture color, or
@@ -461,14 +445,13 @@ void gpu_sw_rasterizer_simd_draw_rectangle(const gpu_backend_draw_rectangle_cmd_
       : GPU_SW_TEX_MODULATION_DISABLED;
   const bool texture_enable = (mod != GPU_SW_TEX_MODULATION_DISABLED);
 
-  /* RGBA color spread per upstream .inl:746-750.
+  /* Expand packed RGBA into per-lane channel pairs.
    *   rgba = R | G | B | A  (4 u8 in lane 0)
    *   xxxxl: lane 0 broadcast over low 4 lanes (still in low 64 bits as u8s).
    *   u8to16: low 8 u8s expand to 8 u16s.
    *   So `rg` ends up: R0 G0 R0 G0 R0 G0 R0 G0  (per-lane pair RG).
    *   `ba` similarly: B0 A0 B0 A0 ...
-   * gsv4i_set32((s32)cmd->color) puts color in all 4 u32 lanes; equivalent
-   * to the duckstation broadcast128 step then. */
+   * gsv4i_set32((s32)cmd->color) broadcasts color to all four u32 lanes. */
   const GSVector4i rgba = gsv4i_set32((s32)cmd->color);
   const GSVector4i rgp  = gsv4i_xxxxl(rgba);
   const GSVector4i bap  = gsv4i_yyyyl(rgba);

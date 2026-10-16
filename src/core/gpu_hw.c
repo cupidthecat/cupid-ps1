@@ -1,35 +1,9 @@
 /*
- * Hardware (OpenGL) GPU back-end implementation.
+ * OpenGL GPU backend with batched drawing and VRAM display extraction.
  *
- * The full GL-driven batched-quad emission, VRAM streaming, depth-buffer
- * mask emulation, shader compile pipelines, etc. is large; this first cut
- * focuses on:
- *
- *   - The vtable + factory plumbing (mirrors gpu_sw.c).
- *   - State scaffolding (gpu_hw_t struct fully populated by the factory).
- *   - SW-renderer fallback for VRAM ops (draws and transfers go through
- *     gpu_sw_rasterizer, which already maintains g_vram canonically).  This
- *     keeps the back-end functionally equivalent to SW for tests / cross-
- *     renderer save state, while the GL-side draw path lands incrementally.
- *   - Display copy-out (mirrors `sw_update_display` so the SDL frontend
- *     keeps presenting frames identically - the 5th cupid-ps1 deviation,
- *     intentional).
- *   - do_state matches `sw_do_state` byte-for-byte.
- *
- * Anything that requires a live `g_gpu_device` (pipeline create, texture
- * fetch, draw issue) is gated on a non-NULL device pointer; the factory
- * refuses to create the back-end if the GL device hasn't been brought up
- * yet, returning NULL with `err` populated.  Once `opengl_device.c` lands
- * the full Compile/Create/DrawBatch path can be enabled in-place.
- *
- * Drop list (all wrapped or simply omitted):
- *   - PGXP precision uplift (DrawPrecisePolygon/Line)
- *   - Downsampling + adaptive downsample
- *   - Texture replacements / texture cache
- *   - Internal post-FX
- *   - MSAA (m_multisamples = 1 always)
- *   - Shader blending feedback-loop variants
- *   - CheckForTexPageOverlap (texture-cache branch)
+ * Software rasterization also updates the canonical g_vram buffer for readback
+ * and save states. The factory requires an initialized GPU device and reports
+ * an error when one is unavailable.
  */
 
 #include "core/gpu_hw.h"
@@ -276,7 +250,7 @@ static bool gpu_hw_compile_common_shaders(gpu_hw_t* hw, Error* err)
   return true;
 }
 
-/* Skeleton config used by all VRAM-op pipelines.  Shared across fill/copy/write
+/* Base configuration used by all VRAM-op pipelines. Shared across fill/copy/write
  * with per-call overrides on shader + depth/blend. */
 static void gpu_hw_init_screen_quad_config(gpu_hw_t* hw, gpu_pipeline_graphics_config_t* cfg)
 {
@@ -1159,14 +1133,8 @@ static void gpu_hw_update_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 hei
    * to RGBA8 (matching VRAM_RT_FORMAT) and replicate `scale` rows so
    * upscaled samplers see the full block. */
   (void)set_mask; (void)check_mask;   /* mask-bit handled via SW canon for now */
-  /* Drain pending polygon batch first.  Without this the batch's queued
-   * vertex writes would be re-ordered AFTER our CPU upload (the upload is
-   * an immediate glTexSubImage2D, but the polygon flush_render gets
-   * deferred until the next config change / overflow / update_display).
-   * If a polygon writes to the same VRAM region we're uploading to (e.g.
-   * Crash title-screen background polygons that target the texpage area
-   * for animated backdrops), the polygon write would clobber our upload.
-   * The drain here mirrors upstream gpu_hw.cpp's UpdateVRAM flush. */
+  /* Flush queued polygons before the immediate CPU upload so overlapping
+   * VRAM writes retain their command order. */
   if (hw->base.vtable->flush_render)
     hw->base.vtable->flush_render(&hw->base);
   if (!hw->vram_texture)
@@ -1250,18 +1218,9 @@ static void gpu_hw_copy_vram_gl(gpu_hw_t* hw, u32 src_x, u32 src_y, u32 dst_x, u
   if (cw == 0u || ch == 0u)
     return;
 
-  /* Source defaults to vram_texture (the live RT). that's what upstream
-   * does (gpu_hw.cpp:3714) when texture_copy_to_self is supported.  Reading
-   * from vram_read_texture risks staleness: even with dirty-rect
-   * tracking, multiple copy_vram calls in a row can leave a region of
-   * vram_read_texture stale (subsequent copy reads it before the next
-   * polygon flush re-blits).  Symptom we hit: Crash menu backdrop tile
-   * garbage from stale-source self-chained copies.
-   *
-   * Fall back to vram_read_texture only on src/dst overlap (glCopyImageSubData
-   * spec disallows overlapping same-texture copies; behaviour is UB).  In
-   * the overlap case we still need vram_read_texture coherent first, so
-   * call update_vram_read_texture there. */
+  /* Copy from the live render target unless source and destination overlap.
+   * For overlap, synchronize vram_read_texture first and copy from it to
+   * avoid an overlapping same-texture glCopyImageSubData operation. */
   const bool overlaps_with_self = gpu_rect_overlaps(src_bounds, dst_bounds);
   if (overlaps_with_self) {
     gpu_hw_update_vram_read_texture(hw);
@@ -1306,8 +1265,7 @@ static bool gpu_hw_extract_display_gl(gpu_hw_t* hw,
   if (hw->base.vtable->flush_render)
     hw->base.vtable->flush_render(&hw->base);
 
-  /* Upstream forces resolution_scale=1 for 24-bit because the FMV pixel
-   * decode is bit-exact at native resolution. */
+  /* Extract packed 24-bit pixels at native resolution. */
   const u32 scale     = (u32)hw->resolution_scale;
   const u32 ext_scale = c->display_24bit ? 1u : scale;
   const u32 src_w     = (u32)c->display_vram_width;
@@ -1333,10 +1291,8 @@ static bool gpu_hw_extract_display_gl(gpu_hw_t* hw,
 
   gpu_texture_t* rts[1] = { &hw->vram_extract_texture->base };
   opengl_device_set_render_targets(rts, 1, NULL);
-  /* Mirror duckstation gpu_hw.cpp:4109: discard prior tile contents so
-   * Mesa/driver-tiled residue can't bleed through outside the freshly
-   * drawn (scaled_w x scaled_h) rect.  Called every extract frame because
-   * the texture is reused at full ext_w x ext_h capacity. */
+  /* Discard old tile contents before drawing the scaled display rectangle.
+   * The extraction texture retains its full ext_w by ext_h allocation. */
   opengl_device_invalidate_render_target(&hw->vram_extract_texture->base);
   opengl_device_set_pipeline((gpu_pipeline_t*)hw->vram_extract_pipeline[mode]);
   opengl_device_set_texture_sampler(0, &hw->vram_texture->base, NULL);
@@ -1360,8 +1316,7 @@ static bool gpu_hw_extract_display_gl(gpu_hw_t* hw,
    * scattered any pixels into the destination buffer this frame; false if
    * the ring is still cold (first N-1 frames) so the caller drops to the
    * SW row converter for the very first few frames after a renderer
-   * (re)create.  This matches upstream's "honest first-N-frames black"
-   * behaviour and keeps presentation moving while the ring fills. */
+   * (re)creation while the readback ring fills. */
   const u32 N = GPU_HW_EXTRACT_RING_N;
   static int s_no_pbo_ring_cached = -1;
   if (s_no_pbo_ring_cached < 0)
@@ -1872,19 +1827,17 @@ static bool gpu_hw_batch_config_changed(const gpu_hw_t* hw, const gpu_backend_dr
           hw->batch_cache_texture != cache_texture);
 }
 
-/* Normalised vertex depth used by the write_mask_as_depth path.  Mirrors
- * upstream GPU_HW::GetCurrentNormalizedVertexDepth(): start near 1.0 and
- * decrease per draw.  Combined with depth_func=GREATER_OR_EQUAL the
- * destination's set-mask depth (close to 1) blocks subsequent writes from a
- * later (lower-z) draw. */
+/* Mask depth starts near 1.0 and decreases per draw. With a
+ * GREATER_OR_EQUAL depth test, a destination's set-mask depth blocks
+ * writes from later draws with lower depth. */
 ALWAYS_INLINE static float gpu_hw_normalized_vertex_depth(const gpu_hw_t* hw)
 {
   return 1.0f - ((float)hw->current_depth / 65535.0f);
 }
 
 /* Counter overflow guard.  When current_depth approaches the 65535 ceiling
- * we flush + reset.  Mirrors upstream's MAX_BATCH_VERTEX_COUNTER_IDS check
- * (65536 - 2).  After reset the depth attachment carries the full mask state
+ * we flush and reset at 65536 - 2. After reset the depth attachment carries
+ * the mask state
  * for older pixels via the FS's previous oalpha*v_pos.z writes; the new
  * counter starts at 1 again so subsequent set-mask writes land at z~=1.
  *
@@ -1902,31 +1855,19 @@ ALWAYS_INLINE static bool gpu_hw_check_depth_counter(gpu_hw_t* hw, u32 required_
   /* Flush so the current batch drains with the existing depth map. */
   if (hw->base.vtable->flush_render)
     hw->base.vtable->flush_render(&hw->base);
-  /* TODO: rebuild depth from vram_texture.alpha (m_vram_update_depth_pipeline
-   * upstream).  Without that helper a full clear loses the mask history -
-   * acceptable trade-off until the rebuild pipeline lands.  Clear to 0 so
-   * subsequent check_mask draws don't reject against stale GE depths. */
+  /* TODO: rebuild depth from vram_texture.alpha to preserve mask history.
+   * Clearing depth to zero currently loses that history but prevents stale
+   * GE depths from rejecting subsequent check_mask draws. */
   if (hw->vram_depth_texture)
     opengl_device_clear_depth(&hw->vram_depth_texture->base, 0.0f);
   hw->current_depth = 1;
   return true;
 }
 
-/* ------------------------------------------------------------------------- */
-/* Polygon-emit helpers ported from duckstation gpu_hw.cpp.                  */
-/*                                                                           */
-/* The previous emit_polygon path was a flat translation of upstream's       */
-/* per-vertex inner loop with no surrounding pre/post-processing.  That made */
-/* the GL renderer skip three things SW gets for free: per-polygon UV        */
-/* clamping, off-screen / FF8-style polygon cull, and 16-bit colour          */
-/* truncation.  Visible artefacts (texture bleed across page/CLUT, garbage   */
-/* triangles, colour banding mismatch with SW) all trace back to these.      */
-/* ------------------------------------------------------------------------- */
+/* Polygon emission: UV limits, coordinate culling and native color truncation. */
 
-/* Mirrors gpu_hw.cpp:167-179.  When the dithering mode is TrueColor and the
- * draw is flat-shaded (no shading, no texture, no dither), upstream
- * round-trips the colour through 5/5/5 so the GL framebuffer matches what
- * the SW canon would store at native bit depth. */
+/* In TrueColor mode, truncate flat, untextured, undithered colors to
+ * 5/5/5 before expanding them into the GL framebuffer. */
 static inline bool gpu_hw_should_truncate_32_to_16(const gpu_backend_draw_cmd_t* cmd)
 {
   return (!cmd->texture_enable && !cmd->shading_enable && !cmd->dither_enable &&
@@ -1935,8 +1876,7 @@ static inline bool gpu_hw_should_truncate_32_to_16(const gpu_backend_draw_cmd_t*
 
 static inline u32 gpu_hw_truncate_32_to_16(u32 color)
 {
-  /* Per channel: trunc((c >> 3) * 255 / 31).  Upstream uses GSVector4
-   * float-to-int (truncate-toward-zero), so match that, not round. */
+  /* Per channel: trunc((c >> 3) * 255 / 31), with truncation toward zero. */
   const u32 r5 = ((color >>  0) & 0xFFu) >> 3;
   const u32 g5 = ((color >>  8) & 0xFFu) >> 3;
   const u32 b5 = ((color >> 16) & 0xFFu) >> 3;
@@ -2043,8 +1983,7 @@ static bool gpu_hw_begin_polygon_draw(const gpu_hw_t* hw,
   bool first_culled = gpu_hw_excl_empty(c012);
 
   if (first_culled) {
-    /* See FF8 comment in upstream gpu_hw.cpp:3008-3014.  Sign-extend the
-     * low 11 bits of every integer position; if the post-truncate triangle
+    /* Sign-extend the low 11 bits of every integer position. If the triangle
      * intersects the drawing area and isn't oversized, accept the rewritten
      * positions, otherwise cull. */
     const float tx0 = gpu_hw_truncate_pos_ff8(v[0].x);
@@ -2084,8 +2023,7 @@ static bool gpu_hw_begin_polygon_draw(const gpu_hw_t* hw,
         return false;          /* both halves off-screen */
       *num_vertices_io = 3u;   /* drop the second tri */
     } else if (first_culled) {
-      /* Promote the second tri into the first slot (mirrors upstream
-       * gpu_hw.cpp:3093-3099). */
+      /* Keep the visible second triangle in the first slot. */
       v[0] = v[2];
       v[2] = v[3];
       *num_vertices_io = 3u;
@@ -2280,8 +2218,7 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
   const bool textured = (batch_texture_mode != GPU_HW_BATCH_TEXTURE_MODE_DISABLED);
   const bool raw_tex  = (c->base.texture_enable && c->base.raw_texture_enable);
   const u32  texpage  = textured ? gpu_hw_pack_texpage(&c->base) : 0u;
-  /* Mirror upstream gpu_hw.cpp:2825: rectangles use truncate_32_to_16 too
-   * when dithering=TrueColor and the prim is flat-shaded. */
+  /* Apply native color truncation to flat rectangles in TrueColor mode. */
   const u32  src_color = gpu_hw_should_truncate_32_to_16(&c->base)
                        ? gpu_hw_truncate_32_to_16(c->color) : c->color;
   const u32  color    = raw_tex ? 0x00808080u : (src_color & 0x00FFFFFFu);
@@ -2416,11 +2353,8 @@ static bool gpu_hw_emit_line_gl(gpu_hw_t* hw, const gpu_backend_draw_line_cmd_t*
 
     const float x0 = (float)p0->x, y0 = (float)p0->y;
     const float x1 = (float)p1->x, y1 = (float)p1->y;
-    /* Mirror duckstation gpu_hw.cpp:2676-2680 - truncate untextured/
-     * flat-shaded line colours to the framebuffer's native 5/5/5 to match
-     * SW canon when TrueColor dithering is selected.  Without this, lines
-     * used for UI rules / dithered borders carry full 8-bit colour and
-     * differ from the SW renderer. */
+    /* Truncate flat, untextured line colors to native 5/5/5 when
+     * TrueColor dithering is selected, as in the software renderer. */
     u32 col0 = p0->color & 0x00FFFFFFu;
     u32 col1 = p1->color & 0x00FFFFFFu;
     if (gpu_hw_should_truncate_32_to_16(&c->base)) {
@@ -2675,12 +2609,8 @@ static void hw_convert_row_24bit(u32* dst, u32 src_x, u32 src_y, u32 skip_x, u32
   }
 }
 
-/* Mirror duckstation VideoPresenter::ClearDisplayTexture (called from
- * gpu_hw.cpp:4068 / 4104): wipe the host display buffer so a frame that
- * disables display, or whose origin is fully out-of-bounds, doesn't
- * present whatever was left over from the prior frame.  Without this the
- * GL path holds last-frame pixels through transitions (Naughty Dog ->
- * menu, FMV -> game) -> visible bands of stale content. */
+/* Clear stale host pixels when display is disabled or its origin is
+ * outside VRAM. */
 static void gpu_hw_clear_display_buffer(gpu_hw_t* hw, u32 out_w_s, u32 out_h_s)
 {
   if (!hw->display_buffer)
@@ -2695,10 +2625,7 @@ static void gpu_hw_clear_display_buffer(gpu_hw_t* hw, u32 out_w_s, u32 out_h_s)
 static void hw_update_display(gpu_backend_t* self, const gpu_backend_update_display_cmd_t* c)
 {
   gpu_hw_t* hw = (gpu_hw_t*)self;
-  /* Mirror duckstation GPU_HW::UpdateDisplay (gpu_hw.cpp:4027): drain any
-   * vertices still mapped in the streaming batch buffer into vram_texture.
-   * Otherwise gpu_hw_extract_display_gl below samples a stale (or initial-
-   * cleared) target -> display_buffer is all zeros -> black screen. */
+  /* Flush pending batch vertices before display extraction samples VRAM. */
   if (self->vtable->flush_render)
     self->vtable->flush_render(self);
   static u32 dbg_n = 0;
@@ -2954,8 +2881,7 @@ static void hw_flush_render(gpu_backend_t* self)
    *     prior content (Crash menu backdrop tiles, doubled overlay text)
    *   - copy_vram reads from vram_read_texture to copy STALE data into
    *     vram_texture (clobbers framebuffer with tile garbage)
-   * Mirrors upstream gpu_hw.cpp:879-880 AddDrawnRectangle.  Conservative:
-   * uses clamped_drawing_area as the bbox instead of per-primitive. this
+   * Use clamped_drawing_area as a conservative bounding box. This
    * over-blits at most one rect per flush but avoids per-vertex bookkeeping.
    * The blit itself is lazy (next bind only), so this does not reintroduce
    * the prior perf issue (that was forced sync per-flush, removed in favour
@@ -2978,9 +2904,8 @@ static void hw_flush_render(gpu_backend_t* self)
   /* Close the debug group opened above. */
   opengl_device_pop_debug_group();
 
-  /* Leave batch buffers UNMAPPED.  Mirrors upstream gpu_hw.cpp:RestoreDevice-
-   * Context, which doesn't re-map either; utility draws (FillVRAM /
-   * UpdateVRAM / CopyVRAM / extract / read) issue glDrawArrays against this
+  /* Leave batch buffers unmapped. Utility draws (FillVRAM, UpdateVRAM,
+   * CopyVRAM, extract and read) issue glDrawArrays against this
    * same VBO via their own pipelines' VAOs, and a draw against a mapped
    * buffer raises GL_INVALID_OPERATION.  The batch entry points
    * (gpu_hw_handle_draw_polygon, ..._line, ..._rectangle) lazy-map via
@@ -3059,9 +2984,8 @@ gpu_backend_t* gpu_backend_create_hardware_opengl(const window_info_t* wi, Error
 {
   (void)wi;
 
-  /* Until the parallel-port `opengl_device.c` lands, `g_gpu_device` is
-   * always NULL.  Refuse to create the HW back-end so the front-end can
-   * gracefully fall back to SW rather than crashing on the first draw. */
+  /* The frontend must initialize the OpenGL device before creating this
+   * backend. Return an error so it can fall back to software rendering. */
   if (!g_gpu_device) {
     Error_set_string(err, "OpenGL GPU device not initialised (gpu_device = NULL); "
                           "the hardware OpenGL back-end requires opengl_device_create() first.");
@@ -3088,28 +3012,17 @@ gpu_backend_t* gpu_backend_create_hardware_opengl(const window_info_t* wi, Error
 
   hw->true_color               = settings_is_using_true_color(&g_settings);
   hw->pgxp_depth_buffer        = settings_using_pgxp_depth_buffer(&g_settings);
-  /* clamp_uvs / compute_uv_range mirror upstream gpu_hw.cpp:309-310:
-   * non-NEAREST filtering or PGXP-on requires per-polygon UV clamping so
-   * bilinear samples don't bleed across page/CLUT boundaries.
-   * compute_polygon_uv_limits is the per-polygon prerequisite. */
+  /* Filtering and PGXP require per-polygon UV limits to prevent samples
+   * from crossing texture-page or CLUT boundaries. */
   hw->clamp_uvs                = (g_settings.gpu_pgxp_enable
                                   || g_settings.gpu_texture_filter        != GPU_TEXTURE_FILTER_NEAREST
                                   || g_settings.gpu_sprite_texture_filter != GPU_TEXTURE_FILTER_NEAREST);
   hw->compute_uv_range         = hw->clamp_uvs;
-  /* Sprite-mode pipelines aren't compiled in this build; gate the
-   * sprite-vs-polygon UV interpolation toggle off until that lands.
-   * Mirrors upstream's ShouldAllowSpriteMode but forced false. */
+  /* Sprite-mode pipelines are unavailable; use polygon UV interpolation. */
   hw->allow_sprite_mode        = false;
-  /* Honor the gpu_texture_cache setting.  When off (default), the
-   * texture cache is a no-op and behavior matches the cache-disabled path
-   * byte-for-byte.  When on, the cache is initialized after
-   * gpu_hw_create_buffers succeeds (further down) and consulted at draw time.
-   *
-   * TEMP: also accept `CUPID_TEXTURE_CACHE=1` so the smoke test can flip
-   * the cache on without an INI/CLI knob (no frontend wiring yet).  We set
-   * g_settings.gpu_texture_cache here so the cache-internal `enabled` gate
-   * (gpu_hw_texture_cache.c reads g_settings directly) sees the same value.
-   * Drop the env override once the user-facing toggle lands. */
+  /* Initialize and consult the texture cache when enabled. The
+   * CUPID_TEXTURE_CACHE environment override also updates g_settings so
+   * the cache and backend use the same setting. */
   if (getenv("CUPID_TEXTURE_CACHE"))
     g_settings.gpu_texture_cache = true;
   hw->use_texture_cache        = g_settings.gpu_texture_cache;

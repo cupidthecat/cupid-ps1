@@ -30,9 +30,7 @@ static const controller_info_t s_none_info = {
   .settings_count = 0, 
 };
 
-/* The full table includes deferred variants (analog joystick, mouse, etc.)
- * as NULL slots; present so save-state mismatch warnings still produce a
- * legible "Unknown" label, and the array length stays in sync with the enum. */
+/* Device metadata indexed by controller_type_t. */
 static const controller_info_t* const s_controller_info[CONTROLLER_TYPE_COUNT] = {
   [CONTROLLER_TYPE_NONE]               = &s_none_info,
   [CONTROLLER_TYPE_DIGITAL_CONTROLLER] = &g_digital_controller_info,
@@ -139,7 +137,7 @@ controller_t* controller_create(controller_type_t type, u32 index)
     case CONTROLLER_TYPE_DDGO_CONTROLLER:
       return ddgo_controller_create(index);
 
-    /* Deferred variants: caller gets NULL and pad treats slot as empty. */
+    /* Unsupported and empty slots have no controller device. */
     case CONTROLLER_TYPE_NEGCON_RUMBLE:
     case CONTROLLER_TYPE_NONE:
     default:

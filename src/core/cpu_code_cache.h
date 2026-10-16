@@ -1,10 +1,6 @@
 /*
- * Public surface for the CPU code-cache / recompiler driver.  Mirrors the
- * CPU::CodeCache namespace one-for-one in name and contract.
- *
- * Provides the public block + instruction-info types so the recompiler base
- * layer can typecheck against them, plus the block pool, LUT, dispatcher
- * entry points, and JIT memory allocator.
+ * CPU code-cache and recompiler-driver interfaces: block metadata, instruction
+ * analysis, block storage, lookup tables, dispatcher entry points and JIT memory.
  */
 
 #ifndef CUPID_CORE_CPU_CODE_CACHE_H
@@ -158,9 +154,8 @@ bool cpu_code_cache_process_startup(Error* error);
 /* Frees resources, call once at shutdown. */
 void cpu_code_cache_process_shutdown(void);
 
-/* Runs the system.  Does not return.  When a recompiler backend is wired in,
- * this enters the dispatcher; until then it falls through to the interpreter
- * so RECOMPILER / CACHED_INTERPRETER mode boots at interpreter speed. */
+/* Enter cached execution or the recompiler dispatcher for the selected mode.
+ * Does not return. */
 NORETURN void cpu_code_cache_execute(void);
 
 /* Flushes the code cache, forcing all blocks to be recompiled. */

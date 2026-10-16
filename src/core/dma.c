@@ -1,24 +1,7 @@
 /*
- * 7-channel DMA controller.  The original used per-channel C++ templates so
- * each channel got a fully-inlined transfer function; in C we dispatch on
- * dma_channel_t inside one function and let the optimiser hoist the
- * branches.  Behaviour is identical.
- *
- * Linked-list mode (GPU only on real hardware) walks header words in RAM
- * until the terminator (low 24 bits == 0xFFFFFF).  We have to test the
- * terminator on the *next* address, not the read header, since MADR is 24
- * bits wide and the terminator IS the address.
- *
- * External (parallel-agent) dependencies (resolved via includes):
- *   bus.h         ; bus_get_ram_pointer/_mask/_mapped_size,
- *                     bus_get_dma_ram_tick_count, bus_is_ram_code_page
- *   cpu_core.h    ; cpu_add_pending_ticks
- *   spu/mdec/cdrom/pad/gpu (h's)
- *
- * The few APIs not yet ported (gpu_begin_dma_write, GPU dump recorder,
- * cpu_code_cache_invalidate_blocks_with_page_index, settings_get_dma_*) are
- * declared weak so we link cleanly until they land.  When NULL the
- * functions either no-op or fall back to baked-in defaults.
+ * Seven-channel DMA controller with manual, request and linked-list transfers.
+ * Channel dispatch connects RAM to the GPU, SPU, CD-ROM and MDEC. Timing events
+ * schedule transfers, CPU ticks account for bus use, and completion updates IRQs.
  */
 
 #include "core/bus.h"

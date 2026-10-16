@@ -1,28 +1,8 @@
 /*
- * GPU Texture Cache implementation.
- *
- * This C port is a structural skeleton that:
- *
- *   - Implements the full LRU-of-pages + hash-cache-of-pixel-images skeleton
- *     (intrusive doubly-linked lists, FNV-1a-keyed open-address hash table)
- *     so the data structures and invalidation flow match the original shape.
- *   - Routes all VRAM-mutation hooks (write/copy/clut/draw) through the
- *     correct page-walking invalidation path.
- *   - Defers GPU texture upload itself: the cache is *off* by default (gated
- *     on `g_settings.gpu_texture_cache`), so the lookup_source path returns
- *     NULL and the back-end falls through to its non-cached uniform-buffer
- *     texture path.  When the bit gets flipped on, the CreateSource path
- *     needs the GPU upload (TODO) wired in.
- *
- * Drop list (see "#if 0  TODO" blocks below):
- *   - Texture replacement disk loading (`LoadReplacement*`,
- *     `*ReplacementImage*`, `WriteReplacementImage*`).
- *   - VRAM dumping / texture dumping.
- *   - ImGui debug overlays.
- *
- * Naming: `GPUTextureCache::Foo` becomes `gpu_texture_cache_foo`
- * (public) or `tc_foo` (file-static).  Module state lives in a single
- * file-static `tc_state` aggregate; no globals are exported.
+ * GPU texture-page cache and replacement-image handling.
+ * The cache uses LRU page lists and an FNV-1a image hash table. VRAM write,
+ * copy, CLUT and drawing hooks invalidate affected pages. File-static state
+ * owns the cache; g_settings.gpu_texture_cache controls its use.
  */
 
 #include "core/gpu_hw_texture_cache.h"
