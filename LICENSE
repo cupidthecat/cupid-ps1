@@ -30,6 +30,8 @@ Existing source credits retained from implementation comments:
   DuckStation. Their source attribution remains covered by the notice above.
 - `src/core/gpu_sw_rasterizer.c` credits blargg for the packed 15-bit
   transparency arithmetic.
+- Existing comments in `src/core/mdec.c` credit Mednafen for integer
+  coefficient rounding and YUV-to-RGB conversion formulas.
 
 Component-specific copyright, license and attribution notices in source
 files remain in place.
