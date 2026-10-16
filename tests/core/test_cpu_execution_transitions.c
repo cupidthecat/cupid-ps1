@@ -502,3 +502,27 @@ TEST(CpuCoprocessorException, native_disabled_gte_traps_before_busy_wait)
   EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed > 0);
   finish_cpu();
 }
+
+TEST(CpuStateTiming, native_divide_deadline_survives_interpreter_fallback)
+{
+  /* TLBR is handled by the interpreter's reserved-instruction exception. */
+  const u32 words[] = {0x0109001A, 0x42000001, 0x1000FFFF, 0};
+  start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0xA0010000, words, 4);
+  const u32 handler[] = {0x00005812, 0x1000FFFF, 0};
+  memcpy(bus_get_unprotected_ram_pointer() + 0x80, handler, sizeof(handler));
+  g_cpu_state.cop0_regs.sr.BEV = 0;
+  g_cpu_state.regs.r[8]        = 12345;
+  g_cpu_state.regs.r[9]        = 7;
+  run_slice(1);
+  EXPECT_EQ(g_cpu_state.cop0_regs.cause.Excode, CPU_EXCEPTION_RI);
+  EXPECT_EQ(g_cpu_state.cop0_regs.EPC, 0xA0010004);
+  EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_entered > 0);
+  EXPECT_TRUE(cpu_execution_stats_get()->interpreted_instructions > 0);
+  EXPECT_TRUE(g_cpu_state.muldiv_completion_tick > g_cpu_state.pending_ticks);
+  const u32            remaining = g_cpu_state.muldiv_completion_tick - g_cpu_state.pending_ticks;
+  const global_ticks_t before    = timing_events_get_event_run_tick_counter();
+  run_slice(1);
+  EXPECT_EQ(g_cpu_state.regs.r[11], 1763);
+  EXPECT_TRUE(timing_events_get_event_run_tick_counter() - before >= remaining);
+  finish_cpu();
+}

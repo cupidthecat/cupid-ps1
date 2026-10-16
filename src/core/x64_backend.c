@@ -776,7 +776,8 @@ static void hook_compile_fallback(cpu_recompiler_t* r)
     CPU_RC_FLUSH_PC |
     CPU_RC_FLUSH_LOAD_DELAY_FROM_STATE |
     CPU_RC_FLUSH_LOAD_DELAY |
-    CPU_RC_FLUSH_GTE_DONE_CYCLE | 
+    CPU_RC_FLUSH_GTE_DONE_CYCLE |
+    CPU_RC_FLUSH_MULDIV_DONE_CYCLE |
     CPU_RC_FLUSH_INVALIDATE_SPECULATIVE_CONSTANTS);
 
   x64_emit_t* e = current_emit(be_from(r));
