@@ -1,10 +1,10 @@
 # Rendering
 
-Two backends, picked by `--gpu-renderer` or settings INI. Backend abstraction: `src/core/gpu_backend.h`.
+Two backends, picked by `--gpu-renderer` or settings INI. Backend abstraction: `src/core/gpu/gpu_backend.h`.
 
 ## Software renderer (`gpu_sw`)
 
-Source: `src/core/gpu_sw.c`, `src/core/gpu_sw_rasterizer.c`. Default rendering path.
+Source: `src/core/gpu/software/gpu_sw.c`, `src/core/gpu/software/gpu_sw_rasterizer.c`. Default rendering path.
 
 - GP0/GP1 command processing: polygons, rectangles, lines, VRAM fill/copy.
 - Dithering, true-colour modes.
@@ -16,9 +16,9 @@ Source: `src/core/gpu_sw.c`, `src/core/gpu_sw_rasterizer.c`. Default rendering p
 
 ## Hardware OpenGL renderer (`gpu_hw`)
 
-Source: `src/core/gpu_hw.c`, `src/core/gpu_hw_shadergen.c`, `src/core/gpu_hw_texture_cache.c`. **Work in progress**. Known gaps remain in fill/copy paths, transparency edge cases, and resolution-scale corner cases; the software path is the shipping default for that reason. Opt in with `--gpu-renderer opengl`. If GL device or backend init fails at startup, the frontend logs `[gpu] HW OpenGL setup failed; falling back to software.` and continues on the SW renderer.
+Source: `src/core/gpu/hardware/gpu_hw.c`, `src/core/gpu/hardware/gpu_hw_shadergen.c`, `src/core/gpu/hardware/gpu_hw_texture_cache.c`. **Work in progress**. Known gaps remain in fill/copy paths, transparency edge cases, and resolution-scale corner cases; the software path is the shipping default for that reason. Opt in with `--gpu-renderer opengl`. If GL device or backend init fails at startup, the frontend logs `[gpu] HW OpenGL setup failed; falling back to software.` and continues on the SW renderer.
 
-- OpenGL 3.3+ via EGL on X11 (`src/util/opengl_context_egl_xlib.c`).
+- OpenGL 3.3+ via EGL on X11 (`src/util/graphics/opengl_context_egl_xlib.c`).
 - Internal resolution scale 1×..16× (`--gpu-resolution-scale`).
 - Texture cache with PNG-based replacement-pack support (`gpu_hw_texture_cache.c` plus `tc_image_loader.c` → vendored `dep/stb/stb_image.h`). Replacement directory walked lazily; entries decoded on demand and cached.
 - PGXP subpixel correction.

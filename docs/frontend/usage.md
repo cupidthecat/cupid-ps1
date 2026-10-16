@@ -112,7 +112,7 @@ All `CUPID_*` env vars are read at startup unless noted otherwise.
 
 ## Settings
 
-INI-format settings file via `src/util/ini_settings_interface.c`. The settings struct is `g_settings` in `src/core/settings.{h,c}`; defaults are listed by `SETTINGS_DEFAULT_*` macros.
+INI-format settings file via `src/util/config/ini_settings_interface.c`. The settings struct is `g_settings` in `src/core/config/settings.{h,c}`; defaults are listed by `SETTINGS_DEFAULT_*` macros.
 
 ### `./settings.ini`
 
