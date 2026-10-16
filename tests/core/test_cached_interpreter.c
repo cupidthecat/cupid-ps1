@@ -46,7 +46,9 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
   bus_initialize();
   bus_reset();
   memset(bus_get_bios_pointer(), 0, BUS_BIOS_SIZE);
-  memcpy(bus_get_unprotected_ram_pointer() + (start & bus_get_ram_mask()), words, count * sizeof(*words));
+  for (size_t i = 0; i < count; i++)
+    memcpy(bus_get_unprotected_ram_pointer() + ((start + (u32)i * 4u) & bus_get_ram_mask()), &words[i],
+           sizeof(words[i]));
   /* Exception handler: capture Cause/EPC after their MFC0 load delays. */
   const u32 handler[] = {0x401A6800u, 0, 0x401B7000u, 0, 0x1000FFFFu, 0};
   memcpy(bus_get_unprotected_ram_pointer() + 0x80u, handler, sizeof(handler));
@@ -224,4 +226,22 @@ TEST(CachedInterpreter, uncached_self_modifying_code_invalidates_blocks)
 TEST(CachedInterpreter, instruction_cache_keeps_old_code_until_refetched)
 {
   check_modified_code(0x80010000u, 1);
+}
+
+TEST(CachedInterpreter, branch_delay_wraps_at_end_of_physical_ram)
+{
+  const u32           words[] = {0x1000FFFFu, 0};
+  execution_result_t* result  = compare_program(0xA01FFFFCu, words, 2, false);
+  EXPECT_EQ(result->checkpoints[0].cop0_regs.cause.bits, 0);
+  release_result(result);
+}
+
+TEST(CachedInterpreter, reserved_instruction_fallback_raises_exception)
+{
+  const u32           words[] = {0xFC000000u, 0x1000FFFFu, 0};
+  execution_result_t* result  = compare_program(0xA0010000u, words, 3, false);
+  EXPECT_EQ(result->checkpoints[0].regs.r[26] & 0x7Cu, 0x28u);
+  EXPECT_EQ(result->checkpoints[0].regs.r[27], 0xA0010000u);
+  EXPECT_TRUE(result->stats.fallback_instructions > 0);
+  release_result(result);
 }
