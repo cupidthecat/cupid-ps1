@@ -11,12 +11,12 @@
 
 #include "frontend/input_map.h"
 
-#include "core/analog_controller.h"
-#include "core/controller.h"
-#include "core/guncon.h"
-#include "core/justifier.h"
-#include "core/pad.h"
-#include "core/playstation_mouse.h"
+#include "core/input/controllers/analog_controller.h"
+#include "core/input/controllers/controller.h"
+#include "core/input/controllers/guncon.h"
+#include "core/input/controllers/justifier.h"
+#include "core/input/pad.h"
+#include "core/input/controllers/playstation_mouse.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -228,9 +228,9 @@ static void apply_psmouse(controller_t* c)
   controller_set_bind_state(c, (u32)PSMOUSE_BIND_RIGHT, (s_mouse_btns & 0x4) ? 1.0f : 0.0f);
 }
 
-#include "core/negcon.h"
-#include "core/jogcon.h"
-#include "core/ddgo_controller.h"
+#include "core/input/controllers/negcon.h"
+#include "core/input/controllers/jogcon.h"
+#include "core/input/controllers/ddgo_controller.h"
 
 static void apply_keyboard_standard(controller_t* c, const u8* k)
 {
