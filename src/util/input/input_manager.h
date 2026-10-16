@@ -1,21 +1,13 @@
 /*
- * Linux-only port. Drops macOS/Win32 input back-ends, USB-key-code translation
- * tables, ImGui integration, input-profile UI, controller mapping wizard,
- * macro buttons, mouse pointer / sensor pipelines. The remaining surface is
- * what the headless boot path needs:
- *   - Define the InputBindingKey packed key + source/subclass/modifier enums.
- *   - Hold a single "input source" external (SDL) plus the keyboard pseudo-
- *     source.
- *   - Parse Keyboard/{ScancodeName} and {Source-N}/{...} bindings out of a
- *     settings_interface_t.
- *   - Dispatch raw events (key/value) into per-binding callbacks.
+ * Host input bindings for keyboard, pointer and SDL devices. Packed keys
+ * identify the source, device, control and modifiers. The manager parses
+ * bindings from settings and dispatches events to registered callbacks.
  *
- *   - "axis" handler: float in [0,1] (or -1..1 for FullAxis).
- *   - "button" handler: int (0=release, 1=press, -1=cancelled chord).
+ * Axis handlers receive floats in [0,1], or [-1,1] for FullAxis. Button
+ * handlers receive 0 for release, 1 for press and -1 for a cancelled chord.
  *
- * Callbacks are (function pointer, void* user) pairs. The handler takes
- * ownership of nothing - the binding stores the (cb,user) pair until it is
- * cleared.
+ * Bindings store a function pointer and user pointer until cleared. They do
+ * not take ownership of the callback's context.
  */
 
 #ifndef CUPID_UTIL_INPUT_MANAGER_H

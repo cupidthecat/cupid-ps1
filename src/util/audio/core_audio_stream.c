@@ -1,12 +1,7 @@
 /*
- * Notes:
- *  - GSVector SIMD paths (S16<->float, volume scaling, tempo averaging) are
- *    inlined as scalar loops.  At 44.1 kHz / 2ch / CHUNK_SIZE=64 the savings
- *    are below measurement noise, and pulling GSVector into cupid-ps1 is out of
- *    scope here.
- *  - Aligned allocations use posix_memalign instead of make_unique_aligned.
- *  - Translation strings are dropped; display names live in audio_stream.c.
- *  - LOG_TIMESTRETCH_STATS is gated behind #if 0.
+ * Buffers guest audio and uses SoundTouch for resampling and time stretching.
+ * Sample conversion, volume scaling and tempo averaging use scalar loops.
+ * Aligned buffers use posix_memalign. Display names live in audio_stream.c.
  */
 
 #include "core_audio_stream.h"

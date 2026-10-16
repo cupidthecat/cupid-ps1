@@ -1,7 +1,5 @@
 /*
- *
-
- * Drops MSVC, Apple, and RISC-V/LoongArch branches - Linux on x64/ARM only.
+ * SIMD intrinsics and compiler helpers for Linux on x86 and ARM.
  */
 #ifndef CUPID_COMMON_INTRIN_H
 #define CUPID_COMMON_INTRIN_H

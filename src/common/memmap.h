@@ -1,14 +1,6 @@
 /*
- * Linux-only.  Win32 (VirtualAlloc/MapViewOfFile/VirtualProtect) and Apple
- * Mach VM paths dropped.  Backing store: memfd_create preferred, shm_open
- * fallback when memfd is unavailable at runtime.
- *
- * C++ namespace MemMap            -> functions prefixed memmap_
- * enum class PageProtect          -> typedef enum memmap_page_protect_t
- * class SharedMemoryMappingArea   -> struct memmap_shared_memory_area_t
- *                                    + memmap_shared_memory_area_{create,destroy,
- *                                      map,unmap,base,offset_pointer,page_pointer,
- *                                      size,num_pages}
+ * Linux shared-memory mappings and JIT allocation. Anonymous backing prefers
+ * memfd_create and falls back to shm_open when memfd is unavailable at runtime.
  *
  * Lifecycle for the mapping area:
  *   memmap_shared_memory_area_t a;
@@ -17,9 +9,9 @@
  *   ...
  *   memmap_shared_memory_area_destroy(&a);
  *
- * BeginCodeWrite / EndCodeWrite are no-ops on Linux: W^X JIT toggling is an
- * Apple Silicon concern.  FlushInstructionCache is a no-op on x86 (coherent
- * I/D), forwards to __builtin___clear_cache otherwise.
+ * The code-write helpers are no-ops on Linux. Instruction-cache flushing is
+ * a no-op on x86, where instruction and data caches are coherent; other
+ * architectures use __builtin___clear_cache.
  */
 
 #ifndef CUPID_COMMON_MEMMAP_H
@@ -91,7 +83,7 @@ ALWAYS_INLINE static void memmap_flush_instruction_cache(void* address, size_t s
 void memmap_flush_instruction_cache(void* address, size_t size);
 #endif
 
-/* Apple Silicon W^X helpers; no-ops on Linux on every arch.  Kept so call */
+/* Code-write lifecycle hooks are no-ops on Linux. */
 ALWAYS_INLINE static void memmap_begin_code_write(void) { }
 ALWAYS_INLINE static void memmap_end_code_write(void)   { }
 

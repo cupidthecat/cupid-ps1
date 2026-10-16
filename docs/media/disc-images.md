@@ -2,7 +2,8 @@
 
 ## Disc image formats
 
-Auto-detected by extension via `cd_image_open()`. Implementation lives in `src/util/cd_image*.c`.
+`cd_image_open()` detects formats by extension. Implementations live in
+`src/util/disc/cd_image*.c`.
 
 | Format | Extensions | Notes |
 |--------|-----------|-------|

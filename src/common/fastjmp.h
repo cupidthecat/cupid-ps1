@@ -1,7 +1,6 @@
 /*
- * Lightweight setjmp/longjmp without signal-mask save/restore overhead.
- * Used by the (future) recompiler exception path.  Linux x86-64 and
- * AArch64 only - Windows variants and other arches are dropped.
+ * setjmp/longjmp helpers that leave signal masks unchanged.
+ * Implemented for Linux x86-64 and AArch64. Native Windows support is pending.
  */
 
 #ifndef CUPID_COMMON_FASTJMP_H

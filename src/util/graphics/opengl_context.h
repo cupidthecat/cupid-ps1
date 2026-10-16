@@ -1,7 +1,6 @@
 /*
- * Win32 (WGL), macOS (AGL), Android, XCB paths dropped.  Single-impl collapse
- * keeps vtable on the base struct so future Wayland support can share the EGL
- * parent without changing call sites.
+ * OpenGL context interface with a vtable for platform operations. The current
+ * implementation uses EGL/X11; other native window systems need backends.
  */
 
 #ifndef CUPID_UTIL_OPENGL_CONTEXT_H
