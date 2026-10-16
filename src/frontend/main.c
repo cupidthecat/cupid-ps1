@@ -1713,8 +1713,9 @@ static bool boot_and_run(void)
                        g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER ? "cached" : "interp";
     const char* fastmem = !cpu_code_cache_is_using_recompiler() || !cpu_code_cache_is_using_fastmem() ? "off" :
                           g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP ? "mmap" : "lut";
-    fprintf(stderr, "[cpu-stats] configuration mode=%s fastmem=%s linking=%s\n", mode, fastmem,
-            g_settings.cpu_recompiler_block_linking ? "on" : "off");
+    fprintf(stderr, "[cpu-stats] configuration mode=%s fastmem=%s linking=%s icache=%s\n", mode, fastmem,
+            g_settings.cpu_recompiler_block_linking ? "on" : "off",
+            !cpu_code_cache_is_using_recompiler() || g_settings.cpu_recompiler_icache ? "on" : "off");
   }
 
   /* Optional low-RAM write watch (CUPID_TRACE_LOW_RAM=1).  Must run AFTER

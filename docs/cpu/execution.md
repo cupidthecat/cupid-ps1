@@ -28,9 +28,20 @@ Ordinary and cached interpretation share a prefetch pipeline. Switching between
 these modes retains prefetched words and instruction-cache data. Before native
 dispatch starts, pending branch-delay instructions finish through the shared
 executor. Leaving native execution rebuilds prefetch at the current PC and
-preserves pending loads. Native blocks maintain cache tags without line data,
-so transitions involving native execution invalidate that cache. This remains
-a limitation of the native cache model.
+preserves pending loads. All three modes retain instruction-cache words and
+partial-line validity across mode changes.
+
+Native instruction-cache emulation is enabled by default. Blocks decode the
+words the CPU cache serves, including stale instructions after a RAM write.
+Each line fills and validates as execution reaches it. Changed words invalidate
+host code, and execution resumes at that instruction without repeating the
+block prefix. A changed branch-delay word runs through the shared executor
+with the resolved branch context, including when an event interrupts that
+handoff. Cache-line checks preserve pending loads and busy-unit deadlines.
+
+Generated cases include slow memory, mmap fastmem and execution without block
+linking. Native fetch and event timing still need qualification;
+line-boundary checks do not establish full per-instruction prefetch accuracy.
 
 GTE commands arm a completion deadline. Result-register reads wait for that
 deadline, including native reads whose destination is register zero. Outstanding

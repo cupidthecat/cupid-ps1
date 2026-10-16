@@ -65,6 +65,23 @@ class LiveExecutionComparisonTest(unittest.TestCase):
     def test_native_linked_mmap_checkpoints(self):
         self.run_pair(('recomp', 'recomp'), 'state', 'mmap')
 
+    def test_disabled_native_instruction_cache_cannot_qualify(self):
+        directory = self.root / 'disabled-cache'
+        directory.mkdir()
+        (directory / 'data').symlink_to(compare.ROOT / 'data', target_is_directory=True)
+        env = {key: value for key, value in os.environ.items() if not key.startswith('CUPID_')}
+        env.update(SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy', CUPID_GPU_SW_ISA='SCALAR',
+                   CUPID_CPU_STATS='1', CUPID_CHECKPOINT_DIR=str(directory), CUPID_CHECKPOINT_SCHEDULE='2,2')
+        command = [str(self.binary), '--cpu-mode', 'recomp', '--fastmem', 'off', '--no-icache',
+                   '--gpu-renderer', 'software', '--pgxp', 'off', '--bios', str(self.bios), str(self.media)]
+        result = compare.wait_child(command, directory, env, 30)
+        compare.inspect_run(directory, result, 'state', 'recomp', 1000, 2, 2, 10, 'off', True)
+        self.assertEqual(result['exit_code'], 0, result)
+        self.assertGreaterEqual(result['execution']['native_completed'], 10, result)
+        self.assertEqual(result['observed_configuration'], [('recomp', 'off', 'on', 'off')])
+        self.assertFalse(result['passed'], result)
+        self.assertEqual(result['failures'], ['missing, repeated or unexpected execution configuration'])
+
     def test_saved_machine_continues_identically_after_restore(self):
         for mode, fastmem in (('interp', 'off'), ('cached', 'off'),
                               ('recomp', 'off'), ('recomp', 'mmap')):

@@ -272,15 +272,8 @@ static void hook_generate_block_protect_check(cpu_recompiler_t* r,
   DebugAssert(size == 0u);
 }
 
- /*
- * Three branches:
- *   1. Block doesn't use the i-cache + has dynamic fetch ticks (pointer to
- *      memory access time changes at runtime e.g. EXP regions): emit
- *      `imul size,[ptr]; add [pending_ticks], result`.
- *   2. Block doesn't use the i-cache + static fetch ticks: emit `add
- *      [pending_ticks], uncached_fetch_ticks`.
- *   3. Block uses i-cache: per-line tag compare, bump pending_ticks by
- *      fill_ticks on each line miss, store new tag back. */
+/* Uncached fetch ticks are charged at block entry. Cached blocks check each
+ * line before executing its words. */
 static void hook_generate_icache_check_and_update(cpu_recompiler_t* r)
 {
   x64_emit_t* e = current_emit(be_from(r));
@@ -306,33 +299,16 @@ static void hook_generate_icache_check_and_update(cpu_recompiler_t* r)
 
   if (b->icache_line_count == 0u) return;
 
-  /* Cached block: emit per-line tag check. */
-  virtual_memory_address_t current_pc = b->pc & CPU_ICACHE_TAG_ADDRESS_MASK;
-  const tick_count_t fill_ticks = cpu_get_icache_fill_ticks(current_pc);
-  if (fill_ticks <= 0) return;
-
-  /* RXARG1 = &g_state.icache_tags; RWARG2 = miss accumulator;
-   * RWARG4 = fill_ticks per miss (constant across all lines). */
-  x64_lea_r_m   (e, X64_SZ_64, RXARG1,
-                 x64_mem(RSTATE, STATE_DISP(icache_tags)));
-  x64_alu_r_r   (e, X64_ALU_XOR, X64_SZ_32, RWARG2, RWARG2);
-  x64_mov_r_imm32(e, X64_SZ_32, RWARG4, (s32)fill_ticks);
-
-  for (u32 i = 0u; i < b->icache_line_count; i++,
-       current_pc += (virtual_memory_address_t)CPU_ICACHE_LINE_SIZE) {
-    const u32 tag    = cpu_get_icache_tag_for_address(current_pc);
-    const u32 line   = cpu_get_icache_line(current_pc);
-    const s32 offset = (s32)(line * sizeof(u32));
-
-    x64_alu_r_r   (e, X64_ALU_XOR, X64_SZ_32, RWARG3, RWARG3);
-    x64_alu_m_imm (e, X64_ALU_CMP, X64_SZ_32, x64_mem(RXARG1, offset), (s32)tag);
-    x64_mov_m_imm32(e, X64_SZ_32, x64_mem(RXARG1, offset), (s32)tag);
-    x64_cmovcc_r_r(e, X64_CC_NE, X64_SZ_32, RWARG3, RWARG4);
-    x64_alu_r_r   (e, X64_ALU_ADD, X64_SZ_32, RWARG2, RWARG3);
-  }
-
-  x64_alu_m_r(e, X64_ALU_ADD, X64_SZ_32,
-              x64_mem(RSTATE, STATE_DISP(pending_ticks)), RWARG2);
+  /* Validate the entry line. Later lines are checked when execution reaches
+   * them, so earlier stores can change words that have not been fetched. */
+  x64_mov_r_imm64(e, RXARG1, (u64)(uintptr_t)b);
+  x64_mov_r_imm32(e, X64_SZ_32, RWARG2, (s32)b->pc);
+  x64_call_abs64(e, (const void*)&cpu_code_cache_prepare_cached_line);
+  x64_test_r_r(e, X64_SZ_8, X64_RAX, X64_RAX);
+  u8* const current = x64_jcc_rel32(e, X64_CC_NE);
+  u8* const changed = x64_jmp_rel32(e);
+  x64_patch_rel32(changed, g_dispatcher);
+  x64_patch_rel32(current, x64_emit_cursor(e));
 }
 
 static void hook_begin_block(cpu_recompiler_t* r)
@@ -370,6 +346,8 @@ static void hook_begin_block(cpu_recompiler_t* r)
 
   if (r->block != NULL &&
       r->block->protection == CPU_CODE_CACHE_PROT_MANUAL_CHECK &&
+      !(g_settings.cpu_recompiler_icache &&
+        cpu_code_cache_block_has_flag(r->block, CPU_CODE_CACHE_BF_IS_USING_ICACHE)) &&
       r->v && r->v->generate_block_protect_check) {
     const u32 phys = cpu_virtual_to_physical(r->block->pc);
     const u8* ram_ptr = bus_get_ram_pointer() + phys;
@@ -878,6 +856,33 @@ static void switch_to_near_code(cpu_recompiler_t* r, bool emit_jump,
     x64_patch_rel32(site, near_target);
   }
   b->is_far = false;
+}
+
+static void hook_generate_icache_line_check(cpu_recompiler_t* r)
+{
+  cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_C_CALL | CPU_RC_FLUSH_CYCLES |
+                          CPU_RC_FLUSH_GTE_DONE_CYCLE | CPU_RC_FLUSH_MULDIV_DONE_CYCLE);
+  x64_emit_t* e = current_emit(be_from(r));
+  x64_mov_r_imm64(e, RXARG1, (u64)(uintptr_t)r->block);
+  x64_mov_r_imm32(e, X64_SZ_32, RWARG2, (s32)r->current_instruction_pc);
+  x64_call_abs64(e, (const void*)&cpu_code_cache_prepare_cached_line);
+  x64_test_r_r(e, X64_SZ_8, X64_RAX, X64_RAX);
+  switch_to_far_code(r, true, true, X64_CC_E);
+  cpu_recompiler_backup_host_state(r);
+  cpu_recompiler_flush(r, (CPU_RC_FLUSH_FOR_EARLY_BLOCK_EXIT & ~CPU_RC_FLUSH_PC) |
+                          CPU_RC_FLUSH_FOR_C_CALL);
+  e = current_emit(be_from(r));
+  if (r->current_instruction_branch_delay_slot) {
+    x64_mov_r_imm32(e, X64_SZ_32, RWARG1, (s32)r->current_instruction_pc);
+    x64_mov_r_imm32(e, X64_SZ_32, RWARG2, r->delay_slot_branch_was_taken ? 1 : 0);
+    x64_call_abs64(e, (const void*)&cpu_recompiler_execute_changed_delay_slot);
+  } else {
+    x64_mov_m_imm32(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pc)), (s32)r->current_instruction_pc);
+  }
+  r->dirty_pc = false;
+  emit_end_and_link_block(r, NULL, true, false);
+  cpu_recompiler_restore_host_state(r);
+  switch_to_near_code(r, false, false, X64_CC_E);
 }
 
 static void hook_check_cop2_enabled(cpu_recompiler_t* r)
@@ -2424,6 +2429,7 @@ static const struct cpu_recompiler_vtable s_vtable = {
    .get_current_code_pointer        = hook_get_current_code_pointer,
   .generate_block_protect_check    = hook_generate_block_protect_check,
   .generate_icache_check_and_update= hook_generate_icache_check_and_update,
+  .generate_icache_line_check     = hook_generate_icache_line_check,
   .generate_call                   = hook_generate_call,
   .generate_pgxp_call_with_mips_regs = hook_generate_pgxp_call_with_mips_regs, 
 

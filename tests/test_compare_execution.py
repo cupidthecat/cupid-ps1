@@ -34,6 +34,7 @@ state_payload = b'generated-state'
 restore = os.environ.get('CUPID_CHECKPOINT_RESTORE')
 restore_report = f'[execution-checkpoint] restored index={{restore}} frame=2 ticks=200' if restore else ''
 restore_after = False
+icache = 'on'
 {change}
 if 'CUPID_DIFF_TRACE' in os.environ:
     pathlib.Path(os.environ['CUPID_DIFF_TRACE']).write_text(header + ''.join(rows) + footer)
@@ -50,7 +51,7 @@ else:
     if restore_report and restore_after:
         print(restore_report)
     print('[execution-checkpoint] completed count=2')
-print(f'[cpu-stats] configuration mode={{mode}} fastmem=off linking=on')
+print(f'[cpu-stats] configuration mode={{mode}} fastmem=off linking=on icache={{icache}}')
 print(progress)
 print(cached)
 '''
@@ -65,6 +66,12 @@ print(cached)
 
     def test_complete_state(self):
         self.assertTrue(self.run_fake(kind="state", modes=("interp", "recomp"))["passed"])
+
+    def test_disabled_instruction_cache_cannot_qualify(self):
+        result = self.run_fake("icache = 'off'", kind="state", modes=("recomp", "recomp"))
+        self.assertFalse(result["passed"], result)
+        self.assertTrue(all("unexpected execution configuration" in " ".join(run["failures"])
+                            for run in result["runs"]), result)
 
     def test_complete_restored_continuation(self):
         result = self.run_fake(kind="state", modes=("recomp", "recomp"), restore_at=1)

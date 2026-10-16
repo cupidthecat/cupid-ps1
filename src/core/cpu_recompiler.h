@@ -316,6 +316,7 @@ struct cpu_recompiler_vtable {
   void        (*generate_block_protect_check)(cpu_recompiler_t*,
                                               const u8* ram, const u8* shadow, u32 size);
   void        (*generate_icache_check_and_update)(cpu_recompiler_t*);
+  void        (*generate_icache_line_check)(cpu_recompiler_t*);
   void        (*generate_call)(cpu_recompiler_t*, const void* func,
                                s32 a1reg, s32 a2reg, s32 a3reg);
   void        (*generate_pgxp_call_with_mips_regs)(cpu_recompiler_t*,

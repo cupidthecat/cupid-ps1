@@ -118,8 +118,9 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
     failures = []
     if result["timed_out"] or result["exit_code"] != 0:
         failures.append("process did not complete normally before its deadline")
-    configurations = re.findall(r"\[cpu-stats\] configuration mode=(interp|cached|recomp) fastmem=(off|lut|mmap) linking=(on|off)", log)
-    expected = (mode, fastmem if mode == "recomp" else "off", "on" if linking else "off")
+    configurations = re.findall(r"\[cpu-stats\] configuration mode=(interp|cached|recomp) "
+                                 r"fastmem=(off|lut|mmap) linking=(on|off) icache=(on|off)", log)
+    expected = (mode, fastmem if mode == "recomp" else "off", "on" if linking else "off", "on")
     if configurations != [expected]:
         failures.append("missing, repeated or unexpected execution configuration")
     result["observed_configuration"] = configurations
@@ -200,6 +201,7 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
               "configuration": {"modes": modes, "instructions": instructions, "interval": interval,
                                 "checkpoints": checkpoints, "minimum_blocks": min_blocks,
                                 "right_restore_at": restore_at,
+                                "instruction_cache": True,
                                 "fastmem": fastmem, "linking": linking, "timeout_seconds": timeout,
                                 "timing": "native", "renderer": "scalar software", "pgxp": False},
               "runs": [], "differences": []}

@@ -1201,6 +1201,11 @@ bool cpu_recompiler_try_swap_delay_slot(cpu_recompiler_t* r, cpu_reg_t rs, cpu_r
   if (!CPU_RECOMP_SWAP_BRANCH_DELAY_SLOTS)
     return false;
 
+  if (g_settings.cpu_recompiler_icache && cpu_is_cached_address(r->block->pc) &&
+      ((r->current_instruction_pc ^ (r->current_instruction_pc + CPU_INSTRUCTION_SIZE)) &
+       CPU_ICACHE_TAG_ADDRESS_MASK))
+    return false;
+
   const cpu_instruction_t* next = r->inst + 1;
   DebugAssert(next < (cpu_code_cache_block_instructions(r->block) + r->block->size));
 
@@ -1995,6 +2000,12 @@ void cpu_recompiler_compile_branch_delay_slot(cpu_recompiler_t* r, bool dirty_pc
 
 void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
 {
+  if (g_settings.cpu_recompiler_icache && cpu_is_cached_address(r->block->pc) &&
+      r->current_instruction_pc != r->block->pc &&
+      cpu_get_icache_line_word_offset(r->current_instruction_pc) == 0 &&
+      r->v && r->v->generate_icache_line_check)
+    r->v->generate_icache_line_check(r);
+
   r->cycles++;
 
   if (cpu_is_nop_instruction(*r->inst)) {

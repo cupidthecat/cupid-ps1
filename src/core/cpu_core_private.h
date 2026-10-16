@@ -80,10 +80,8 @@ ALWAYS_INLINE u32 cpu_get_icache_tag_for_address(virtual_memory_address_t addres
   return address & CPU_ICACHE_TAG_ADDRESS_MASK;
 }
 
-/* The bottom 4 bits of each icache tag double as a per-word valid bitmap.
- * On a fill the tag is OR'd with the inverse-of-bits-already-loaded mask
- * for the word offset where the fill *started*, so a partial-line miss
- * doesn't pretend the trailing words are valid. */
+/* Low tag bits mark invalid words. A partial fill leaves words before the
+ * requested offset invalid. */
 ALWAYS_INLINE u32 cpu_get_icache_fill_tag_for_address(virtual_memory_address_t address)
 {
   static const u32 invalid_bits[4] = {0u, 1u, 3u, 7u};
@@ -145,6 +143,9 @@ void* cpu_get_direct_write_memory_pointer(virtual_memory_address_t address, memo
 
 /* The caller has waited for the previous command and committed its issue tick. */
 void cpu_execute_gte(u32 instruction);
+
+/* Resume a changed delay-slot word after a native cache-line check. */
+void cpu_recompiler_execute_changed_delay_slot(u32 pc, u32 branch_taken);
 
 /* GTE pipeline stall.  COP2 instructions take a variable number of cycles;
  * a cfc/mfc that reads back from the GTE before completion has to wait. */

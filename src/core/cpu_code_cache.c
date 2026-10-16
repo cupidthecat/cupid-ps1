@@ -864,12 +864,43 @@ void cpu_code_cache_invalidate_all_ram_blocks(void)
   bus_clear_ram_code_page_flags();
 }
 
+static bool read_block_instruction(u32 pc, u32* word)
+{
+  if (cpu_code_cache_is_using_recompiler() && g_settings.cpu_recompiler_icache &&
+      cpu_is_cached_address(pc) && cpu_compare_icache_tag(pc)) {
+    *word = g_cpu_state.icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE +
+                                   cpu_get_icache_line_word_offset(pc)];
+    return true;
+  }
+  return cpu_safe_read_instruction(pc, word);
+}
+
+bool cpu_code_cache_prepare_cached_line(cpu_code_cache_block_t* block, u32 pc)
+{
+  const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(block);
+  const u32 line = pc & CPU_ICACHE_TAG_ADDRESS_MASK;
+  for (u32 i = (pc - block->pc) / CPU_INSTRUCTION_SIZE;
+       i < block->size && (pc & CPU_ICACHE_TAG_ADDRESS_MASK) == line;
+       i++, pc += CPU_INSTRUCTION_SIZE) {
+    const u32 word = cpu_compare_icache_tag(pc)
+                       ? g_cpu_state.icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE +
+                                                 cpu_get_icache_line_word_offset(pc)]
+                       : cpu_fill_icache(pc);
+    if (word != instructions[i].bits) {
+      remove_block_from_page_list(block);
+      invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
+      return false;
+    }
+  }
+  return true;
+}
+
 static bool is_block_code_current(const cpu_code_cache_block_t* b)
 {
   const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(b);
   for (u32 i = 0; i < b->size; i++) {
     u32 word;
-    if (!cpu_safe_read_instruction(b->pc + i * CPU_INSTRUCTION_SIZE, &word) || word != instructions[i].bits)
+    if (!read_block_instruction(b->pc + i * CPU_INSTRUCTION_SIZE, &word) || word != instructions[i].bits)
       return false;
   }
   return true;
@@ -1074,7 +1105,7 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
     }
 
     cpu_instruction_t inst = {.bits = 0u};
-    if (!cpu_safe_read_instruction(pc, &inst.bits) || !cpu_is_valid_instruction(inst)) {
+    if (!read_block_instruction(pc, &inst.bits) || !cpu_is_valid_instruction(inst)) {
       ERROR_LOG("Instruction read failed at PC=0x%08X, truncating block", pc);
       if (is_branch_delay_slot && s_block_instructions_count > 0u)
         s_block_instructions_count--;

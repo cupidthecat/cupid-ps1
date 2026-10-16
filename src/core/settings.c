@@ -155,6 +155,7 @@ void settings_init(settings_t* s)
   s->cpu_execution_mode        = SETTINGS_DEFAULT_CPU_EXECUTION_MODE;
   s->cpu_fastmem_mode          = SETTINGS_DEFAULT_CPU_FASTMEM_MODE;
   s->cpu_recompiler_block_linking = true;
+  s->cpu_recompiler_icache = true;
   s->cpu_recompiler_compare_register_files = false;
 
   s->pio_switch_active             = true;
@@ -1017,7 +1018,7 @@ void settings_load(settings_t* s, settings_interface_t* si, settings_interface_t
   settings_update_overclock_active(s);
   s->cpu_recompiler_memory_exceptions = settings_interface_get_bool_value(si, "CPU", "RecompilerMemoryExceptions", false);
   s->cpu_recompiler_block_linking     = settings_interface_get_bool_value(si, "CPU", "RecompilerBlockLinking", true);
-  s->cpu_recompiler_icache            = settings_interface_get_bool_value(si, "CPU", "RecompilerICache", false);
+  s->cpu_recompiler_icache            = settings_interface_get_bool_value(si, "CPU", "RecompilerICache", true);
   s->cpu_recompiler_compare_register_files = settings_interface_get_bool_value(si, "CPU", "RecompilerCompareRegisterFiles", false);
   LOAD_ENUM(s->cpu_fastmem_mode, settings_parse_cpu_fastmem_mode_name, settings_get_cpu_fastmem_mode_name,
             SETTINGS_DEFAULT_CPU_FASTMEM_MODE, "CPU", "FastmemMode");

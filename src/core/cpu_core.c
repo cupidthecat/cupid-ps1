@@ -1226,13 +1226,10 @@ static void cpu_check_for_execution_mode_change(void)
   const cpu_execution_mode_t requested = g_settings.cpu_execution_mode;
   const bool native = cpu_code_cache_is_using_recompiler();
   const bool was_native = !g_cpu_state.using_interpreter;
-  if (s_locals.current_execution_mode == requested && native == was_native)
-    return;
-
   /* A native block starts at an instruction boundary outside a branch slot.
    * Finish pending slots with the same prefetch/load-delay path that produced
    * them. Event callbacks can interrupt this work through cpu_execute's scope. */
-  if (native && !was_native) {
+  if (native) {
     while (g_cpu_state.next_instruction_is_branch_delay_slot) {
       if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
         timing_events_run_events();
@@ -1240,20 +1237,13 @@ static void cpu_check_for_execution_mode_change(void)
     }
   }
 
+  if (s_locals.current_execution_mode == requested && native == was_native)
+    return;
+
   g_cpu_state.bus_error = false;
-  if (native != was_native) {
-    /* Native execution maintains cache tags but does not maintain line data.
-     * Those tags cannot validate the shared interpreter's instruction words. */
-    cpu_clear_icache();
-    if (!native) {
-      const u32 pc = g_cpu_state.pc;
-      if (IsAlignedPow2(pc, 4u) && cpu_safe_read_instruction(pc, &g_cpu_state.next_instruction.bits)) {
-        g_cpu_state.npc = pc + CPU_INSTRUCTION_SIZE;
-      } else {
-        g_cpu_state.npc = pc;
-        (void)cpu_fetch_instruction_for_interp_fallback();
-      }
-    }
+  if (!native && was_native) {
+    g_cpu_state.npc = g_cpu_state.pc;
+    (void)cpu_fetch_instruction_for_interp_fallback();
   }
 
   s_locals.current_execution_mode = requested;
@@ -1281,6 +1271,20 @@ void cpu_execute_gte(u32 instruction)
 {
   cpu_add_gte_ticks(gte_get_instruction_cycles(instruction));
   gte_execute(instruction);
+}
+
+void cpu_recompiler_execute_changed_delay_slot(u32 pc, u32 branch_taken)
+{
+  g_cpu_state.npc = g_cpu_state.pc;
+  g_cpu_state.pc = pc;
+  g_cpu_state.next_instruction.bits = cpu_read_icache(pc);
+  g_cpu_state.next_instruction_is_branch_delay_slot = true;
+  g_cpu_state.branch_was_taken = branch_taken != 0;
+  do {
+    if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
+      timing_events_run_events();
+    cpu_core_execute_interpreter_instruction();
+  } while (g_cpu_state.next_instruction_is_branch_delay_slot);
 }
 
 void cpu_recompiler_thunk_interpret_instruction(void)

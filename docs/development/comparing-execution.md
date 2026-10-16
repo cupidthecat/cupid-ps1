@@ -68,8 +68,10 @@ progress beyond an event boundary; inspect it before attributing it to a
 hardware defect. Matching frame/global ticks alone is insufficient.
 
 `--fastmem off|lut|mmap` and `--no-linking` select the native configuration.
-Every result checks the reported execution configuration. The current x86-64
-backend reports slow-path execution for a LUT request, so a LUT qualification
+Every result checks the reported execution configuration and requires
+instruction-cache emulation to be enabled. A reported `icache=off` fails
+qualification. The native cache model is enabled by default. The current
+x86-64 backend reports slow-path execution for a LUT request, so a LUT qualification
 fails until [native LUT accesses](https://github.com/cupidthecat/cupid-ps1/issues/15)
 are implemented. Cached mode requires
 positive block creation, reuse and execution counts. Native mode requires
