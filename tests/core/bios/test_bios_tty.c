@@ -99,7 +99,9 @@ TEST(BiosTty, logging_changes_without_recompilation)
     observe_tty(&capture, false);
     run_slice(100);
     EXPECT_EQ(capture.lines, 0);
-    const u32 before            = g_cpu_state.regs.r[16];
+    const void* compiled  = modes[mode] == CPU_EXECUTION_MODE_RECOMPILER ? cpu_code_cache_dispatch_lookup(0xA0) : NULL;
+    const u8*   free_code = cpu_code_cache_get_free_code_pointer();
+    const u32   before    = g_cpu_state.regs.r[16];
     g_settings.bios_tty_logging = true;
     run_slice(100);
     EXPECT_TRUE(capture.lines > 0);
@@ -108,6 +110,10 @@ TEST(BiosTty, logging_changes_without_recompilation)
     g_settings.bios_tty_logging = false;
     run_slice(100);
     EXPECT_EQ(capture.lines, lines);
+    if (modes[mode] == CPU_EXECUTION_MODE_RECOMPILER) {
+      EXPECT_TRUE(compiled == cpu_code_cache_dispatch_lookup(0xA0));
+      EXPECT_TRUE(free_code == cpu_code_cache_get_free_code_pointer());
+    }
     finish_tty(&capture);
   }
 }
@@ -264,6 +270,72 @@ TEST(BiosTty, counted_write_continues_after_zero_byte)
     observe_tty(&capture, true);
     run_slice(200);
     EXPECT_STREQ(capture.text, "ab\n");
+    finish_tty(&capture);
+  }
+}
+
+TEST(BiosTty, puts_stops_at_observation_limit)
+{
+  const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
+                                        CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_RECOMPILER};
+  for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
+    start_call(modes[mode], mode == 3 ? CPU_FASTMEM_MODE_MMAP : CPU_FASTMEM_MODE_DISABLED, 0, 0xA0, 0x3E);
+    memset(bus_get_unprotected_ram_pointer() + 0x30000, 'x', 1024);
+    memcpy(bus_get_unprotected_ram_pointer() + 0x30400, "ignored\n", 9);
+    g_cpu_state.regs.r[4] = 0x30000;
+    tty_capture_t capture;
+    observe_tty(&capture, true);
+    run_slice(200);
+    EXPECT_EQ(capture.lines, 0);
+    bus_add_tty_character('\n');
+    EXPECT_EQ(capture.lines, 1);
+    EXPECT_EQ(capture.size, 1025);
+    for (size_t i = 0; i < 1024; i++)
+      EXPECT_EQ(capture.text[i], 'x');
+    EXPECT_EQ(capture.text[1024], '\n');
+    finish_tty(&capture);
+  }
+}
+
+TEST(BiosTty, string_reads_stop_at_unmapped_memory)
+{
+  const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
+                                        CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_RECOMPILER};
+  for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
+    for (u32 counted = 0; counted < 2; counted++) {
+      start_call(modes[mode], mode == 3 ? CPU_FASTMEM_MODE_MMAP : CPU_FASTMEM_MODE_DISABLED, 0, 0xA0,
+                 counted ? 3 : 0x3E);
+      memcpy(bus_get_unprotected_ram_pointer() + bus_get_ram_mask() - 1, "ok", 2);
+      g_cpu_state.regs.r[4] = counted ? 1 : 0x007FFFFE;
+      g_cpu_state.regs.r[5] = 0x007FFFFE;
+      g_cpu_state.regs.r[6] = 32;
+      tty_capture_t capture;
+      observe_tty(&capture, true);
+      run_slice(200);
+      bus_add_tty_character('\n');
+      EXPECT_STREQ(capture.text, "ok\n");
+      EXPECT_EQ(g_cpu_state.regs.r[16], 1);
+      EXPECT_EQ(g_cpu_state.cop0_regs.cause.Excode, 0);
+      finish_tty(&capture);
+    }
+  }
+}
+
+TEST(BiosTty, zero_length_write_has_no_output)
+{
+  const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
+                                        CPU_EXECUTION_MODE_RECOMPILER};
+  for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
+    start_call(modes[mode], CPU_FASTMEM_MODE_DISABLED, 0, 0xB0, 0x35);
+    memcpy(bus_get_unprotected_ram_pointer() + 0x30000, "ignored\n", 9);
+    g_cpu_state.regs.r[4] = 1;
+    g_cpu_state.regs.r[5] = 0x30000;
+    g_cpu_state.regs.r[6] = 0;
+    tty_capture_t capture;
+    observe_tty(&capture, true);
+    run_slice(200);
+    EXPECT_EQ(capture.lines, 0);
+    EXPECT_EQ(g_cpu_state.regs.r[16], 1);
     finish_tty(&capture);
   }
 }

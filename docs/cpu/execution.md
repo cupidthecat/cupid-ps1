@@ -70,6 +70,26 @@ With COP2 enabled, unsupported GTE command encodings are logged and execution
 continues without a CPU exception. Their arithmetic effects and exact timing
 [remain unqualified](https://github.com/cupidthecat/cupid-ps1/issues/18).
 
+## Instruction fetch
+
+Failed instruction reads stay pending until the faulting instruction reaches
+execution. A jump retires its link and delay slot before a target fetch fault;
+a faulting delay slot records the branch PC and target. Instruction bus errors
+leave `BadVaddr` unchanged. Alignment errors record the faulting fetch address.
+Failed cache fills remain invalid, and a later cache write cannot repair an
+already failed prefetch.
+
+RAM and BIOS reads use their backing storage. Expansion fetches currently
+return zero-filled words. The tested SPU and DMA register regions use device
+word-read handlers during execution, including
+cache fills. Speculative block decoding does not read device registers, so
+these regions run through shared execution. Existing bus handlers supply their
+access costs; exact instruction-fetch timing for I/O still needs hardware
+qualification.
+
+Save-state version 85 stores the pending fetch exception with the pipeline.
+Version 84 has no such field and loads with no pending fetch exception.
+
 ## Recompiler backends
 
 | Backend | Status | Files |

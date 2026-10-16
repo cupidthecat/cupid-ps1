@@ -94,11 +94,11 @@ NORETURN void cpu_run_interpreter_loop(void);
 static void cpu_execute_instruction(bool observe_tty);
 
 static bool cpu_fetch_instruction(void);
-static bool cpu_fetch_instruction_for_interp_fallback(void);
+static bool cpu_raise_pending_fetch_exception(void);
 
 static bool cpu_do_instruction_read(physical_memory_address_t address, u32* data,
                                     bool add_ticks, bool icache_read, u32 word_count,
-                                    bool raise_exceptions);
+                                    bool allow_device_reads);
 
 static bool cpu_do_safe_memory_access_read(virtual_memory_address_t address, memory_access_size_t size, u32* value);
 static bool cpu_do_safe_memory_access_write(virtual_memory_address_t address, memory_access_size_t size, u32 value);
@@ -212,6 +212,14 @@ bool cpu_do_state(state_wrapper_t* sw)
   state_wrapper_do_bool(sw, &g_cpu_state.branch_was_taken);
   state_wrapper_do_bool(sw, &g_cpu_state.exception_raised);
   state_wrapper_do_bool(sw, &g_cpu_state.bus_error);
+  if (state_wrapper_get_version(sw) >= 85u)
+    state_wrapper_do_u8(sw, &g_cpu_state.next_instruction_fetch_exception);
+  else if (state_wrapper_is_reading(sw))
+    g_cpu_state.next_instruction_fetch_exception = 0;
+  if (state_wrapper_is_reading(sw) && g_cpu_state.next_instruction_fetch_exception != 0 &&
+      g_cpu_state.next_instruction_fetch_exception != CPU_EXCEPTION_ADEL &&
+      g_cpu_state.next_instruction_fetch_exception != CPU_EXCEPTION_IBE)
+    return false;
 
   {
     u8 ld = (u8)g_cpu_state.load_delay_reg;
@@ -279,14 +287,6 @@ void cpu_set_pc(u32 new_pc)
 
 static void cpu_branch(u32 target)
 {
-  if (!IsAlignedPow2(target, 4u)) {
-    /* BadVaddr/EPC use the fetch address, not the instruction we were about
-     * to execute when we tried to follow this branch. */
-    g_cpu_state.cop0_regs.BadVaddr = target;
-    cpu_raise_exception_bits(cpu_cop0_cause_make(CPU_EXCEPTION_ADEL, false, false, 0u), target);
-    return;
-  }
-
   g_cpu_state.npc = target;
   g_cpu_state.branch_was_taken = true;
 }
@@ -1155,6 +1155,9 @@ void cpu_dispatch_interrupt(void)
 
 static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
 {
+  if (cpu_raise_pending_fetch_exception())
+    return false;
+
   g_cpu_state.pending_ticks++;
 
   g_cpu_state.current_instruction = instruction;
@@ -1180,8 +1183,7 @@ static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
       g_cpu_state.pc == cpu_pc_trigger_target_pc())
     cpu_pc_trigger_on_block(g_cpu_state.pc);
 
-  if (!cpu_fetch_instruction())
-    return false;
+  cpu_fetch_instruction();
 
   if (cpu_diff_is_enabled())
     cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
@@ -1254,6 +1256,7 @@ static void cpu_check_for_execution_mode_change(void)
         timing_events_run_events();
       cpu_core_execute_interpreter_instruction();
     }
+    cpu_raise_pending_fetch_exception();
   }
 
   if (s_locals.current_execution_mode == requested && native == was_native)
@@ -1262,7 +1265,7 @@ static void cpu_check_for_execution_mode_change(void)
   g_cpu_state.bus_error = false;
   if (!native && was_native) {
     g_cpu_state.npc = g_cpu_state.pc;
-    (void)cpu_fetch_instruction_for_interp_fallback();
+    (void)cpu_fetch_instruction();
   }
 
   s_locals.current_execution_mode = requested;
@@ -1322,11 +1325,13 @@ static void cpu_recompiler_run_uncached_block_impl(bool observe_tty)
 {
   g_cpu_state.npc = g_cpu_state.pc;
   g_cpu_state.exception_raised = false;
-  if (!cpu_fetch_instruction_for_interp_fallback())
-    return;
+  cpu_fetch_instruction();
 
   bool in_branch_delay_slot = false;
   for (;;) {
+    if (cpu_raise_pending_fetch_exception())
+      break;
+
     g_cpu_state.pending_ticks++;
 
     g_cpu_state.current_instruction.bits = g_cpu_state.next_instruction.bits;
@@ -1338,8 +1343,7 @@ static void cpu_recompiler_run_uncached_block_impl(bool observe_tty)
 
     const bool branch = cpu_is_branch_instruction(g_cpu_state.current_instruction);
     if (!g_cpu_state.current_instruction_in_branch_delay_slot || branch) {
-      if (!cpu_fetch_instruction_for_interp_fallback())
-        break;
+      cpu_fetch_instruction();
     } else {
       g_cpu_state.pc = g_cpu_state.npc;
     }
@@ -1414,6 +1418,7 @@ void cpu_execute(void)
   if (setjmp(s_locals.exit_jmp_buf) != 0)
     return;
 
+  cpu_raise_pending_fetch_exception();
   cpu_check_for_execution_mode_change();
 
   if (s_locals.current_execution_mode == CPU_EXECUTION_MODE_INTERPRETER)
@@ -1436,7 +1441,7 @@ bus_memory_write_handler_t cpu_get_memory_write_handler(virtual_memory_address_t
 
 static bool cpu_do_instruction_read(physical_memory_address_t address, u32* data,
                                     bool add_ticks, bool icache_read, u32 word_count,
-                                    bool raise_exceptions)
+                                    bool allow_device_reads)
 {
   /* Caller is required to ensure the address is within the physical map;
    * the high bits get masked out below. */
@@ -1462,11 +1467,17 @@ static bool cpu_do_instruction_read(physical_memory_address_t address, u32* data
     return true;
   }
 
-  if (raise_exceptions) {
-    g_cpu_state.cop0_regs.BadVaddr = address;
-    cpu_raise_exception_bits(cpu_cop0_cause_make(CPU_EXCEPTION_IBE, false, false, 0u), address);
+  if (allow_device_reads &&
+      ((address >= BUS_DMA_BASE && address < BUS_DMA_BASE + BUS_DMA_SIZE) ||
+       (address >= BUS_SPU_BASE && address < BUS_SPU_BASE + BUS_SPU_SIZE))) {
+    /* Instruction reads use the bus even while data-cache isolation is set.
+     * Speculative decoding never enters this path. */
+    bus_memory_read_handler_t* handlers =
+      bus_offset_read_handler_array(bus_get_memory_handlers(false, false), MEMORY_ACCESS_SIZE_WORD);
+    for (u32 i = 0; i < word_count; i++, address += sizeof(u32))
+      data[i] = handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT](address);
+    return true;
   }
-  memset(data, 0, sizeof(u32) * word_count);
   return false;
 }
 
@@ -1506,34 +1517,20 @@ void cpu_check_and_update_icache_tags(u32 line_count)
   g_cpu_state.pending_ticks += (u32)ticks;
 }
 
-u32 cpu_fill_icache(virtual_memory_address_t address)
+bool cpu_fill_icache(virtual_memory_address_t address, u32* value)
 {
   const u32 line = cpu_get_icache_line(address);
   const u32 line_word_offset = cpu_get_icache_line_word_offset(address);
   u32* const line_data = g_cpu_state.icache_data + (line * CPU_ICACHE_WORDS_PER_LINE);
   u32* const offset_line_data = line_data + line_word_offset;
-  u32 line_tag;
-  switch (line_word_offset) {
-    case 0:
-      cpu_do_instruction_read(address & ~(CPU_ICACHE_LINE_SIZE - 1u), offset_line_data, true, true, 4u, false);
-      line_tag = cpu_get_icache_tag_for_address(address);
-      break;
-    case 1:
-      cpu_do_instruction_read(address & (~(CPU_ICACHE_LINE_SIZE - 1u) | 0x4u), offset_line_data, true, true, 3u, false);
-      line_tag = cpu_get_icache_tag_for_address(address) | 0x1u;
-      break;
-    case 2:
-      cpu_do_instruction_read(address & (~(CPU_ICACHE_LINE_SIZE - 1u) | 0x8u), offset_line_data, true, true, 2u, false);
-      line_tag = cpu_get_icache_tag_for_address(address) | 0x3u;
-      break;
-    case 3:
-    default:
-      cpu_do_instruction_read(address & (~(CPU_ICACHE_LINE_SIZE - 1u) | 0xCu), offset_line_data, true, true, 1u, false);
-      line_tag = cpu_get_icache_tag_for_address(address) | 0x7u;
-      break;
+  if (!cpu_do_instruction_read(address, offset_line_data, true, true,
+                               CPU_ICACHE_WORDS_PER_LINE - line_word_offset, true)) {
+    g_cpu_state.icache_tags[line] = CPU_ICACHE_INVALID_BITS;
+    return false;
   }
-  g_cpu_state.icache_tags[line] = line_tag;
-  return offset_line_data[0];
+  g_cpu_state.icache_tags[line] = cpu_get_icache_fill_tag_for_address(address);
+  *value = offset_line_data[0];
+  return true;
 }
 
 void cpu_clear_icache(void)
@@ -1553,45 +1550,54 @@ static u32 cpu_read_icache(virtual_memory_address_t address)
 
 static bool cpu_fetch_instruction(void)
 {
-  DebugAssert(IsAlignedPow2(g_cpu_state.npc, 4u));
   const physical_memory_address_t address = g_cpu_state.npc;
-  switch (address >> 29) {
+  u32 instruction = 0;
+  u8 exception = 0;
+  if (!IsAlignedPow2(address, 4u)) {
+    exception = CPU_EXCEPTION_ADEL;
+  } else switch (address >> 29) {
     case 0x00: /* KUSEG 0M-512M */
     case 0x04: /* KSEG0   cached */
       if (cpu_compare_icache_tag(address))
-        g_cpu_state.next_instruction.bits = cpu_read_icache(address);
-      else
-        g_cpu_state.next_instruction.bits = cpu_fill_icache(address);
+        instruction = cpu_read_icache(address);
+      else if (!cpu_fill_icache(address, &instruction))
+        exception = CPU_EXCEPTION_IBE;
       break;
 
     case 0x05: /* KSEG1 uncached */
-      if (!cpu_do_instruction_read(address, &g_cpu_state.next_instruction.bits, true, false, 1u, true))
-        return false;
+      if (!cpu_do_instruction_read(address, &instruction, true, false, 1u, true))
+        exception = CPU_EXCEPTION_IBE;
       break;
 
     case 0x01: case 0x02: case 0x03: /* KUSEG > 512M */
     case 0x06: case 0x07: default:   /* KSEG2 */
-      cpu_raise_exception_bits(cpu_cop0_cause_make(CPU_EXCEPTION_IBE, false, false, 0u), address);
-      return false;
+      exception = CPU_EXCEPTION_IBE;
+      break;
   }
+  g_cpu_state.next_instruction.bits = instruction;
+  g_cpu_state.next_instruction_fetch_exception = exception;
   g_cpu_state.pc = g_cpu_state.npc;
   g_cpu_state.npc += sizeof(g_cpu_state.next_instruction.bits);
-  return true;
+  return exception == 0;
 }
 
-/* Recompiler fallback path can be entered with an unaligned npc (e.g. a
- * runaway jr loaded a misaligned target).  Real hardware raises AdEL on the
- * fetch itself; the hot interp path asserts because branches normally trap
- * misalignment up front.  Raise AdEL instead of crashing in debug builds. */
-static bool cpu_fetch_instruction_for_interp_fallback(void)
+static bool cpu_raise_pending_fetch_exception(void)
 {
-  if (!IsAlignedPow2(g_cpu_state.npc, 4u)) {
-    g_cpu_state.cop0_regs.BadVaddr = g_cpu_state.npc;
-    cpu_raise_exception_bits(cpu_cop0_cause_make(CPU_EXCEPTION_ADEL, false, false, 0u),
-                             g_cpu_state.npc);
+  const u8 exception = g_cpu_state.next_instruction_fetch_exception;
+  if (exception == 0)
     return false;
-  }
-  return cpu_fetch_instruction();
+
+  const u32 address = g_cpu_state.pc;
+  const bool delay_slot = g_cpu_state.next_instruction_is_branch_delay_slot;
+  const bool taken = g_cpu_state.branch_was_taken;
+  const u32 target = g_cpu_state.npc;
+  g_cpu_state.pending_ticks++;
+  if (exception == CPU_EXCEPTION_ADEL)
+    g_cpu_state.cop0_regs.BadVaddr = address;
+  cpu_raise_exception_bits(cpu_cop0_cause_make((cpu_exception_t)exception, delay_slot, taken, 0u), address);
+  if (delay_slot)
+    g_cpu_state.cop0_regs.TAR = target;
+  return true;
 }
 
 /* Dispatcher safety net helpers.  See cpu_core.h for rationale. */

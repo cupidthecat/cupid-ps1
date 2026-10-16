@@ -1186,33 +1186,6 @@ static void hook_compile_srlv(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
 static void hook_compile_srav(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf)
 { compile_variable_shift_inner(r, cf, X64_SH_SAR); }
 
-/* Validate a branch target's alignment.  Mirrors interp's `cpu_branch`
- * (cpu_core.c:275) which always raises AdEL on misaligned target - the
- * `cpu_recompiler_memory_exceptions` toggle was a perf knob that
- * left a recomp/interp behavioural gap: interp would deliver AdEL at JR
- * time (so the BIOS exception handler picks it up at the *branch* cycle,
- * matching real hardware), while recomp would silently set state.pc to
- * the bad value and only raise AdEL later, at dispatcher time, via the
- * safety net (`cpu_recompiler_synth_pc_exception_if_invalid`).  The
- * dispatcher-side raise is correct AdEL but slightly later in cycle
- * accounting, which manifests as a once-per-minute "1 safety-net event"
- * visible in CUPID_TRACE on Crash Bandicoot.
- *
- * Always emit the alignment check, regardless of the
- * `cpu_recompiler_memory_exceptions` setting.  Cost is one TEST + JCC per
- * JR/JALR (cheap; the not-taken path is statically predicted).  Matches
- * interp's per-instruction AdEL semantics. */
-static void check_branch_target(cpu_recompiler_t* r, x64_reg_t pcreg)
-{
-  x64_emit_t* e = current_emit(be_from(r));
-  x64_test_r_imm(e, X64_SZ_32, pcreg, 0x3);
-  switch_to_far_code(r, /*emit_jump=*/true, /*conditional=*/true, X64_CC_NE);
-  cpu_recompiler_backup_host_state(r);
-  hook_end_block_with_exception(r, CPU_EXCEPTION_ADEL);
-  cpu_recompiler_restore_host_state(r);
-  switch_to_near_code(r, /*emit_jump=*/false, /*conditional=*/false, X64_CC_NE);
-}
-
 static void hook_compile_jr(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf)
 {
   x64_emit_t* e = current_emit(be_from(r));
@@ -1220,14 +1193,13 @@ static void hook_compile_jr(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf)
     x64_mov_r_m(e, X64_SZ_32, RWARG1, mips_ptr(cpu_recomp_cf_mips_s(cf)));
 
   const x64_reg_t pcreg = cf.valid_host_s ? cf_get_reg_s(cf) : RWARG1;
-  check_branch_target(r, pcreg);
 
   /* Write pc directly from the host register holding the target. */
   x64_mov_m_r(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pc)), pcreg);
 
   r->delay_slot_branch_was_taken = true;
   cpu_recompiler_compile_branch_delay_slot(r, false);
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, NULL, true);
   r->block_ended = true;
 }
@@ -1244,12 +1216,11 @@ static void hook_compile_jalr(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
     cpu_recompiler_set_constant_reg(r, cpu_recompiler_mips_d(r),
                                     cpu_recompiler_get_branch_return_address(r, cf));
 
-  check_branch_target(r, pcreg);
   x64_mov_m_r(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pc)), pcreg);
 
   r->delay_slot_branch_was_taken = true;
   cpu_recompiler_compile_branch_delay_slot(r, false);
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, NULL, true);
   r->block_ended = true;
 }
@@ -1322,7 +1293,7 @@ static void hook_compile_bxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   }
   {
     const u32 newpc = r->compiler_pc;
-    if (r->v && r->v->end_block)
+    if (!r->block_ended && r->v && r->v->end_block)
       r->v->end_block(r, &newpc, true);
   }
 
@@ -1337,7 +1308,7 @@ static void hook_compile_bxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
     r->delay_slot_branch_was_taken = true;
     cpu_recompiler_compile_branch_delay_slot(r, false);
   }
-  if (r->v && r->v->end_block)
+  if (!r->block_ended && r->v && r->v->end_block)
     r->v->end_block(r, &taken_pc, true);
 
   r->block_ended = true;
@@ -2363,6 +2334,10 @@ static u32 emit_asm_functions(void* code, u32 code_size)
   u8* const dispatch_addr = x64_emit_cursor(&e);
   g_dispatcher = (const void*)dispatch_addr;
   x64_mov_r_m    (&e, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(pc)));
+  /* Delay slots have retired. Check before indexing the LUT, whose slots
+   * otherwise alias unaligned PCs to already-compiled aligned instructions. */
+  x64_test_r_imm(&e, X64_SZ_32, RWARG1, 3);
+  u8* const unaligned_fetch = x64_jcc_rel32(&e, X64_CC_NE);
   x64_mov_r_imm64(&e, RXARG2, (u64)(uintptr_t)&g_code_lut[0]);
   x64_mov_r_r    (&e, X64_SZ_32, RWARG3, RWARG1);
   x64_shift_r_imm(&e, X64_SH_SHR, X64_SZ_32, RWARG3,
@@ -2387,6 +2362,7 @@ static u32 emit_asm_functions(void* code, u32 code_size)
   { u8* j = x64_jmp_rel32(&e); x64_patch_rel32(j, dispatch_addr); }
 
   g_interpret_block = x64_emit_cursor(&e);
+  x64_patch_rel32(unaligned_fetch, g_interpret_block);
   x64_call_abs64(&e, (const void*)&cpu_recompiler_run_uncached_block);
   const void* const after_interpret = x64_emit_cursor(&e);
   x64_mov_r_m  (&e, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(pending_ticks)));

@@ -103,7 +103,7 @@ ALWAYS_INLINE bool cpu_compare_icache_tag(virtual_memory_address_t address)
 
 tick_count_t cpu_get_instruction_read_ticks(virtual_memory_address_t address);
 tick_count_t cpu_get_icache_fill_ticks(virtual_memory_address_t address);
-u32  cpu_fill_icache(virtual_memory_address_t address);
+bool cpu_fill_icache(virtual_memory_address_t address, u32* value);
 void cpu_check_and_update_icache_tags(u32 line_count);
 
 ALWAYS_INLINE cpu_segment_t cpu_get_segment_for_address(virtual_memory_address_t address)

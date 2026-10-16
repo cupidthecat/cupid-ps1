@@ -31,6 +31,7 @@ cached = "[cpu-stats] cached created=3 hits=30 blocks=50 instructions=100 fallba
 if mode == 'recomp':
     progress = "[cpu-stats] execution interpreted=0 native_entered=100 native_completed=100"
 state_payload = b'generated-state'
+state_version = 84
 restore = os.environ.get('CUPID_CHECKPOINT_RESTORE')
 restore_report = f'[execution-checkpoint] restored index={{restore}} frame=2 ticks=200' if restore else ''
 restore_after = False
@@ -42,7 +43,7 @@ else:
     directory = pathlib.Path(os.environ['CUPID_CHECKPOINT_DIR'])
     for frame in (2, 4):
         state = bytearray(216)
-        struct.pack_into('<II', state, 0, 0x43435544, 84)
+        struct.pack_into('<II', state, 0, 0x43435544, state_version)
         struct.pack_into('<4I', state, 200, 0, len(state_payload), len(state_payload), 216)
         (directory / f'checkpoint-{{frame:08d}}.sav').write_bytes(state + state_payload)
         print(f'[execution-checkpoint] frame={{frame}} ticks={{frame * 100}}')
@@ -109,6 +110,17 @@ print(cached)
                               {"kind": "state", "modes": ("interp", "interp"), "restore_at": 5}):
             with self.subTest(configuration=configuration), self.assertRaises(ValueError):
                 compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
+
+    def test_current_state_version(self):
+        self.assertTrue(self.run_fake("state_version = 85", kind="state")["passed"])
+
+    def test_unsupported_state_version(self):
+        self.assertFalse(self.run_fake("state_version = 86", kind="state")["passed"])
+
+    def test_state_version_difference_is_not_normalized(self):
+        result = self.run_fake("if right: state_version = 85", kind="state")
+        self.assertFalse(result["passed"])
+        self.assertEqual([item['first_different_byte'] for item in result['differences']], [4, 4])
 
     def test_startup_failure(self):
         self.assertFalse(self.run_fake("raise SystemExit(2)")["passed"])

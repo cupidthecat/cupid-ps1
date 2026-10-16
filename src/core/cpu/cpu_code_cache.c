@@ -882,11 +882,14 @@ bool cpu_code_cache_prepare_cached_line(cpu_code_cache_block_t* block, u32 pc)
   for (u32 i = (pc - block->pc) / CPU_INSTRUCTION_SIZE;
        i < block->size && (pc & CPU_ICACHE_TAG_ADDRESS_MASK) == line;
        i++, pc += CPU_INSTRUCTION_SIZE) {
-    const u32 word = cpu_compare_icache_tag(pc)
-                       ? g_cpu_state.icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE +
-                                                 cpu_get_icache_line_word_offset(pc)]
-                       : cpu_fill_icache(pc);
-    if (word != instructions[i].bits) {
+    u32 word = 0;
+    bool read = true;
+    if (cpu_compare_icache_tag(pc))
+      word = g_cpu_state.icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE +
+                                    cpu_get_icache_line_word_offset(pc)];
+    else
+      read = cpu_fill_icache(pc, &word);
+    if (!read || word != instructions[i].bits) {
       remove_block_from_page_list(block);
       invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
       return false;

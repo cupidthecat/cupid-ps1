@@ -58,7 +58,8 @@ every saved byte, including the later continuation files. `--restore-at` must
 precede the final checkpoint and both modes must match. A successful load or
 continued frame count alone does not establish equivalent continuation.
 
-The file comparison covers the version 84 save-state serializers, including
+The file comparison accepts save-state versions 84 and 85 and compares the
+complete files, including
 CPU, GTE, RAM, VRAM, device state, controller/card data and event records.
 It excludes host mappings and dispatch flags, generated code, CPU PGXP shadow
 arrays not written by the CPU serializer, external BIOS/disc contents, host
