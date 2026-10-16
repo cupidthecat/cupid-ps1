@@ -8,7 +8,7 @@ Auto-detected by extension via `cd_image_open()`. Implementation lives in `src/u
 |--------|-----------|-------|
 | CUE/BIN | `.cue` (+ data files referenced by the cuesheet) | MODE1/MODE2/audio tracks. Optional raw subcode. |
 | Raw binary | `.bin`, `.img`, `.iso` | Treated as MODE2 raw with a synthesized 2-second pregap. |
-| ECM | `.ecm` | Error-Correction-stripped raw image; expanded on-the-fly via `src/util/cd_image_ecm.c`. |
+| ECM | `.ecm` | Error-Correction-stripped raw image; expanded on-the-fly via `src/util/disc/cd_image_ecm.c`. |
 | CHD | `.chd` | MAME compressed format. Parent-CHD chains resolved by SHA-1 (up to 32 levels). Embedded subq. Precacheable. |
 | MDS / MDF | `.mds` (+ `.mdf`) | Alcohol 120% format. |
 | CCD | `.ccd` (+ `.img` + `.sub`) | CloneCD format with 96-byte interleaved subchannel. |
@@ -25,7 +25,7 @@ Track modes: Audio (2352), Mode1 (2048), Mode1 Raw (2352), Mode2 (2336), Mode2 F
 
 ## Multidisc
 
-`.m3u` files contain one disc image per line, paths relative to the playlist. Implementation: `src/util/cd_image_m3u.c`.
+`.m3u` files contain one disc image per line, paths relative to the playlist. Implementation: `src/util/disc/cd_image_m3u.c`.
 
 | Action | Key |
 |--------|-----|

@@ -1,45 +1,76 @@
 # Source layout
 
-```
+The core keeps each subsystem's headers beside its implementation. CPU code
+generation and GPU rendering have separate backend directories.
+
+```text
 src/
-├── common/    # logging, error, threading, path, file I/O, types, INI plumbing
-├── util/      # CD image readers, audio stream, OpenGL context, GPU device, ISO 9660, INI settings, page-fault handler
-├── core/      # CPU, GPU, SPU, CDROM, DMA, IRQ, GTE, timers, controllers, memcards, BIOS, save state, recompiler, game DB
-└── frontend/  # SDL2 main loop, CLI parsing, hotkeys, keyboard / gamepad → controller bindings
-tests/
-├── common/    util/    core/
-dep/
-├── glad/      libchdr/  lzma/    soundtouch/   stb/
-data/
-└── resources/ # gamedb.yaml, discsets.yaml, discdb.yaml
+  core/
+    bios/                BIOS identification, patches and executable loading
+    cdrom/               Drive commands, sector reading and subchannel data
+    config/              Emulation settings
+    cpu/                 Interpreter, code cache, recompiler, PGXP and tracing
+      backends/
+        arm64/           AArch64 dispatcher and interpreter fallback
+        x64/             x86-64 emitter and native backend
+    database/            Game metadata, track lookup and settings overrides
+    dma/                 DMA channels
+    gpu/                 Commands, VRAM, display timing and backend interface
+      hardware/          OpenGL renderer, shaders and texture cache
+      software/          Scalar and SIMD rasterizers
+    gte/                 Geometry coprocessor
+    input/               Pad ports and multitap
+      controllers/       Controller and peripheral implementations
+      memory_cards/      Card protocol and image storage
+    interrupts/          Interrupt controller
+    mdec/                Video decompression and frame dumping
+    memory/              Bus mapping, access timing and expansion interface
+    scheduler/           Timing events
+    serial/              Serial interface
+    shared/              Core types
+    spu/                 Sound synthesis and CD audio mixing
+    state/               Save-state format version
+    system/              Boot, reset, frame execution and state coordination
+    timers/              Root counters
+  common/                Logging, errors, threading, paths and other primitives
+  frontend/              SDL2 run loop, command line, hotkeys and input mapping
+  util/
+    audio/               Output streams, time stretching and WAV files
+    config/              INI and YAML readers
+    disc/                Disc images, cue sheets and ISO 9660 reading
+    executable/          ELF and PS-EXE reading
+    graphics/            OpenGL contexts, GPU devices, images and shader helpers
+    input/               Host input sources and bindings
+    platform/            Host-window metadata, CPU features and page faults
+    state/               Serialization, compression and object archives
+    text/                Text encoding
 ```
 
-`core/` contains the emulation subsystems. `frontend/` contains the SDL2 run loop and input mapping.
+The current graphics context uses EGL/X11. Native Windows support remains
+[planned](building.md).
 
-Notable subsystems:
+Tests follow the same groups under `tests/core/` and `tests/util/`.
+`tests/common/` covers shared primitives. The test runner and host stubs live
+at the top of `tests/`; Python tests exercise command-line validation and
+execution comparisons. `tests/util/graphics/test_gl_context_smoke.c` builds a
+separate binary that needs a working display.
 
-| Subsystem | Files |
-|-----------|-------|
-| MIPS interpreter / decode | `src/core/cpu_core.{c,h}`, `src/core/cpu_types.{c,h}` |
-| Recompiler core | `src/core/cpu_recompiler.{c,h}`, `src/core/cpu_code_cache.{c,h}` |
-| x86-64 backend | `src/core/x64_emit.{c,h}`, `src/core/x64_backend.{c,h}` |
-| AArch64 backend (interpreter fallback) | `src/core/arm64_emit.{c,h}`, `src/core/arm64_backend.{c,h}` |
-| GTE coprocessor | `src/core/gte.{c,h}`, `src/core/gte_types.h` |
-| GPU command processor | `src/core/gpu.{c,h}`, `src/core/gpu_commands.c` |
-| Software rasterizer | `src/core/gpu_sw.{c,h}`, `src/core/gpu_sw_rasterizer.{c,h}`, `gpu_sw_rasterizer_simd.c`, `gpu_sw_rasterizer_avx2.c` |
-| Hardware OpenGL | `src/core/gpu_hw.{c,h}`, `src/core/gpu_hw_shadergen.{c,h}`, `src/core/gpu_hw_texture_cache.{c,h}`, `src/core/tc_image_loader.{c,h}` |
-| CPU feature detect | `src/util/cpu_features.{c,h}` |
-| SPU | `src/core/spu.{c,h}` |
-| CDROM drive | `src/core/cdrom.{c,h}`, `src/core/cdrom_async_reader.{c,h}`, `src/core/cdrom_subq_replacement.{c,h}` |
-| Disc image readers | `src/util/cd_image*.c` (cue, chd, mds, ccd, pbp, ppf, m3u, ecm, device, memory) |
-| Bus / address decode | `src/core/bus.{c,h}` |
-| System lifecycle / save state | `src/core/system.{c,h}`, `src/core/save_state_version.h` |
-| Frontend | `src/frontend/main.c`, `src/frontend/input_map.{c,h}` |
-| Settings | `src/core/settings.{c,h}`, `src/util/ini_settings_interface.{c,h}` |
-| BIOS | `src/core/bios.{c,h}` |
-| Game database | `src/core/game_database.{c,h}`, `src/core/game_database_apply.c`, `src/core/game_database_tracks.c` |
-| FMV dump | `src/core/fmv_dump.{c,h}` |
-| Diff tooling | `scripts/compare_execution.py`, `src/core/cpu_diff_runner.{c,h}`, `src/core/cpu_execution_stats.{c,h}`, `src/core/cpu_pc_trigger.{c,h}` |
-| ELF/PSEXE reader | `src/util/elf_file.{c,h}` |
-| Page-fault handler | `src/util/page_fault_handler.c` |
-| OpenGL context (EGL/X11) | `src/util/opengl_context_egl.{c,h}`, `src/util/opengl_context_egl_xlib.c` |
+Save-state coordination remains in `src/core/system/system.c`. Each subsystem
+serializes its own state through the helpers in `src/util/state/`.
+`src/core/state/save_state_version.h` defines the format version.
+
+The Makefile discovers nested core, utility and test files. It preserves the
+basename order within each source group, excludes `gpu_commands.c` because
+`gpu.c` includes it, and keeps the rasterizer's per-file SIMD flags. Header
+checks use the same subsystem paths under the selected build directory.
+See [building](building.md) and [testing](testing.md).
+
+Other directories:
+
+- `scripts/` contains test helpers, execution comparisons and trace tools.
+- `docs/` groups usage and development notes by topic.
+- `data/resources/` contains game and disc metadata.
+- `dep/` contains bundled dependencies; required notices are in `LICENSE`,
+  `licenses/` and the dependency directories.
+- `build/` contains generated output. BIOS, games, cards, save states and
+  private research stay outside the tracked source tree.

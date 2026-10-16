@@ -1,6 +1,6 @@
 # CPU execution
 
-Defined in `src/core/types.h`, dispatched by `cpu_execute()` in `src/core/cpu_core.c`.
+Defined in `src/core/shared/types.h`, dispatched by `cpu_execute()` in `src/core/cpu/cpu_core.c`.
 
 | Mode | What it is |
 |------|-----------|
@@ -26,12 +26,12 @@ creation, reuse and execution counts when `--mode cached` is selected.
 
 | Backend | Status | Files |
 |---------|--------|-------|
-| x86-64 | Native-code backend with instruction codegen, fastmem, icache and PGXP hooks. | `src/core/x64_emit.c`, `src/core/x64_backend.c` |
-| AArch64 | Lifecycle and dispatcher with a per-block interpreter fallback. Per-op codegen, fastmem, icache and PGXP hooks are NULL. | `src/core/arm64_emit.c`, `src/core/arm64_backend.c` |
+| x86-64 | Native-code backend with instruction codegen, fastmem, icache and PGXP hooks. | `src/core/cpu/backends/x64/x64_emit.c`, `src/core/cpu/backends/x64/x64_backend.c` |
+| AArch64 | Lifecycle and dispatcher with a per-block interpreter fallback. Per-op codegen, fastmem, icache and PGXP hooks are NULL. | `src/core/cpu/backends/arm64/arm64_emit.c`, `src/core/cpu/backends/arm64/arm64_backend.c` |
 
 ## PGXP
 
-PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-precision floating-point shadows of CPU GPRs, COP0, and GTE registers across loads/stores for optional subpixel geometry handling. Hooks fire from all three CPU modes; the recompiler emits inline calls into the PGXP runtime. Toggle via `--pgxp on|off` or settings INI. Implementation: `src/core/cpu_pgxp.c`.
+PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-precision floating-point shadows of CPU GPRs, COP0, and GTE registers across loads/stores for optional subpixel geometry handling. Hooks fire from all three CPU modes; the recompiler emits inline calls into the PGXP runtime. Toggle via `--pgxp on|off` or settings INI. Implementation: `src/core/cpu/cpu_pgxp.c`.
 
 ## Recompiler fastmem
 
@@ -41,7 +41,7 @@ PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-preci
 |------|----------|
 | `off` | Always go through the C helper (slow path). |
 | `lut` | Requested LUT mode (default). The x86-64 backend currently uses the slow C helper path; native LUT execution is unfinished. |
-| `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses through `src/util/page_fault_handler.c`. |
+| `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses through `src/util/platform/page_fault_handler.c`. |
 
 ## Execution comparisons
 

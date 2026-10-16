@@ -51,11 +51,15 @@ BUILD    ?= build
 SRCDIR   := src
 SOUNDTOUCH_RUNTIME := $(BUILD)/lib/libsoundtouch.so.2
 
+# Discover nested subsystem files and retain the existing basename order.
+recursive_files = $(wildcard $(1)$(2)) $(foreach dir,$(wildcard $(1)*/),$(call recursive_files,$(dir),$(2)))
+by_basename = $(foreach name,$(sort $(notdir $(1))),$(filter %/$(name),$(1)))
+
 COMMON_SRC := $(wildcard $(SRCDIR)/common/*.c)
-UTIL_SRC   := $(wildcard $(SRCDIR)/util/*.c)
+UTIL_SRC   := $(call by_basename,$(call recursive_files,$(SRCDIR)/util/,*.c))
 # gpu_commands.c is #include'd by gpu.c (translation-unit-internal); not a
 # stand-alone TU, so exclude from the wildcard build list.
-CORE_SRC   := $(filter-out $(SRCDIR)/core/gpu_commands.c,$(wildcard $(SRCDIR)/core/*.c))
+CORE_SRC   := $(filter-out $(SRCDIR)/core/gpu/gpu_commands.c,$(call by_basename,$(call recursive_files,$(SRCDIR)/core/,*.c)))
 FRONTEND_SRC := $(wildcard $(SRCDIR)/frontend/*.c)
 
 # Vendored glad (OpenGL + EGL function loader) -- generated C, relaxed warnings.
@@ -75,21 +79,21 @@ ALL_OBJ  := $(patsubst $(SRCDIR)/%.c,$(BUILD)/%.o,$(ALL_SRC))
 # Header-only compile check: each .h is force-included into a tiny .c so we catch
 # missing includes / typos early.  Generated stubs land in $(BUILD)/hcheck/.
 COMMON_HDR := $(wildcard $(SRCDIR)/common/*.h)
-UTIL_HDR   := $(wildcard $(SRCDIR)/util/*.h)
-CORE_HDR   := $(wildcard $(SRCDIR)/core/*.h)
+UTIL_HDR   := $(call by_basename,$(call recursive_files,$(SRCDIR)/util/,*.h))
+CORE_HDR   := $(call by_basename,$(call recursive_files,$(SRCDIR)/core/,*.h))
 FRONTEND_HDR := $(wildcard $(SRCDIR)/frontend/*.h)
 ALL_HDR    := $(COMMON_HDR) $(UTIL_HDR) $(CORE_HDR) $(FRONTEND_HDR)
 HCHECK_OBJ := $(patsubst $(SRCDIR)/%.h,$(BUILD)/hcheck/%.o,$(ALL_HDR))
 
 TEST_SRC := tests/test_main.c tests/test_host_stubs.c \
             $(wildcard tests/common/*.c) \
-            $(filter-out tests/util/test_gl_context_smoke.c,$(wildcard tests/util/*.c)) \
-            $(wildcard tests/core/*.c)
+            $(filter-out tests/util/graphics/test_gl_context_smoke.c,$(call by_basename,$(call recursive_files,tests/util/,*.c))) \
+            $(call by_basename,$(call recursive_files,tests/core/,*.c))
 TEST_OBJ := $(patsubst tests/%.c,$(BUILD)/tests/%.o,$(TEST_SRC))
 # Library-side objects the tests link against (everything except the
 # binary's main() / SDL frontend / GL backend).  Filter out GL TUs since the
 # test binary doesn't link glad (those symbols would be undefined).
-TEST_LIB_OBJ := $(filter-out $(BUILD)/frontend/%.o $(BUILD)/util/opengl_%.o $(BUILD)/util/gpu_device.o $(BUILD)/util/shadergen.o $(BUILD)/core/gpu_hw_shadergen.o $(BUILD)/core/gpu_hw.o $(BUILD)/core/gpu_hw_texture_cache.o,$(ALL_OBJ))
+TEST_LIB_OBJ := $(filter-out $(BUILD)/frontend/%.o $(BUILD)/util/graphics/opengl_%.o $(BUILD)/util/graphics/gpu_device.o $(BUILD)/util/graphics/shadergen.o $(BUILD)/core/gpu/hardware/gpu_hw_shadergen.o $(BUILD)/core/gpu/hardware/gpu_hw.o $(BUILD)/core/gpu/hardware/gpu_hw_texture_cache.o,$(ALL_OBJ))
 
 .PHONY: all clean hcheck dirs test gl-smoke test-diff recomp-diff-test recomp-diff-ticks-test
 all: dirs $(BUILD)/cupid-ps1
@@ -132,9 +136,9 @@ recomp-diff-test: dirs $(BUILD)/cupid-ps1
 recomp-diff-ticks-test: recomp-diff-test
 
 # GL context verification binary: needs live X11 display; not run by `make test`.
-GL_SMOKE_OBJ := $(BUILD)/tests/util/test_gl_context_smoke.o
-GL_SMOKE_LIB_OBJ := $(BUILD)/util/opengl_context.o $(BUILD)/util/opengl_context_egl.o \
-                    $(BUILD)/util/opengl_context_egl_xlib.o $(BUILD)/util/window_info.o \
+GL_SMOKE_OBJ := $(BUILD)/tests/util/graphics/test_gl_context_smoke.o
+GL_SMOKE_LIB_OBJ := $(BUILD)/util/graphics/opengl_context.o $(BUILD)/util/graphics/opengl_context_egl.o \
+                    $(BUILD)/util/graphics/opengl_context_egl_xlib.o $(BUILD)/util/platform/window_info.o \
                     $(BUILD)/common/error.o $(BUILD)/common/log.o \
                     $(BUILD)/common/dynamic_library.o $(BUILD)/common/small_string.o \
                     $(BUILD)/common/string_util.o $(BUILD)/common/assert.o $(BUILD)/common/timer.o \
@@ -168,12 +172,12 @@ $(BUILD)/cupid-ps1: $(ALL_OBJ) $(DEP_OBJ) | $(SOUNDTOUCH_RUNTIME)
 # AVX2-specialised rasterizer TU.  Compiled with -mavx2 so future GSVector-C
 # intrinsics link cleanly; runtime dispatch picks scalar vs AVX2 via
 # cpu_features_init().  Per-TU rule overrides the generic pattern below.
-$(BUILD)/core/gpu_sw_rasterizer_avx2.o: $(SRCDIR)/core/gpu_sw_rasterizer_avx2.c
+$(BUILD)/core/gpu/software/gpu_sw_rasterizer_avx2.o: $(SRCDIR)/core/gpu/software/gpu_sw_rasterizer_avx2.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -mavx2 -mavx -msse4.1 -msse2 -mfma -c $< -o $@
 
 # SSE4.1 SIMD rasterizer TU (R22 Phase C). 4-pixel-wide SIMD body.
-$(BUILD)/core/gpu_sw_rasterizer_simd.o: $(SRCDIR)/core/gpu_sw_rasterizer_simd.c
+$(BUILD)/core/gpu/software/gpu_sw_rasterizer_simd.o: $(SRCDIR)/core/gpu/software/gpu_sw_rasterizer_simd.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -msse4.1 -msse2 -c $< -o $@
 
@@ -187,7 +191,7 @@ $(BUILD)/tests/common/test_gsvector.o: tests/common/test_gsvector.c
 # Texture-replacement loader is the sole instantiator of stb_image.h.  Compile
 # with -w because the vendored single-header lib has many implicit-conversion
 # warnings we don't want polluting the regular -Wall -Wextra build.
-$(BUILD)/core/tc_image_loader.o: $(SRCDIR)/core/tc_image_loader.c
+$(BUILD)/core/gpu/hardware/tc_image_loader.o: $(SRCDIR)/core/gpu/hardware/tc_image_loader.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CSTD) $(OPT) $(SANITIZER_FLAGS) $(DEFS) $(INC) $(SDL_CFLAGS) -fno-strict-aliasing -fvisibility=hidden -MMD -MP -w -c $< -o $@
 
