@@ -5,8 +5,21 @@ Defined in `src/core/types.h`, dispatched by `cpu_execute()` in `src/core/cpu_co
 | Mode | What it is |
 |------|-----------|
 | `interpreter` | MIPS R3000A interpreter; also used by the trace diagnostics. |
-| `cached_interpreter` | Block-level decode cache wrapping the interpreter. Execution-path consistency still needs qualification. |
+| `cached_interpreter` | Reuses instruction blocks with the shared interpreter executor. Per-instruction fetches preserve pipeline, instruction-cache and tick behavior. |
 | `recompiler` | JIT to native code. Default on x86-64 hosts. The AArch64 backend uses a per-block interpreter fallback; ARM hosts are not qualified by the current build workflow. |
+
+## Cached interpreter
+
+The cached interpreter validates each cached word against the current
+prefetched instruction and leaves the block when code, PC or event timing
+changes. Generated-program tests compare CPU state, RAM and tick checkpoints
+with ordinary interpreter execution, including branch/load delays, exceptions,
+interrupted blocks and self-modifying code. These tests cover their generated
+cases; they do not establish complete CPU accuracy.
+
+Set `CUPID_CPU_STATS=1` to print cached-block creation, reuse, executed-word and
+fallback counts at shutdown. The runtime smoke runner requires positive
+creation, reuse and execution counts when `--mode cached` is selected.
 
 ## Recompiler backends
 

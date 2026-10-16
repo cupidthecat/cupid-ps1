@@ -1136,6 +1136,73 @@ void cpu_dispatch_interrupt(void)
   timing_events_update_cpu_downcount();
 }
 
+static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
+{
+  g_cpu_state.pending_ticks++;
+
+  g_cpu_state.current_instruction = instruction;
+  g_cpu_state.current_instruction_pc = g_cpu_state.pc;
+  g_cpu_state.current_instruction_in_branch_delay_slot = g_cpu_state.next_instruction_is_branch_delay_slot;
+  g_cpu_state.current_instruction_was_branch_taken = g_cpu_state.branch_was_taken;
+  g_cpu_state.next_instruction_is_branch_delay_slot = false;
+  g_cpu_state.branch_was_taken = false;
+  g_cpu_state.exception_raised = false;
+
+#ifdef CUPID_DEBUG_RECOMP_TRACE
+  {
+    static u32 _trace_n = 0;
+    if (_trace_n++ < 5000u)
+      ERROR_LOG("interp pc=%08X inst=%08X",
+                g_cpu_state.current_instruction_pc,
+                g_cpu_state.current_instruction.bits);
+  }
+#endif
+
+  /* PC-trigger fires from interp dispatch the same way it fires from
+   * the JIT prologue.  cpu_core_step_for_diff (the per-block replay
+   * loop) does NOT route through this function, so the trigger cannot
+   * accidentally double-fire during a recomp-diff replay. */
+  if (cpu_pc_trigger_is_active() &&
+      g_cpu_state.pc == cpu_pc_trigger_target_pc())
+    cpu_pc_trigger_on_block(g_cpu_state.pc);
+
+  if (!cpu_fetch_instruction())
+    return false;
+
+  if (cpu_diff_is_enabled())
+    cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
+                                g_cpu_state.current_instruction.bits);
+  cpu_execute_instruction();
+  cpu_update_load_delay();
+  return true;
+}
+
+void cpu_core_execute_interpreter_instruction(void)
+{
+  cpu_execute_prefetched_instruction(g_cpu_state.next_instruction);
+}
+
+cpu_cached_block_result_t cpu_core_execute_cached_block(const cpu_code_cache_block_t* block)
+{
+  const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(block);
+  cpu_cached_block_result_t result = {0};
+  for (u32 i = 0; i < block->size; i++) {
+    /* Fetch still models the emulated instruction cache and pipeline. A
+     * changed block or a prefetched word that differs from RAM must leave
+     * this block before consuming another cached instruction. */
+    if (block->state != CPU_CODE_CACHE_BS_VALID ||
+        g_cpu_state.pc != block->pc + i * CPU_INSTRUCTION_SIZE ||
+        g_cpu_state.next_instruction.bits != instructions[i].bits)
+      break;
+    result.steps++;
+    if (cpu_execute_prefetched_instruction(instructions[i]))
+      result.instructions++;
+    if (g_cpu_state.exception_raised || g_cpu_state.pending_ticks >= g_cpu_state.downcount)
+      break;
+  }
+  return result;
+}
+
 NORETURN static void cpu_execute_impl(void)
 {
   if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
@@ -1143,41 +1210,7 @@ NORETURN static void cpu_execute_impl(void)
 
   for (;;) {
     do {
-      g_cpu_state.pending_ticks++;
-
-      g_cpu_state.current_instruction.bits = g_cpu_state.next_instruction.bits;
-      g_cpu_state.current_instruction_pc = g_cpu_state.pc;
-      g_cpu_state.current_instruction_in_branch_delay_slot = g_cpu_state.next_instruction_is_branch_delay_slot;
-      g_cpu_state.current_instruction_was_branch_taken = g_cpu_state.branch_was_taken;
-      g_cpu_state.next_instruction_is_branch_delay_slot = false;
-      g_cpu_state.branch_was_taken = false;
-
-#ifdef CUPID_DEBUG_RECOMP_TRACE
-      {
-        static u32 _trace_n = 0;
-        if (_trace_n++ < 5000u)
-          ERROR_LOG("interp pc=%08X inst=%08X",
-                    g_cpu_state.current_instruction_pc,
-                    g_cpu_state.current_instruction.bits);
-      }
-#endif
-
-      /* PC-trigger fires from interp dispatch the same way it fires from
-       * the JIT prologue.  cpu_core_step_for_diff (the per-block replay
-       * loop) does NOT route through this function, so the trigger cannot
-       * accidentally double-fire during a recomp-diff replay. */
-      if (cpu_pc_trigger_is_active() &&
-          g_cpu_state.pc == cpu_pc_trigger_target_pc())
-        cpu_pc_trigger_on_block(g_cpu_state.pc);
-
-      if (!cpu_fetch_instruction())
-        continue;
-
-      if (cpu_diff_is_enabled())
-        cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
-                                    g_cpu_state.current_instruction.bits);
-      cpu_execute_instruction();
-      cpu_update_load_delay();
+      cpu_core_execute_interpreter_instruction();
     } while (g_cpu_state.pending_ticks < g_cpu_state.downcount);
 
     timing_events_run_events();

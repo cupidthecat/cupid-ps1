@@ -2,6 +2,7 @@
 
 A PlayStation 1 emulator written in C11 with an SDL2 frontend.
 The supported build is Linux x86-64; Windows users can build through WSL.
+Native Windows support is [planned for implementation](https://github.com/cupidthecat/cupid-ps1/issues/13).
 
 The emulator is under development. It includes an interpreter, cached
 interpreter, x86-64 recompiler, software renderer and experimental OpenGL

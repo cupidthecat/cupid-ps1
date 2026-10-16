@@ -142,11 +142,22 @@ ALWAYS_INLINE bool cpu_code_cache_block_has_flag(const cpu_code_cache_block_t* b
   return ((u32)b->flags & (u32)f) != 0u;
 }
 
-/* Returns true if any recompiler is in use (currently always false until 6.D). */
+/* Returns true when a registered native backend is selected. */
 bool cpu_code_cache_is_using_recompiler(void);
 
-/* Returns true if the recompiler is using fastmem (always false until 6.J). */
+/* Returns true when an mmap fastmem arena is available. */
 bool cpu_code_cache_is_using_fastmem(void);
+
+typedef struct cpu_cached_interpreter_stats {
+  u64 blocks_created;
+  u64 block_hits;
+  u64 blocks_executed;
+  u64 instructions_executed;
+  u64 fallback_instructions;
+} cpu_cached_interpreter_stats_t;
+
+/* Counters since the last code-cache reset, for execution-path validation. */
+cpu_cached_interpreter_stats_t cpu_code_cache_get_cached_interpreter_stats(void);
 
 /* Allocates resources, call once at startup. */
 bool cpu_code_cache_process_startup(Error* error);

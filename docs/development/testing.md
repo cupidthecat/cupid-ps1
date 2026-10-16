@@ -46,6 +46,8 @@ sets another deadline. A timeout fails even if the process exits successfully
 after termination. Success requires one save/load observation at frame 300 or
 later, at least 60 continuation frames, one completion message after teardown,
 a nonempty state file and process exit 0.
+Cached mode also requires positive block creation, reuse and execution counts,
+so ordinary interpreter fallback cannot qualify as cached execution.
 
 These checks exercise save/load and shutdown. Dummy drivers do not verify
 displayed video or audible output, and the check does not compare restored

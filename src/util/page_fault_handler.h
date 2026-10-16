@@ -1,9 +1,4 @@
-/*
- *
-
- * Used by the dynarec to detect writes to PSX RAM pages and invalidate
- * cached translations.
- */
+/* cupid-ps1 page-fault hooks for memory mappings and code invalidation. */
 #ifndef CUPID_UTIL_PAGE_FAULT_HANDLER_H
 #define CUPID_UTIL_PAGE_FAULT_HANDLER_H
 
@@ -21,6 +16,8 @@ typedef enum {
 page_fault_handler_result_t page_fault_handler_handle(void* exception_pc, void* fault_address, bool is_write);
 
 bool page_fault_handler_install(Error* err);
+/* Restore handlers replaced by install; preserve a handler installed later. */
+bool page_fault_handler_uninstall(Error* err);
 
 /* Replaceable callback set by consumers (e.g. CPU recompiler). */
 typedef page_fault_handler_result_t (*page_fault_handler_cb_t)(void* exception_pc, void* fault_address, bool is_write);

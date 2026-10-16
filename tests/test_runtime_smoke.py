@@ -15,7 +15,7 @@ spec.loader.exec_module(smoke)
 
 @unittest.skipUnless(os.name == "posix", "Linux runtime runner")
 class RuntimeSmokeTest(unittest.TestCase):
-    def check_child(self, body, timeout=5):
+    def check_child(self, body, timeout=5, mode="interp"):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary = root / "fake-emulator"
@@ -26,7 +26,7 @@ class RuntimeSmokeTest(unittest.TestCase):
             media = root / "media"
             bios.write_bytes(b"generated test input")
             media.write_bytes(b"generated test input")
-            return smoke.run_smoke(binary, bios, media, "interp", root / "run", timeout)
+            return smoke.run_smoke(binary, bios, media, mode, root / "run", timeout)
 
     @staticmethod
     def completion():
@@ -71,6 +71,20 @@ class RuntimeSmokeTest(unittest.TestCase):
     def test_insufficient_continuation(self):
         result = self.check_child(self.completion().replace("frame 360", "frame 359"))
         self.assertFalse(result["passed"])
+
+    def test_cached_mode_without_executed_blocks(self):
+        result = self.check_child(self.completion(), mode="cached")
+        self.assertFalse(result["passed"])
+
+    def test_cached_mode_with_only_fallback(self):
+        body = self.completion() + "print('[cpu-stats] cached created=1 hits=0 blocks=0 instructions=0 fallback=99')\n"
+        self.assertFalse(self.check_child(body, mode="cached")["passed"])
+
+    def test_cached_mode_with_reused_blocks(self):
+        body = self.completion() + "print('[cpu-stats] cached created=3 hits=4 blocks=7 instructions=21 fallback=0')\n"
+        result = self.check_child(body, mode="cached")
+        self.assertTrue(result["passed"])
+        self.assertEqual(result["cached_execution"][0]["instructions"], 21)
 
 
 if __name__ == "__main__":

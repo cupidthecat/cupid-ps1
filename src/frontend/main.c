@@ -1622,6 +1622,13 @@ static bool boot_and_run(void)
 
   if (system_is_valid())
     system_shutdown_system(false);
+  if (getenv("CUPID_CPU_STATS")) {
+    const cpu_cached_interpreter_stats_t stats = cpu_code_cache_get_cached_interpreter_stats();
+    fprintf(stderr, "[cpu-stats] cached created=%llu hits=%llu blocks=%llu instructions=%llu fallback=%llu\n",
+            (unsigned long long)stats.blocks_created, (unsigned long long)stats.block_hits,
+            (unsigned long long)stats.blocks_executed, (unsigned long long)stats.instructions_executed,
+            (unsigned long long)stats.fallback_instructions);
+  }
   system_core_thread_shutdown();
   system_process_shutdown();
   return true;

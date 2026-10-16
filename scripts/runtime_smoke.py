@@ -43,13 +43,14 @@ def run_smoke(binary, bios, media, mode, output, timeout, revision=None, hash_in
                "--bios", str(bios), "--test-savestate-roundtrip", str(media)]
     env = {key: value for key, value in os.environ.items() if not key.startswith("CUPID_")}
     env.update(SDL_VIDEODRIVER="dummy", SDL_AUDIODRIVER="dummy",
-               CUPID_GPU_SW_ISA="SCALAR", CUPID_RT_PATH=str(state))
+               CUPID_GPU_SW_ISA="SCALAR", CUPID_RT_PATH=str(state), CUPID_CPU_STATS="1")
     result = {
         "revision": revision,
         "command": command,
         "sha256": {str(path): sha256(path) for path in paths},
         "environment": {key: env[key] for key in
-                        ("SDL_VIDEODRIVER", "SDL_AUDIODRIVER", "CUPID_GPU_SW_ISA", "CUPID_RT_PATH")},
+                        ("SDL_VIDEODRIVER", "SDL_AUDIODRIVER", "CUPID_GPU_SW_ISA", "CUPID_RT_PATH",
+                         "CUPID_CPU_STATS")},
         "timeout_seconds": timeout,
         "timed_out": False,
     }
@@ -79,11 +80,18 @@ def run_smoke(binary, bios, media, mode, output, timeout, revision=None, hash_in
     result["continuation_frames"] = [int(frame) for frame in continued]
     result["completion_count"] = log.count(PASS_MARKER)
     result["state_bytes"] = state.stat().st_size if state.is_file() else 0
+    cached = re.findall(r"\[cpu-stats\] cached created=(\d+) hits=(\d+) blocks=(\d+) "
+                        r"instructions=(\d+) fallback=(\d+)", log)
+    result["cached_execution"] = [dict(zip(("created", "hits", "blocks", "instructions", "fallback"),
+                                         map(int, counts))) for counts in cached]
+    cached_progress = (mode != "cached" or
+                       (len(cached) == 1 and all(int(value) > 0 for value in cached[0][:4])))
     result["passed"] = (
         not result["timed_out"] and child.returncode == 0
         and len(saved) == 1 and int(saved[0]) >= 300
         and len(continued) == 1 and int(continued[0]) >= int(saved[0]) + 60
         and result["completion_count"] == 1 and result["state_bytes"] > 0
+        and cached_progress
         and "[rt-test] FAIL" not in log
     )
     (output / "result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
