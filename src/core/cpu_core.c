@@ -1136,7 +1136,7 @@ void cpu_dispatch_interrupt(void)
   timing_events_update_cpu_downcount();
 }
 
-static void cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
+static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
 {
   g_cpu_state.pending_ticks++;
 
@@ -1167,13 +1167,14 @@ static void cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
     cpu_pc_trigger_on_block(g_cpu_state.pc);
 
   if (!cpu_fetch_instruction())
-    return;
+    return false;
 
   if (cpu_diff_is_enabled())
     cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
                                 g_cpu_state.current_instruction.bits);
   cpu_execute_instruction();
   cpu_update_load_delay();
+  return true;
 }
 
 void cpu_core_execute_interpreter_instruction(void)
@@ -1181,10 +1182,10 @@ void cpu_core_execute_interpreter_instruction(void)
   cpu_execute_prefetched_instruction(g_cpu_state.next_instruction);
 }
 
-u32 cpu_core_execute_cached_block(const cpu_code_cache_block_t* block)
+cpu_cached_block_result_t cpu_core_execute_cached_block(const cpu_code_cache_block_t* block)
 {
   const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(block);
-  u32 executed = 0;
+  cpu_cached_block_result_t result = {0};
   for (u32 i = 0; i < block->size; i++) {
     /* Fetch still models the emulated instruction cache and pipeline. A
      * changed block or a prefetched word that differs from RAM must leave
@@ -1193,12 +1194,13 @@ u32 cpu_core_execute_cached_block(const cpu_code_cache_block_t* block)
         g_cpu_state.pc != block->pc + i * CPU_INSTRUCTION_SIZE ||
         g_cpu_state.next_instruction.bits != instructions[i].bits)
       break;
-    cpu_execute_prefetched_instruction(instructions[i]);
-    executed++;
+    result.steps++;
+    if (cpu_execute_prefetched_instruction(instructions[i]))
+      result.instructions++;
     if (g_cpu_state.exception_raised || g_cpu_state.pending_ticks >= g_cpu_state.downcount)
       break;
   }
-  return executed;
+  return result;
 }
 
 NORETURN static void cpu_execute_impl(void)

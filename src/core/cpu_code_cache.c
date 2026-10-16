@@ -909,10 +909,10 @@ static NORETURN void execute_cached_interpreter(void)
         hit = false;
       }
       if (block->size > 0) {
-        const u32 executed = cpu_core_execute_cached_block(block);
-        if (executed > 0) {
+        const cpu_cached_block_result_t result = cpu_core_execute_cached_block(block);
+        if (result.steps > 0) {
           s_cached_stats.blocks_executed++;
-          s_cached_stats.instructions_executed += executed;
+          s_cached_stats.instructions_executed += result.instructions;
           if (hit)
             s_cached_stats.block_hits++;
           continue;
