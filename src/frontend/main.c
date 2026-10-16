@@ -136,11 +136,12 @@ typedef struct {
   bool                 no_block_linking;
   bool                 no_icache;
 
-  /* --test-savestate-roundtrip: at frame ~300 (5s @ 60fps) save state to a
-   * tmp path, immediately load it back, run 60 more frames, exit 0.  Smokes
-   * the cpu/bus/pgxp DoState bodies end-to-end. */
+  /* Save and reload at frame 300, continue for 60 frames, then shut down.
+   * Completion is reported only after frontend teardown. */
   bool test_rt_enabled;
   bool test_rt_saved;
+  bool test_rt_completed;
+  bool test_rt_failed;
   u32  test_rt_quit_frame;
 
   /* Run-loop state. */
@@ -158,7 +159,7 @@ typedef struct {
 } frontend_state_t;
 
 static frontend_state_t s_fe;
-static volatile sig_atomic_t s_dump_on_exit = 0;
+static volatile sig_atomic_t s_quit_signal = 0;
 
 static void dump_debug_ringbuffers(void)
 {
@@ -178,14 +179,11 @@ static void dump_debug_ringbuffers(void)
   fflush(stderr);
 }
 
-static void sigint_handler(int sig)
+static void quit_signal_handler(int sig)
 {
   (void)sig;
-  /* Async-signal-safe path: write a marker, then exit() so atexit handlers run. */
-  static const char marker[] = "\n[sigint] dumping debug ringbuffers via atexit...\n";
-  (void)write(2, marker, sizeof(marker) - 1);
-  s_dump_on_exit = 1;
-  exit(0);
+  /* The core thread performs teardown when it next pumps messages. */
+  s_quit_signal = 1;
 }
 
 static void print_usage(FILE* fp, const char* argv0)
@@ -705,7 +703,7 @@ static bool sdl_setup(void)
   /* Re-install in case SDL still touched them. */
   {
     struct sigaction sa = {0};
-    sa.sa_handler = sigint_handler;
+    sa.sa_handler = quit_signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = 0;  /* no SA_RESTART; want syscalls to EINTR so loop unwinds */
     sigaction(SIGINT,  &sa, NULL);
@@ -1353,6 +1351,12 @@ static void audio_teardown(void)
   }
 }
 
+static void request_quit(void)
+{
+  s_fe.quit_requested = true;
+  system_shutdown_system(false);
+}
+
 static void test_savestate_roundtrip_tick(void)
 {
   if (!s_fe.test_rt_enabled || !system_is_valid()) return;
@@ -1367,7 +1371,9 @@ static void test_savestate_roundtrip_tick(void)
     if (!system_save_state(path, &e, false, true)) {
       fprintf(stderr, "[rt-test] save_state failed: %s\n", Error_get_description(&e));
       Error_destroy(&e);
-      _exit(1);
+      s_fe.test_rt_failed = true;
+      request_quit();
+      return;
     }
     Error_destroy(&e);
 
@@ -1375,7 +1381,9 @@ static void test_savestate_roundtrip_tick(void)
     if (system_load_state(path, &e, false, false) == 0) {
       fprintf(stderr, "[rt-test] load_state failed: %s\n", Error_get_description(&e));
       Error_destroy(&e);
-      _exit(1);
+      s_fe.test_rt_failed = true;
+      request_quit();
+      return;
     }
     Error_destroy(&e);
     fprintf(stderr, "[rt-test] save+load round-trip OK at frame %u\n", frame);
@@ -1384,28 +1392,32 @@ static void test_savestate_roundtrip_tick(void)
   }
 
   if (s_fe.test_rt_saved && frame >= s_fe.test_rt_quit_frame) {
-    fprintf(stderr, "[rt-test] PASS - ran 60 frames after load, exiting clean\n");
-    s_fe.quit_requested = true;
-    system_interrupt_execution();
+    fprintf(stderr, "[rt-test] continuation OK at frame %u\n", frame);
+    s_fe.test_rt_completed = true;
+    request_quit();
   }
 }
 
 void host_pump_messages_on_core_thread(void)
 {
+  if (s_quit_signal)
+    request_quit();
+  if (s_fe.quit_requested)
+    return;
   test_savestate_roundtrip_tick();
+  if (s_fe.quit_requested)
+    return;
 
   SDL_Event ev;
-  while (SDL_PollEvent(&ev)) {
+  while (!s_fe.quit_requested && SDL_PollEvent(&ev)) {
     switch (ev.type) {
       case SDL_QUIT:
-        s_fe.quit_requested = true;
-        system_interrupt_execution();
+        request_quit();
         break;
 
       case SDL_WINDOWEVENT:
         if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
-          s_fe.quit_requested = true;
-          system_interrupt_execution();
+          request_quit();
         } else if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
                    ev.window.event == SDL_WINDOWEVENT_RESIZED) {
           input_map_set_window_size(ev.window.data1, ev.window.data2);
@@ -1432,8 +1444,7 @@ void host_pump_messages_on_core_thread(void)
           const bool   shift_down = (mod & KMOD_SHIFT) != 0;
           switch (ev.key.keysym.scancode) {
             case SDL_SCANCODE_ESCAPE:
-              s_fe.quit_requested = true;
-              system_interrupt_execution();
+              request_quit();
               break;
             case SDL_SCANCODE_F1: {
               /* Analog mode toggle on the pad. */
@@ -1543,7 +1554,8 @@ void host_pump_messages_on_core_thread(void)
   }
 
   /* Update the framebuffer presentation. */
-  sdl_present_frame();
+  if (!s_fe.quit_requested)
+    sdl_present_frame();
 }
 
 void host_input_manager_poll_sources(void)
@@ -1597,9 +1609,8 @@ static bool boot_and_run(void)
    * boot.  (Exec-trace init was already done before BIOS boot.) */
   cpu_code_cache_dbg_maybe_install_low_ram_watch();
 
-  /* Top-level run loop.  system_execute() returns whenever execution gets
-   * interrupted (SDL_QUIT, ESC, save state, etc.); we keep calling it
-   * until the user actually asked to exit. */
+  /* system_execute() returns when the system pauses or stops. Pump events
+   * while paused so the user can resume or quit. */
   while (!s_fe.quit_requested && !system_is_shutdown()) {
     system_execute();
     if (s_fe.quit_requested)
@@ -1610,9 +1621,6 @@ static bool boot_and_run(void)
     host_pump_messages_on_core_thread();
     SDL_Delay(16);
   }
-
-  if (s_dump_on_exit)
-    dump_debug_ringbuffers();
 
   if (system_is_valid())
     system_shutdown_system(false);
@@ -1630,7 +1638,7 @@ int main(int argc, char** argv)
 
   {
     struct sigaction sa = {0};
-    sa.sa_handler = sigint_handler;
+    sa.sa_handler = quit_signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_RESTART;
     sigaction(SIGINT,  &sa, NULL);
@@ -1693,6 +1701,13 @@ int main(int argc, char** argv)
   settings_destroy(&g_gpu_settings);
   settings_destroy(&g_settings);
 
+  if (s_fe.test_rt_enabled) {
+    if (!ok || s_fe.test_rt_failed || !s_fe.test_rt_completed) {
+      fprintf(stderr, "[rt-test] FAIL - round-trip validation incomplete\n");
+      return 2;
+    }
+    fprintf(stderr, "[rt-test] PASS - save/load, continuation and shutdown complete\n");
+  }
   return ok ? 0 : 2;
 
 fail:
