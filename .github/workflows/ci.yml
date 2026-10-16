@@ -1,0 +1,69 @@
+name: Linux validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: GCC
+            cc: gcc
+            sanitizers: ''
+            opt: -O2 -g
+          - name: Clang
+            cc: clang
+            sanitizers: ''
+            opt: -O2 -g
+          - name: Clang ASan UBSan
+            cc: clang
+            sanitizers: address,undefined
+            opt: -O1 -g
+    env:
+      SDL_VIDEODRIVER: dummy
+      SDL_AUDIODRIVER: dummy
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      ASAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang pkg-config libsdl2-dev \
+            libzstd-dev liblzma-dev zlib1g-dev libgl-dev libegl-dev libx11-dev libudev-dev
+      - name: Check private input exclusions
+        run: |
+          if test -n "$(git ls-files -- bios games)"; then
+            echo 'BIOS and game inputs must stay outside the tracked tree.' >&2
+            exit 1
+          fi
+      - name: Build emulator, headers, graphics smoke binary and run tests
+        run: |
+          make -j2 CC=${{ matrix.cc }} BUILD=build/ci \
+            OPT="${{ matrix.opt }}" SANITIZERS="${{ matrix.sanitizers }}" all hcheck gl-smoke test
+      - name: Reject an empty test selection
+        run: |
+          if build/ci/cupid-ps1-tests NoSuchTestSelection; then
+            echo 'An empty test selection must fail.' >&2
+            exit 1
+          fi
+      - name: Check filtered test script
+        run: |
+          bash scripts/run_tests.sh YamlParser CC=${{ matrix.cc }} BUILD=build/ci \
+            OPT="${{ matrix.opt }}" SANITIZERS="${{ matrix.sanitizers }}"

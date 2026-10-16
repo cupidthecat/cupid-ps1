@@ -1,0 +1,13 @@
+/build/
+/.local-research/
+/bios/
+/games/
+*.mcd
+*.mcd.tmp
+*.sav
+*.log
+*.cache
+/cupid-ps1.ini
+/settings.ini
+/memcards/
+/savestates/

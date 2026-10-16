@@ -85,5 +85,7 @@ int main(int argc, char** argv)
 
   printf("\n%u test%s ran: %u passed, %u failed (registered: %u)\n",
          ran, ran == 1 ? "" : "s", passed, failed, s_count);
-  return (failed == 0) ? 0 : 1;
+  if (ran == 0)
+    fprintf(stderr, "No tests matched%s%s.\n", filter ? ": " : "", filter ? filter : "");
+  return (ran > 0 && failed == 0) ? 0 : 1;
 }

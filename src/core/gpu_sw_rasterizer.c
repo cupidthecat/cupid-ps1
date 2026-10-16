@@ -410,18 +410,18 @@ void gpu_sw_rasterizer_scalar_draw_line(const gpu_backend_draw_cmd_t* cmd,
     s64 ddx = (s64)(p1->x - p0->x);
     s64 ddy = (s64)(p1->y - p0->y);
     /* div_xy with rounding: ((delta << SHIFT) +/- (k-1)) / k */
-    dxdk = ((ddx << XY_SHIFT) - ((ddx < 0) ? (k - 1) : 0) + ((ddx > 0) ? (k - 1) : 0)) / k;
-    dydk = ((ddy << XY_SHIFT) - ((ddy < 0) ? (k - 1) : 0) + ((ddy > 0) ? (k - 1) : 0)) / k;
+    dxdk = ((ddx * (1LL << XY_SHIFT)) - ((ddx < 0) ? (k - 1) : 0) + ((ddx > 0) ? (k - 1) : 0)) / k;
+    dydk = ((ddy * (1LL << XY_SHIFT)) - ((ddy < 0) ? (k - 1) : 0) + ((ddy > 0) ? (k - 1) : 0)) / k;
     if (shading_enable) {
-      drdk = (((s32)p1->r - (s32)p0->r) << RGB_SHIFT) / k;
-      dgdk = (((s32)p1->g - (s32)p0->g) << RGB_SHIFT) / k;
-      dbdk = (((s32)p1->b - (s32)p0->b) << RGB_SHIFT) / k;
+      drdk = (((s32)p1->r - (s32)p0->r) * (1 << RGB_SHIFT)) / k;
+      dgdk = (((s32)p1->g - (s32)p0->g) * (1 << RGB_SHIFT)) / k;
+      dbdk = (((s32)p1->b - (s32)p0->b) * (1 << RGB_SHIFT)) / k;
     }
   }
 
-  s64 curx = ((s64)p0->x << XY_SHIFT) | (1LL << (XY_SHIFT - 1));
+  s64 curx = ((s64)p0->x * (1LL << XY_SHIFT)) + (1LL << (XY_SHIFT - 1));
   curx -= 1024;
-  s64 cury = ((s64)p0->y << XY_SHIFT) | (1LL << (XY_SHIFT - 1));
+  s64 cury = ((s64)p0->y * (1LL << XY_SHIFT)) + (1LL << (XY_SHIFT - 1));
   cury -= (dydk < 0) ? 1024 : 0;
 
   s32 curr = ((s32)p0->r << RGB_SHIFT) | (1 << (RGB_SHIFT - 1));
@@ -477,8 +477,8 @@ ALWAYS_INLINE static void uv_init(uv_stepper_t* s, u32 u0, u32 v0)
 }
 ALWAYS_INLINE static void uv_step_x_n(uv_stepper_t* s, const uv_steps_t* st, s32 n)
 {
-  s->u += (u32)((s32)st->dudx * n);
-  s->v += (u32)((s32)st->dvdx * n);
+  s->u += st->dudx * (u32)n;
+  s->v += st->dvdx * (u32)n;
 }
 ALWAYS_INLINE static void uv_step_x(uv_stepper_t* s, const uv_steps_t* st)
 {
@@ -487,8 +487,8 @@ ALWAYS_INLINE static void uv_step_x(uv_stepper_t* s, const uv_steps_t* st)
 }
 ALWAYS_INLINE static void uv_step_y_n(uv_stepper_t* s, const uv_steps_t* st, s32 n)
 {
-  s->u += (u32)((s32)st->dudy * n);
-  s->v += (u32)((s32)st->dvdy * n);
+  s->u += st->dudy * (u32)n;
+  s->v += st->dvdy * (u32)n;
 }
 ALWAYS_INLINE static void uv_step_y(uv_stepper_t* s, const uv_steps_t* st, bool upside_down)
 {
@@ -517,9 +517,9 @@ ALWAYS_INLINE static void rgb_init(rgb_stepper_t* s, u32 r0, u32 g0, u32 b0)
 }
 ALWAYS_INLINE static void rgb_step_x_n(rgb_stepper_t* s, const rgb_steps_t* st, s32 n)
 {
-  s->r += (u32)((s32)st->drdx * n);
-  s->g += (u32)((s32)st->dgdx * n);
-  s->b += (u32)((s32)st->dbdx * n);
+  s->r += st->drdx * (u32)n;
+  s->g += st->dgdx * (u32)n;
+  s->b += st->dbdx * (u32)n;
 }
 ALWAYS_INLINE static void rgb_step_x(rgb_stepper_t* s, const rgb_steps_t* st)
 {
@@ -529,9 +529,9 @@ ALWAYS_INLINE static void rgb_step_x(rgb_stepper_t* s, const rgb_steps_t* st)
 }
 ALWAYS_INLINE static void rgb_step_y_n(rgb_stepper_t* s, const rgb_steps_t* st, s32 n)
 {
-  s->r += (u32)((s32)st->drdy * n);
-  s->g += (u32)((s32)st->dgdy * n);
-  s->b += (u32)((s32)st->dbdy * n);
+  s->r += st->drdy * (u32)n;
+  s->g += st->dgdy * (u32)n;
+  s->b += st->dbdy * (u32)n;
 }
 ALWAYS_INLINE static void rgb_step_y(rgb_stepper_t* s, const rgb_steps_t* st, bool upside_down)
 {
@@ -694,21 +694,21 @@ void gpu_sw_rasterizer_scalar_draw_triangle(const gpu_backend_draw_cmd_t* cmd,
   if (v0->y == v2->y) return; /* degenerate */
 
   /* Fixed-point edge stepping at 32-bit precision. */
-  const s64 base_coord = ((s64)v0->x << 32) + ((1LL << 32) - (1 << 11));
+  const s64 base_coord = ((s64)v0->x * (1LL << 32)) + ((1LL << 32) - (1 << 11));
   const s32 dx_v2v0 = v2->x - v0->x;
   const s32 dy_v2v0 = v2->y - v0->y;
-  const s64 base_step = (((s64)dx_v2v0 << 32) +
+  const s64 base_step = (((s64)dx_v2v0 * (1LL << 32)) +
                          ((dx_v2v0 < 0) ? -(s64)(dy_v2v0 - 1) : ((dx_v2v0 > 0) ? (s64)(dy_v2v0 - 1) : 0))) / dy_v2v0;
 
   s64 bound_coord_us = 0;
   if (v1->y != v0->y) {
     const s32 dx = v1->x - v0->x, dy = v1->y - v0->y;
-    bound_coord_us = (((s64)dx << 32) + ((dx < 0) ? -(s64)(dy - 1) : ((dx > 0) ? (s64)(dy - 1) : 0))) / dy;
+    bound_coord_us = (((s64)dx * (1LL << 32)) + ((dx < 0) ? -(s64)(dy - 1) : ((dx > 0) ? (s64)(dy - 1) : 0))) / dy;
   }
   s64 bound_coord_ls = 0;
   if (v2->y != v1->y) {
     const s32 dx = v2->x - v1->x, dy = v2->y - v1->y;
-    bound_coord_ls = (((s64)dx << 32) + ((dx < 0) ? -(s64)(dy - 1) : ((dx > 0) ? (s64)(dy - 1) : 0))) / dy;
+    bound_coord_ls = (((s64)dx * (1LL << 32)) + ((dx < 0) ? -(s64)(dy - 1) : ((dx > 0) ? (s64)(dy - 1) : 0))) / dy;
   }
 
   const u32 vo = (tl != 0) ? 1u : 0u;
@@ -725,13 +725,13 @@ void gpu_sw_rasterizer_scalar_draw_triangle(const gpu_backend_draw_cmd_t* cmd,
   tpo->end_y   = vertices[1 ^ vo]->y;
   tpp->start_y = vertices[1 ^ vp]->y;
   tpp->end_y   = vertices[2 ^ vp]->y;
-  tpo->start_x[rfi] = ((s64)vertices[0 ^ vo]->x << 32) + ((1LL << 32) - (1 << 11));
+  tpo->start_x[rfi] = ((s64)vertices[0 ^ vo]->x * (1LL << 32)) + ((1LL << 32) - (1 << 11));
   tpo->step_x[rfi]  = (u64)bound_coord_us;
   tpo->start_x[ofi] = (u64)(base_coord + ((s64)(vertices[vo]->y - vertices[0]->y) * base_step));
   tpo->step_x[ofi]  = (u64)base_step;
   tpo->fill_upside_down = (vo != 0);
 
-  tpp->start_x[rfi] = ((s64)vertices[1 ^ vp]->x << 32) + ((1LL << 32) - (1 << 11));
+  tpp->start_x[rfi] = ((s64)vertices[1 ^ vp]->x * (1LL << 32)) + ((1LL << 32) - (1 << 11));
   tpp->step_x[rfi]  = (u64)bound_coord_ls;
   tpp->start_x[ofi] = (u64)(base_coord + ((s64)(vertices[1 ^ vp]->y - vertices[0]->y) * base_step));
   tpp->step_x[ofi]  = (u64)base_step;

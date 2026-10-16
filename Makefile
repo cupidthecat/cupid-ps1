@@ -10,6 +10,8 @@ WARN     := -Wall -Wextra -Wshadow -Wpointer-arith -Wstrict-prototypes -Wmissing
 # glad's generated C is huge and trips strict-prototypes / missing-prototypes; relax for it only.
 GLAD_WARN := -Wall -Wno-unused-parameter -Wno-unused-function
 OPT      ?= -O2 -g
+SANITIZERS ?=
+SANITIZER_FLAGS := $(if $(SANITIZERS),-fsanitize=$(SANITIZERS) -fno-omit-frame-pointer,)
 DEFS     := -D_GNU_SOURCE -DCUPID_GL_ENABLED $(EXTRA_DEFS)
 ifeq ($(CUPID_FMV_DUMP),1)
 DEFS     += -DCUPID_FMV_DUMP_BUILD
@@ -35,19 +37,19 @@ ifeq ($(strip $(LZMA_LIBS_PKG)),)
 $(error liblzma not found via pkg-config — install liblzma-dev / xz to build save-state XZ codec)
 endif
 
-CFLAGS   := $(CSTD) $(WARN) $(OPT) $(DEFS) $(INC) $(SDL_CFLAGS) $(LZMA_CFLAGS_PKG) -fno-strict-aliasing -fvisibility=hidden
-GLAD_CFLAGS := $(CSTD) $(GLAD_WARN) $(OPT) $(DEFS) $(INC) -fno-strict-aliasing -fvisibility=hidden
+CFLAGS   := $(CSTD) $(WARN) $(OPT) $(SANITIZER_FLAGS) $(DEFS) $(INC) $(SDL_CFLAGS) $(ZSTD_CFLAGS) $(LZMA_CFLAGS_PKG) -fno-strict-aliasing -fvisibility=hidden -MMD -MP
+GLAD_CFLAGS := $(CSTD) $(GLAD_WARN) $(OPT) $(SANITIZER_FLAGS) $(DEFS) $(INC) -fno-strict-aliasing -fvisibility=hidden -MMD -MP
 # Vendored third-party C (libchdr, lzma): relax warnings; we don't own the code.
-DEP_CFLAGS  := -std=gnu11 -w $(OPT) -D_GNU_SOURCE -Idep/libchdr/include -Idep/lzma/include $(ZSTD_CFLAGS) -fno-strict-aliasing -fvisibility=hidden
+DEP_CFLAGS  := -std=gnu11 -w $(OPT) $(SANITIZER_FLAGS) -D_GNU_SOURCE -Idep/libchdr/include -Idep/lzma/include $(ZSTD_CFLAGS) -fno-strict-aliasing -fvisibility=hidden -MMD -MP
 LZMA_CFLAGS := $(DEP_CFLAGS) -DZ7_ST
-# Vendored SoundTouch (audio time-stretch / resample, LGPL).  Linked at
-# build/cupid-ps1's $ORIGIN-relative path so the binary runs without
-# LD_LIBRARY_PATH (build/cupid-ps1 -> ../dep/soundtouch/lib/libsoundtouch.so.2).
-LDFLAGS  := -Ldep/soundtouch/lib -Wl,-rpath,'$$ORIGIN/../dep/soundtouch/lib'
-LDLIBS   := -lm -lpthread -lz $(ZSTD_LIBS) $(LZMA_LIBS_PKG) -ldl -lGL -lEGL -lX11 -ludev $(SDL_LIBS) -lsoundtouch
+# Stage the bundled audio library under its ELF SONAME beside each build.
+# This works on checkouts that do not preserve symbolic links.
+LDFLAGS  += $(SANITIZER_FLAGS) -L$(BUILD)/lib -Wl,-rpath,'$$ORIGIN/lib'
+LDLIBS   := -lm -lpthread -lz $(ZSTD_LIBS) $(LZMA_LIBS_PKG) -ldl -lGL -lEGL -lX11 -ludev $(SDL_LIBS) -l:libsoundtouch.so.2
 
-BUILD    := build
+BUILD    ?= build
 SRCDIR   := src
+SOUNDTOUCH_RUNTIME := $(BUILD)/lib/libsoundtouch.so.2
 
 COMMON_SRC := $(wildcard $(SRCDIR)/common/*.c)
 UTIL_SRC   := $(wildcard $(SRCDIR)/util/*.c)
@@ -75,7 +77,8 @@ ALL_OBJ  := $(patsubst $(SRCDIR)/%.c,$(BUILD)/%.o,$(ALL_SRC))
 COMMON_HDR := $(wildcard $(SRCDIR)/common/*.h)
 UTIL_HDR   := $(wildcard $(SRCDIR)/util/*.h)
 CORE_HDR   := $(wildcard $(SRCDIR)/core/*.h)
-ALL_HDR    := $(COMMON_HDR) $(UTIL_HDR) $(CORE_HDR)
+FRONTEND_HDR := $(wildcard $(SRCDIR)/frontend/*.h)
+ALL_HDR    := $(COMMON_HDR) $(UTIL_HDR) $(CORE_HDR) $(FRONTEND_HDR)
 HCHECK_OBJ := $(patsubst $(SRCDIR)/%.h,$(BUILD)/hcheck/%.o,$(ALL_HDR))
 
 TEST_SRC := tests/test_main.c tests/test_host_stubs.c \
@@ -94,7 +97,7 @@ all: dirs $(BUILD)/cupid-ps1
 hcheck: dirs $(HCHECK_OBJ)
 
 test: dirs $(BUILD)/cupid-ps1-tests
-	@$(BUILD)/cupid-ps1-tests
+	@$(BUILD)/cupid-ps1-tests $(TEST_FILTER)
 
 # Interpreter determinism / diff-trace harness.
 # Records a per-instruction trace of two interpreter boots with
@@ -198,10 +201,10 @@ GL_SMOKE_LIB_OBJ := $(BUILD)/util/opengl_context.o $(BUILD)/util/opengl_context_
                     $(BUILD)/common/memmap.o
 gl-smoke: dirs $(BUILD)/cupid-ps1-gl-smoke
 
-$(BUILD)/cupid-ps1-gl-smoke: $(GL_SMOKE_OBJ) $(GL_SMOKE_LIB_OBJ) $(GLAD_OBJ)
+$(BUILD)/cupid-ps1-gl-smoke: $(GL_SMOKE_OBJ) $(GL_SMOKE_LIB_OBJ) $(GLAD_OBJ) | $(SOUNDTOUCH_RUNTIME)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
-$(BUILD)/cupid-ps1-tests: $(TEST_OBJ) $(TEST_LIB_OBJ) $(LIBCHDR_OBJ) $(LZMA_OBJ)
+$(BUILD)/cupid-ps1-tests: $(TEST_OBJ) $(TEST_LIB_OBJ) $(LIBCHDR_OBJ) $(LZMA_OBJ) | $(SOUNDTOUCH_RUNTIME)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD)/tests/%.o: tests/%.c
@@ -214,7 +217,11 @@ dirs:
 	@mkdir -p $(BUILD)/tests/common $(BUILD)/tests/util $(BUILD)/tests/core
 	@mkdir -p $(BUILD)/dep/glad/src $(BUILD)/dep/libchdr/src $(BUILD)/dep/lzma/src
 
-$(BUILD)/cupid-ps1: $(ALL_OBJ) $(DEP_OBJ)
+$(SOUNDTOUCH_RUNTIME): dep/soundtouch/lib/libsoundtouch.so.2.3.3
+	@mkdir -p $(dir $@)
+	cp $< $@
+
+$(BUILD)/cupid-ps1: $(ALL_OBJ) $(DEP_OBJ) | $(SOUNDTOUCH_RUNTIME)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # AVX2-specialised rasterizer TU.  Compiled with -mavx2 so future GSVector-C
@@ -241,7 +248,7 @@ $(BUILD)/tests/common/test_gsvector.o: tests/common/test_gsvector.c
 # warnings we don't want polluting the regular -Wall -Wextra build.
 $(BUILD)/core/tc_image_loader.o: $(SRCDIR)/core/tc_image_loader.c
 	@mkdir -p $(dir $@)
-	$(CC) $(CSTD) $(OPT) $(DEFS) $(INC) $(SDL_CFLAGS) -fno-strict-aliasing -fvisibility=hidden -w -c $< -o $@
+	$(CC) $(CSTD) $(OPT) $(SANITIZER_FLAGS) $(DEFS) $(INC) $(SDL_CFLAGS) -fno-strict-aliasing -fvisibility=hidden -MMD -MP -w -c $< -o $@
 
 $(BUILD)/%.o: $(SRCDIR)/%.c
 	@mkdir -p $(dir $@)
@@ -266,3 +273,5 @@ $(BUILD)/hcheck/%.o: $(SRCDIR)/%.h
 
 clean:
 	rm -rf $(BUILD)
+
+-include $(ALL_OBJ:.o=.d) $(DEP_OBJ:.o=.d) $(TEST_OBJ:.o=.d) $(HCHECK_OBJ:.o=.d) $(GL_SMOKE_OBJ:.o=.d)

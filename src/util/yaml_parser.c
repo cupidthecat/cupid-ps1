@@ -166,7 +166,7 @@ static bool read_plain(parser_t* p, const char* terminators,
   const char* last_nonspace = start; /* one past the last non-space char seen */
   while (p->p < p->end) {
     const char c = *p->p;
-    if (c == '\n')
+    if (c == '\n' || c == '\r')
       break;
     /* '#' starts a comment only when preceded by whitespace (or at start
      * of the scalar). YAML rule. */
