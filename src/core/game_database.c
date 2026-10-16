@@ -199,8 +199,7 @@ typedef struct {
   size_t        codes_count;
   size_t        codes_capacity;
 
-  /* Track-hash storage owned by game_database_tracks.c (filled by a later
-     subagent).  Kept here so the lookup helpers can find it. */
+  /* Reserved track-hash storage. */
   void*  tracks;
   size_t tracks_count;
 } state_t;

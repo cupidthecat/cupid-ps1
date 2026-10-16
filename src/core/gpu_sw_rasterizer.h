@@ -1,15 +1,8 @@
 /*
- * functions selected through three function-pointer tables (rect/line/tri)
- * indexed by [shading][modulation][transparency].  We collapse all template
- * params into runtime branches inside one rasterizer per primitive (perf
- * loss accepted; correctness first).  Tables remain so call sites read the
- * same way (`get_draw_triangle()(...)`), but they all point at the same
- * function and the modulation/shading/transparency flags come from cmd.
- *
- * Runtime ISA select: gpu_sw_rasterizer_dispatch_init() picks scalar vs AVX2
- * (vtable populated in gpu_sw_rasterizer.c).  AVX2 entry points live in
- * gpu_sw_rasterizer_avx2.c; today they forward to scalar; the per-TU split
- * is the placeholder for a future GSVector-C SIMD body.
+ * Software rasterizer entry points and runtime ISA selection.
+ * Primitive routines read shading, modulation and transparency flags from the
+ * command. Dispatch selects scalar, SSE4.1 or AVX2 functions according to host
+ * CPU support; AVX2 VRAM operations use separate vectorized loops.
  */
 
 #ifndef CUPID_CORE_GPU_SW_RASTERIZER_H

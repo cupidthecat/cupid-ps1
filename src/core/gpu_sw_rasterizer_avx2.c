@@ -1,17 +1,9 @@
 /*
- * AVX2-targeted SW rasterizer TU.  Compiled with -mavx2 -mavx -msse4.1
- * -msse2 -mfma per Makefile per-TU rule.
+ * AVX2 VRAM fill, copy and write operations.
  *
- * Implemented: fill_vram, copy_vram, write_vram with 256-bit
- * vector inner loops on the wide regular path (no row wrap, no clipping
- * mid-row).  Tail-pixel residue and any wrapping/masking case fall
- * through to the scalar path (or a 1-pixel scalar tail) so behavior is
- * bit-identical to gpu_sw_rasterizer_scalar_*.
- *
- * Triangle / line / rectangle still forward to the scalar implementation
- *; those need GSVector-equivalent per-pixel ops (gradient, CLUT, blend)
- * and stay scalar this round, matching upstream duckstation's `#if 0`
- * AVX2 GSVector path.
+ * Contiguous rows use 256-bit vector loops. Wrapping, masking and tail pixels
+ * use scalar handling where needed. Triangle, line and rectangle entry points
+ * call the scalar rasterizer. The Makefile supplies the AVX2 compiler flags.
  */
 
 #include "core/gpu_sw_rasterizer.h"
@@ -49,7 +41,7 @@ void gpu_sw_rasterizer_avx2_fill_vram (u32, u32, u32, u32, u32, bool, u8);
 void gpu_sw_rasterizer_avx2_write_vram(u32, u32, u32, u32, const u16*, bool, bool);
 void gpu_sw_rasterizer_avx2_copy_vram (u32, u32, u32, u32, u32, u32, bool, bool);
 
-/* Triangle/line/rectangle: scalar (GSVector-C body deferred). */
+/* Primitive drawing uses the scalar implementation. */
 void gpu_sw_rasterizer_avx2_draw_rectangle(const gpu_backend_draw_rectangle_cmd_t* cmd)
 {
   gpu_sw_rasterizer_scalar_draw_rectangle(cmd);

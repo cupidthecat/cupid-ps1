@@ -27,7 +27,7 @@
  *       Mode2Form2  : 0x918 bytes        ->  2336 bytes / sector
  *   trailing CRC32 of the decompressed image (we don't verify).
  *
- * For the C port we keep upstream's two-stage scheme:
+ * Reading uses two stages:
  *   1. Open(): scan the file once and build an `entries[]` sorted by disc
  *      offset.  Each entry caches (disc_offset, file_offset, chunk_size,
  *      type).  We do NOT decompress here.
@@ -38,11 +38,11 @@
  *      satisfied straight from the buffer.
  *
  * ECC P/Q parity LUTs and the EDC CRC-32 routine come from libchdr's
- * cdrom.c (vendored in dep/libchdr; same source upstream uses post-merge).
+ * cdrom.c (vendored in dep/libchdr).
  *
  * Limitations:
  *   - Single-track Mode2Raw image, 2-second pregap, no subchannel.  This
- *     mirrors cd_image_open_bin and the upstream OpenEcmImage path.
+ *     uses the same layout as cd_image_open_bin.
  *   - We don't verify the trailing CRC32.
  */
 
@@ -232,10 +232,8 @@ static bool ecm_decode_entry(cd_image_ecm_t* img, const ecm_entry_t* e, u8* dst)
   }
 }
 
-/* Fill chunk_buffer so that bytes [disc_offset, disc_offset + size) are
- * covered.  We start from the entry whose disc range contains disc_offset
- * (or the one immediately before, mirroring upstream's lower_bound dance)
- * and decode forward until we cover the requested window. */
+/* Fill chunk_buffer for [disc_offset, disc_offset + size). Binary-search the
+ * starting entry, then decode entries until the buffer covers the window. */
 static bool ecm_fill_window(cd_image_ecm_t* img, u32 disc_offset, u32 size)
 {
   if (img->entry_count == 0) return false;
@@ -323,13 +321,9 @@ static cd_image_ecm_t* alloc_ecm_image(void)
   return img;
 }
 
-/* Read one variable-length type+count header.  Returns false on EOF or
- * malformed stream; on success outputs:
- *   *out_type   : 0..3
- *   *out_count  : decoded count, or 0xFFFFFFFFu for the terminator (caller
- *                 must NOT add 1 in that case)
- *   *out_bytes  : number of bytes consumed (1..5).
- * Mirrors upstream Open() loop verbatim. */
+/* Read one variable-length type/count header. Return false on EOF or malformed
+ * input. Outputs are the type (0..3), encoded count and bytes consumed (1..5).
+ * A count of 0xFFFFFFFF is the terminator; callers must not add one to it. */
 static bool ecm_read_block_header(FILE* fp, u32* out_type, u32* out_count, u32* out_bytes)
 {
   int b = fgetc(fp);

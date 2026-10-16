@@ -1,8 +1,6 @@
 /*
- * Internal-only declarations for system.c.  Most of the original private
- * surface is rewind/runahead memory-state plumbing, which is dropped per the
- * cupid-ps1 scope cuts (see system.h docstring).  What remains: increment frame
- * counters, frame-done hook, mc-access fast forward, abnormal shutdown.
+ * Internal system hooks for frame accounting, frame completion, memory-card
+ * access and abnormal shutdown.
  */
 
 #ifndef CUPID_CORE_SYSTEM_PRIVATE_H

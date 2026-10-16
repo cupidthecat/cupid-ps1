@@ -23,6 +23,17 @@ The existing notice requires attribution, limits use to noncommercial purposes,
 and does not permit public redistribution of modified versions. Vendored
 dependencies retain their own notices and licenses listed above.
 
+Existing source credits retained from implementation comments:
+
+- `src/common/gsvector.h`, `src/core/gpu_sw_rasterizer_simd.c` and
+  the polygon-emission helpers in `src/core/gpu_hw.c` identify code from
+  DuckStation. Their source attribution remains covered by the notice above.
+- `src/core/gpu_sw_rasterizer.c` credits blargg for the packed 15-bit
+  transparency arithmetic.
+
+Component-specific copyright, license and attribution notices in source
+files remain in place.
+
 ### System libraries (linked, not vendored, not redistributed)
 
 Linked dynamically against the host system's copies; nothing from these projects is shipped in this repo, so their license texts are not bundled. Listed for transparency:

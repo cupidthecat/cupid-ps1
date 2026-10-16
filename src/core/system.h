@@ -1,13 +1,6 @@
 /*
- * Central glue module: boot/shutdown, main run loop, save/load state, frame
- * timing.  C++ namespace System -> system_ prefix, namespace Host requests
- * become host_request_*.
- *
- * Per the cupid-ps1 scope cuts, ImGui/fullscreenui/OSD/Achievements/Cheats/
- * GameDatabase/Netplay/Runahead/Rewind/MediaCapture/GPU dump/Discord are
- * dropped or stubbed; only save states, memory cards, frame timing, and
- * the SW renderer are kept.  HW renderer selection is preserved as an enum
- * but defaults to GPU_RENDERER_SOFTWARE.
+ * System lifecycle, execution, frame timing and save-state interfaces.
+ * The system module also manages media, region selection and device ownership.
  */
 
 #ifndef CUPID_CORE_SYSTEM_H

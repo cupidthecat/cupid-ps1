@@ -1,17 +1,9 @@
 /*
- * Scalar software rasterizer.  Shading / modulation / transparency are
- * runtime branches inside ShadePixel + the per-primitive routines.
- * Single TU; no ISA-specialized variants.
+ * Scalar software rasterization and runtime dispatch.
  *
- *  - ShadePixel unconditionally fetches the texture pixel and applies
- *    modulation, then conditionally blends/dithers on cmd flags.  The
- *    runtime branch on `texture_enable` etc. predicts perfectly within
- *    a primitive.
- *  - blargg's 15bpp transparency math (sum / carry / borrow tricks)
- *    handles all four modes by manipulating the RGB5A1 bit pattern as a
- *    single u32.
- *  - Dither matrix is 4x4 (Bayer-like); the LUT gates output to [0,31]
- *    after adding the matrix offset to the 5-bit channel value.
+ * Primitive routines apply texture modulation, transparency, mask checks and
+ * dithering according to command flags. Packed RGB5A1 arithmetic handles the
+ * four blend modes. A 4x4 dither matrix and lookup table produce 5-bit channels.
  */
 
 #include "core/gpu_sw_rasterizer.h"
@@ -36,12 +28,8 @@ u16 g_gpu_clut[GPU_CLUT_SIZE];
 u8  gpu_sw_dither_lut[DITHER_MATRIX_SIZE][DITHER_MATRIX_SIZE][GPU_SW_DITHER_LUT_SIZE];
 gpu_drawing_area_t gpu_sw_drawing_area;
 
-/* Vtable populated by gpu_sw_rasterizer_dispatch_init() at startup, then
- * called via the trampolines at the end of this file.  AVX2 entry points are
- * defined in gpu_sw_rasterizer_avx2.c (separate TU compiled with -mavx2).
- * Today they forward to the scalar implementations; the per-TU split is in
- * place so a future GSVector-C port can fill in the SIMD bodies without
- * touching any caller. */
+/* Runtime dispatch selects the scalar, SSE4.1 or AVX2 entry points at startup.
+ * Public trampolines at the end of this file call the selected functions. */
 typedef struct {
   void (*draw_rectangle)(const gpu_backend_draw_rectangle_cmd_t*);
   void (*draw_line)(const gpu_backend_draw_cmd_t*,
@@ -116,8 +104,7 @@ static const gpu_sw_rasterizer_vtable_t s_simd_vt = {
   gpu_sw_rasterizer_simd_copy_vram,
   "SIMD"
 };
-/* AVX2 vtable: SIMD rasterizer (no AVX2 widening yet; deferred) +
- * AVX2 256-bit VRAM blits from gpu_sw_rasterizer_avx2.c. */
+/* AVX2 dispatch combines SSE4.1 primitive drawing with AVX2 VRAM operations. */
 static const gpu_sw_rasterizer_vtable_t s_avx2_vt = {
   gpu_sw_rasterizer_simd_draw_rectangle,
   gpu_sw_rasterizer_simd_draw_line,

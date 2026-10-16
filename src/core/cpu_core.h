@@ -1,13 +1,7 @@
 /*
- * R3000A interpreter public surface.  The CPU is a process-wide singleton on
- * PS1 (one core, no SMP), so register state lives in the global g_cpu_state.
- *
- *  - PGXP plumbing (cpu_pgxp deferred).
- *  - Cached interpreter / dynarec integration (interpreter is the only path).
- *  - Breakpoint/debugger surface (tied to host UI; will resurface when
- *    a debugger frontend lands).
- *  - fastmem; we keep the field on the state struct for ABI parity with
- *    future ports but never populate or use it.
+ * R3000A execution and CPU-state interfaces.
+ * The PS1 has one CPU; its registers, pipeline state and execution timing live
+ * in the process-wide g_cpu_state.
  */
 
 #ifndef CUPID_CORE_CPU_CORE_H
@@ -71,8 +65,7 @@ typedef struct {
   };
 } cpu_gte_regs_t;
 
-/* CPU state struct: layout is part of the dynarec ABI so that
- * future dynarec ports can rely on stable offsets. */
+/* CPU-state layout is part of the recompiler ABI. */
 typedef struct {
   /* ticks the CPU has executed */
   u32 downcount;
@@ -224,10 +217,7 @@ u32* cpu_get_icache_tags(void);
 
 void cpu_code_cache_invalidate_all_ram_blocks(void);
 
-/* Recompiler thunk: interprets a single guest instruction, then returns.
- * Used by the recompiler dispatcher's g_interpret_block path while the
- * x64 backend's per-MIPS hooks are not yet wired (chunks 1-8 of 6.D.2).
- */
+/* Recompiler fallback: interpret one guest instruction, then return. */
 void cpu_recompiler_thunk_interpret_instruction(void);
 
 void cpu_recompiler_run_uncached_block(void);

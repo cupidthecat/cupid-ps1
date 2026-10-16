@@ -1,20 +1,9 @@
 /*
- * Full code-cache driver:
- *   - LUT (g_code_lut + per-page sub-tables, plus parallel block LUT)
- *   - Block storage (dynamic-array pool, trailing inst+inst-info arrays)
- *   - Block reading + reg-flow pre-pass (FillBlockRegInfo)
- *   - Page-protection state-machine (4-invalidations-in-60-frames → manual)
- *   - Block-link multimap (linear-probe array, dead-flag erase)
- *   - JIT memory allocation via memmap_allocate_jit_memory
- *   - compile_or_revalidate_block / discard_and_recompile_block
- *   - compile_asm_functions (calls into backend's emit_asm_functions hook)
- *   - SMC fastmem backpatching (handle_fastmem_exception + slow-path stub
- *     emit + per-PC faulting record + binary-searchable backpatch table +
- *     page-fault-handler integration).  End-to-end live; exercised every
- *     game boot via Bus's mmap fastmem arena.
- *
- * cpu_code_cache_execute() falls through to the interpreter when no backend
- * has registered (g_cpu_compiler == NULL || g_cpu_compiler->v == NULL).
+ * CPU code cache, block linking and recompiler dispatch.
+ * The driver manages block storage, instruction analysis, code lookup tables,
+ * JIT memory and self-modifying-code invalidation. Fastmem faults can backpatch
+ * load/store sites to slow-path helpers. Execution falls back to the interpreter
+ * when no compiler backend is registered.
  */
 
 #include "cpu_code_cache.h"
@@ -1342,11 +1331,8 @@ void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
     return;
   cpu_code_cache_block_t* b = lookup_block(start_pc);
   if (b != NULL) {
-    /* If the block is somehow already VALID (rare race during chunk-0/1
-     * landing where end_compile may have committed but the LUT pointer
-     * not yet re-read by the dispatcher pipeline), just publish its host
-     * code to the LUT and return.  Once the recompiler is fully wired
-     * this branch is dead. */
+    /* An already valid block can be republished to the code LUT without
+     * recompilation. */
     if (b->state == CPU_CODE_CACHE_BS_VALID) {
       if (b->host_code != NULL) {
         set_code_lut(start_pc, b->host_code);
