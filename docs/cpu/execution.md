@@ -31,8 +31,9 @@ leave `BadVaddr` unchanged. Alignment errors record the faulting fetch address.
 Failed cache fills remain invalid, and a later cache write cannot repair an
 already failed prefetch.
 
-RAM, ROM and expansion reads use their backing storage. The tested SPU and DMA
-register regions use device word-read handlers during execution, including
+RAM and BIOS reads use their backing storage. Expansion fetches currently
+return zero-filled words. The tested SPU and DMA register regions use device
+word-read handlers during execution, including
 cache fills. Speculative block decoding does not read device registers, so
 these regions run through shared execution. Existing bus handlers supply their
 access costs; exact instruction-fetch timing for I/O still needs hardware
