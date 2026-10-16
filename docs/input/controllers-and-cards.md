@@ -20,6 +20,25 @@ Controller types are defined in `src/core/shared/types.h`.
 
 Multitap is wired in `src/core/input/multitap.c`, supporting up to 8 controller+memcard ports total.
 
+## Serial mode registers
+
+The controller port (SIO0) and serial port (SIO1) retain different MODE bits:
+
+| Register | Address | Writable mask |
+|----------|---------|---------------|
+| `JOY_MODE` | `0x1F801048` | `0x013F` |
+| `SIO_MODE` | `0x1F801058` | `0x00FF` |
+
+Both ports retain the baud factor, character length and parity fields. SIO0
+also retains clock polarity at bit 8; SIO1 retains stop-bit length at bits
+6-7. Other bits read as zero. See the [serial register specification](https://psx-spx.consoledev.net/serialinterfacessio/#0x1f801048-0x10n-mr-mode-register).
+
+Reset clears MODE. Save states keep the same register layout; loading an older
+state clears reserved MODE bits while preserving the supported fields.
+Set `CUPID_TRACE=1` to log MODE reads and writes when diagnosing bus accesses.
+These register checks do not establish complete controller or serial-port
+emulation.
+
 ## Memory cards
 
 - 128 KB image: 16 frames × 64 sectors × 128 bytes = 131 072 bytes.
