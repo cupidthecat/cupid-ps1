@@ -11,3 +11,4 @@
 /settings.ini
 /memcards/
 /savestates/
+__pycache__/

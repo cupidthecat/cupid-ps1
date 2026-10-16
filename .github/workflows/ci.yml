@@ -67,3 +67,5 @@ jobs:
         run: |
           bash scripts/run_tests.sh YamlParser CC=${{ matrix.cc }} BUILD=build/ci \
             OPT="${{ matrix.opt }}" SANITIZERS="${{ matrix.sanitizers }}"
+      - name: Check runtime validation runner
+        run: python3 -m unittest discover -s tests -p 'test_runtime_smoke.py'
