@@ -1241,7 +1241,6 @@ bool cpu_recompiler_try_swap_delay_slot(cpu_recompiler_t* r, cpu_reg_t rs, cpu_r
     } break;
 
     case CPU_OP_SB: case CPU_OP_SH: case CPU_OP_SWL: case CPU_OP_SW: case CPU_OP_SWR:
-    case CPU_OP_LWC2: case CPU_OP_SWC2:
       safe = true;
       break;
 
@@ -1269,32 +1268,11 @@ bool cpu_recompiler_try_swap_delay_slot(cpu_recompiler_t* r, cpu_reg_t rs, cpu_r
       }
     } break;
 
-    case CPU_OP_COP2:
+    case CPU_OP_COP0: case CPU_OP_COP1: case CPU_OP_COP2: case CPU_OP_COP3:
+    case CPU_OP_LWC2: case CPU_OP_SWC2:
       /* A permission fault in the slot needs the resolved branch outcome and
        * target. Emit it after the branch rather than before its condition. */
       return false;
-
-    case CPU_OP_COP0: case CPU_OP_COP1: case CPU_OP_COP3: {
-      if (cpu_cop_is_common_instruction(*next)) {
-        switch (cpu_cop_common_op(*next)) {
-          case CPU_COP_COMMON_MFCN: case CPU_COP_COMMON_CFCN: {
-            if ((rs != (cpu_reg_t)0 && rs == opcode_rt) ||
-                (rt != (cpu_reg_t)0 && rt == opcode_rt) ||
-                (rd != (cpu_reg_t)0 && rd == opcode_rt)) {
-              return false;
-            }
-            safe = true;
-          } break;
-          case CPU_COP_COMMON_MTCN: case CPU_COP_COMMON_CTCN:
-            safe = true;
-            break;
-          default:
-            return false;
-        }
-      } else {
-        return false;
-      }
-    } break;
 
     default:
       return false;
@@ -2014,6 +1992,17 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
   }
 
   switch ((cpu_instruction_op_t)r->inst->any.op) {
+    case CPU_OP_COP0: case CPU_OP_COP1: case CPU_OP_COP2: case CPU_OP_COP3:
+    case CPU_OP_LWC0: case CPU_OP_LWC1: case CPU_OP_LWC2: case CPU_OP_LWC3:
+    case CPU_OP_SWC0: case CPU_OP_SWC1: case CPU_OP_SWC2: case CPU_OP_SWC3:
+      if (r->v && r->v->check_cop_enabled)
+        r->v->check_cop_enabled(r);
+      break;
+    default:
+      break;
+  }
+
+  switch ((cpu_instruction_op_t)r->inst->any.op) {
     case CPU_OP_FUNCT: {
       switch ((cpu_instruction_funct_t)r->inst->r.funct) {
         case CPU_FUNCT_SLL:  CT(sll_const, sll, &pgxp_cpu_sll, CPU_RC_TF_WRITES_D | CPU_RC_TF_READS_T); cpu_recompiler_spec_exec_sll(r); break;
@@ -2174,8 +2163,6 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
     } break;
 
     case CPU_OP_COP2: {
-      if (r->v && r->v->check_cop2_enabled)
-        r->v->check_cop2_enabled(r);
       if (cpu_cop_is_common_instruction(*r->inst)) {
         switch (cpu_cop_common_op(*r->inst)) {
           case CPU_COP_COMMON_MFCN: case CPU_COP_COMMON_CFCN:

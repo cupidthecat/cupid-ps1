@@ -1073,11 +1073,19 @@ restart_instruction:;
 
     case CPU_OP_COP1:
     case CPU_OP_COP3:
+      if (!(g_cpu_state.cop0_regs.sr.bits & (1u << (28u + inst.cop.cop_n)))) {
+        cpu_raise_exception(CPU_EXCEPTION_CPU);
+        return;
+      }
       break;
 
     case CPU_OP_LWC0:
     case CPU_OP_LWC1:
     case CPU_OP_LWC3: {
+      if (!(g_cpu_state.cop0_regs.sr.bits & (1u << (28u + inst.cop.cop_n)))) {
+        cpu_raise_exception(CPU_EXCEPTION_CPU);
+        return;
+      }
       /* The memory access still happens (and bus errors are still raised) but
        * the value is discarded. */
       const virtual_memory_address_t addr = cpu_read_reg((cpu_reg_t)inst.i.rs) + cpu_instr_imm_sext32(inst);
@@ -1088,6 +1096,10 @@ restart_instruction:;
     case CPU_OP_SWC0:
     case CPU_OP_SWC1:
     case CPU_OP_SWC3: {
+      if (!(g_cpu_state.cop0_regs.sr.bits & (1u << (28u + inst.cop.cop_n)))) {
+        cpu_raise_exception(CPU_EXCEPTION_CPU);
+        return;
+      }
       const virtual_memory_address_t addr = cpu_read_reg((cpu_reg_t)inst.i.rs) + cpu_instr_imm_sext32(inst);
       cpu_write_memory_word(addr, 0u);
     } break;

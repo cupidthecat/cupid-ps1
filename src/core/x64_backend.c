@@ -885,15 +885,22 @@ static void hook_generate_icache_line_check(cpu_recompiler_t* r)
   switch_to_near_code(r, false, false, X64_CC_E);
 }
 
-static void hook_check_cop2_enabled(cpu_recompiler_t* r)
+static void hook_check_cop_enabled(cpu_recompiler_t* r)
 {
-  x64_emit_t* e = current_emit(be_from(r));
-  x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 1u << 30);
+  x64_emit_t* e      = current_emit(be_from(r));
+  u8*         kernel = NULL;
+  if ((cpu_instruction_op_t)r->inst->any.op == CPU_OP_COP0) {
+    /* COP0 register operations remain available in kernel mode with CU0 clear. */
+    x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 2u);
+    kernel = x64_jcc_rel32(e, X64_CC_E);
+  }
+  x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 1u << (28u + r->inst->cop.cop_n));
   switch_to_far_code(r, true, true, X64_CC_E);
   cpu_recompiler_backup_host_state(r);
   hook_end_block_with_exception(r, CPU_EXCEPTION_CPU);
   cpu_recompiler_restore_host_state(r);
   switch_to_near_code(r, false, false, X64_CC_E);
+  if (kernel) x64_patch_rel32(kernel, x64_emit_cursor(e));
 }
 
 /* Emit a `jo` into far code that raises an Overflow exception, then
@@ -2495,8 +2502,8 @@ static const struct cpu_recompiler_vtable s_vtable = {
    .compile_mtc0  = hook_compile_mtc0,
   .compile_rfe   = hook_compile_rfe, 
 
-  /* COP2 register transfers, GTE commands and COP2 memory operations. */
-  .check_cop2_enabled = hook_check_cop2_enabled,
+  /* Coprocessor permissions, COP2 transfers and GTE commands. */
+  .check_cop_enabled = hook_check_cop_enabled,
    .compile_mfc2  = hook_compile_mfc2,
   .compile_mtc2  = hook_compile_mtc2,
   .compile_cop2  = hook_compile_cop2,

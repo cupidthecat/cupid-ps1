@@ -56,6 +56,16 @@ exception, including for reads to register zero. These instructions remain
 after their branch condition when compiled in a delay slot, so the exception
 retains the branch outcome and target.
 
+All three CPU modes check the enable bits for COP1 and COP3 operations and
+coprocessor memory transfers. Native COP0 register operations also check user
+mode permissions. These checks use the current status register, including
+changes made earlier in the same block. Disabled transfers trap before device
+access or a GTE busy wait. Generated cases check pending loads and exceptions
+in both taken and untaken branch slots.
+
+Enabled memory transfers involving absent coprocessors still differ between
+engines and remain unqualified. Coprocessor branches also need further work.
+
 ## Recompiler backends
 
 | Backend | Status | Files |
