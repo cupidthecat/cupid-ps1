@@ -126,11 +126,16 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
         failures.append("missing, repeated or unexpected execution configuration")
     result["observed_configuration"] = configurations
     execution = re.findall(r"\[cpu-stats\] execution interpreted=(\d+) native_entered=(\d+) native_completed=(\d+)", log)
+    dispatch = re.findall(r"^\[cpu-stats\] native_dispatch delay_slots_interpreted=(\d+)$", log, re.MULTILINE)
     cached = re.findall(r"\[cpu-stats\] cached created=(\d+) hits=(\d+) blocks=(\d+) instructions=(\d+) fallback=(\d+)", log)
-    if len(execution) != 1 or len(cached) != 1:
+    if (len(execution) != 1 or len(cached) != 1 or len(dispatch) != 1
+            or log.count('[cpu-stats] native_dispatch') != 1):
         failures.append("missing or repeated execution counters")
     else:
         result["execution"] = dict(zip(("interpreted", "native_entered", "native_completed"), map(int, execution[0])))
+        result["execution"]["native_dispatch_delay_slots"] = int(dispatch[0])
+        if int(dispatch[0]) > int(execution[0][0]):
+            failures.append("native dispatch delay slots exceed interpreted instructions")
         result["cached"] = dict(zip(("created", "hits", "blocks", "instructions", "fallback"), map(int, cached[0])))
         if mode == "recomp":
             if min(map(int, execution[0][1:])) < min_blocks:

@@ -193,6 +193,8 @@ static void changed_delay_slot(bool taken, bool trap, bool interrupt_before_slot
   }
   EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed > 0);
   EXPECT_TRUE(cpu_execution_stats_get()->interpreted_instructions > 0);
+  EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions,
+            cpu_execution_stats_get()->native_dispatch_delay_slots);
   finish_cpu();
 }
 

@@ -88,7 +88,11 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                                                 min_blocks=10, timeout=30)
                 self.assertTrue(result['passed'], result)
                 if mode == 'recomp':
-                    self.assertTrue(all(run['execution']['interpreted'] == 0 for run in result['runs']), result)
+                    # Timing events can resume the handler's NOP slot through the shared executor.
+                    # Every other instruction, including the reserved word, must execute natively.
+                    for run in result['runs']:
+                        self.assertEqual(run['execution']['interpreted'],
+                                         run['execution']['native_dispatch_delay_slots'], result)
                 for side in ('left', 'right'):
                     for frame in (2, 4):
                         data = (directory / side / f'checkpoint-{frame:08d}.sav').read_bytes()

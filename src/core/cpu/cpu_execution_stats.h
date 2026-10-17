@@ -6,6 +6,8 @@
 
 typedef struct {
   u64 interpreted_instructions;
+  /* Included in interpreted_instructions: pending slots completed before native dispatch. */
+  u64 native_dispatch_delay_slots;
   u64 native_blocks_entered;
   u64 native_blocks_completed;
 } cpu_execution_stats_t;

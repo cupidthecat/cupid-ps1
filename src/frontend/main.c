@@ -1744,6 +1744,8 @@ static bool boot_and_run(void)
             (unsigned long long)execution->interpreted_instructions,
             (unsigned long long)execution->native_blocks_entered,
             (unsigned long long)execution->native_blocks_completed);
+    fprintf(stderr, "[cpu-stats] native_dispatch delay_slots_interpreted=%llu\n",
+            (unsigned long long)execution->native_dispatch_delay_slots);
     const cpu_cached_interpreter_stats_t stats = cpu_code_cache_get_cached_interpreter_stats();
     fprintf(stderr, "[cpu-stats] cached created=%llu hits=%llu blocks=%llu instructions=%llu fallback=%llu\n",
             (unsigned long long)stats.blocks_created, (unsigned long long)stats.block_hits,

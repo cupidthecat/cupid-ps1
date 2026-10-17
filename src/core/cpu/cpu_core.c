@@ -1217,6 +1217,13 @@ void cpu_core_execute_interpreter_instruction(void)
   cpu_execute_prefetched_instruction(g_cpu_state.next_instruction, true);
 }
 
+static void cpu_finish_native_dispatch_delay_slot(void)
+{
+  DebugAssert(g_cpu_state.next_instruction_is_branch_delay_slot);
+  if (cpu_execute_prefetched_instruction(g_cpu_state.next_instruction, true) && cpu_execution_stats_is_enabled())
+    cpu_execution_stats_get()->native_dispatch_delay_slots++;
+}
+
 bool cpu_get_prefetched_instruction(u32 pc, u32* word)
 {
   if (!s_locals.prefetch_valid || s_locals.prefetched_pc != pc || g_cpu_state.next_instruction_fetch_exception)
@@ -1266,7 +1273,7 @@ void cpu_native_prepare_dispatch(void)
     if (g_cpu_state.pending_ticks >= g_cpu_state.downcount) timing_events_run_events();
     if (cpu_raise_pending_fetch_exception()) continue;
     if (!g_cpu_state.next_instruction_is_branch_delay_slot) return;
-    cpu_core_execute_interpreter_instruction();
+    cpu_finish_native_dispatch_delay_slot();
   }
 }
 
@@ -1329,7 +1336,7 @@ static void cpu_check_for_execution_mode_change(void)
     while (g_cpu_state.next_instruction_is_branch_delay_slot) {
       if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
         timing_events_run_events();
-      cpu_core_execute_interpreter_instruction();
+      cpu_finish_native_dispatch_delay_slot();
     }
     cpu_raise_pending_fetch_exception();
   }

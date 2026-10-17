@@ -74,6 +74,7 @@ static void branch_delay_to_native(cpu_execution_mode_t initial)
   EXPECT_EQ(g_cpu_state.regs.r[9], 0x1234);
   EXPECT_EQ(g_cpu_state.regs.r[10], 0);
   EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed > 0);
+  EXPECT_TRUE(cpu_execution_stats_get()->native_dispatch_delay_slots > 0);
   finish_cpu();
 }
 

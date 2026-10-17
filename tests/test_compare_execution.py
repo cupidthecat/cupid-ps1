@@ -27,6 +27,7 @@ header = {compare.TRACE_HEADER!r}
 rows = [str(i) + ' ' + ' '.join(['00000000'] * 116 + ['0000000000000000']) + '\\n' for i in range(1, 5)]
 footer = '# completed 4\\n'
 progress = "[cpu-stats] execution interpreted=100 native_entered=0 native_completed=0"
+dispatch = "[cpu-stats] native_dispatch delay_slots_interpreted=0"
 cached = "[cpu-stats] cached created=3 hits=30 blocks=50 instructions=100 fallback=0"
 if mode == 'recomp':
     progress = "[cpu-stats] execution interpreted=0 native_entered=100 native_completed=100"
@@ -54,6 +55,7 @@ else:
     print('[execution-checkpoint] completed count=2')
 print(f'[cpu-stats] configuration mode={{mode}} fastmem=off linking=on icache={{icache}}')
 print(progress)
+print(dispatch)
 print(cached)
 '''
             binary.write_text(code, encoding="utf-8")
@@ -149,6 +151,22 @@ print(cached)
 
     def test_missing_counters(self):
         self.assertFalse(self.run_fake("progress = ''")["passed"])
+
+    def test_missing_repeated_or_invalid_dispatch_counters_fail(self):
+        for counter in ('', '[cpu-stats] native_dispatch delay_slots_interpreted=invalid',
+                        '[cpu-stats] native_dispatch delay_slots_interpreted=0\n' * 2,
+                        '[cpu-stats] native_dispatch delay_slots_interpreted=101'):
+            with self.subTest(counter=counter):
+                self.assertFalse(self.run_fake(f'dispatch = {counter!r}')["passed"])
+
+    def test_native_dispatch_counts_remain_in_interpreted_total(self):
+        result = self.run_fake("progress = '[cpu-stats] execution interpreted=6 native_entered=100 native_completed=100'\n"
+                               "dispatch = '[cpu-stats] native_dispatch delay_slots_interpreted=6'",
+                               kind='state', modes=('recomp', 'recomp'))
+        self.assertTrue(result['passed'], result)
+        for run in result['runs']:
+            self.assertEqual(run['execution']['interpreted'], 6)
+            self.assertEqual(run['execution']['native_dispatch_delay_slots'], 6)
 
     def test_no_cached_progress(self):
         self.assertFalse(self.run_fake("cached = '[cpu-stats] cached created=1 hits=0 blocks=0 instructions=0 fallback=99'")["passed"])

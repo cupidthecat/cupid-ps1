@@ -19,7 +19,10 @@ cases; they do not establish complete CPU accuracy.
 
 Set `CUPID_CPU_STATS=1` before startup to print execution configuration,
 interpreted instruction counts, native block entry/completion counts and
-cached-block creation, reuse, executed-word and fallback counts at shutdown. The runtime smoke runner requires positive
+cached-block creation, reuse, executed-word and fallback counts at shutdown.
+The native dispatcher separately reports pending delay slots completed by the
+shared executor. These slots remain included in the interpreted total, even
+when the selected mode is `recomp`. The runtime smoke runner requires positive
 creation, reuse and execution counts when `--mode cached` is selected.
 
 ## Execution state and timing
@@ -138,9 +141,11 @@ Blocks decoded from RAM leave after a write invalidates their code, before
 entering a branch with an outdated slot. That exit retains the current prefetch.
 
 Generated tests cover all 24 reserved primary encodings and 36 reserved SPECIAL
-functions, cached RAM rewrites, cache bypass and restored prefetched words. A
-boot with generated firmware also checks the exception registers and unchanged canaries
-under each execution configuration. These checks cover the documented encoding
+functions, cached RAM rewrites, cache bypass and restored prefetched words.
+The direct native cases require zero interpreted instructions. A boot with
+generated firmware also checks the exception registers and unchanged canaries
+under each execution configuration. Its interpreted instructions must all be
+reported dispatcher delay slots. These checks cover the documented encoding
 tables; other coprocessor encodings, unused operand bits and exact exception
 timing need separate qualification. No new physical hardware capture ran.
 
