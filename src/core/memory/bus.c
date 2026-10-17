@@ -715,6 +715,22 @@ bool bus_can_use_fastmem_for_address(virtual_memory_address_t address)
   return (segment == 0 || segment == 4 || segment == 5) && paddr < s_ram_mapped_size;
 }
 
+static void hardware_write_word(virtual_memory_address_t address, u32 value);
+
+bool bus_is_word_latch_address(virtual_memory_address_t address)
+{
+  const bus_memory_write_handler_t* handlers =
+      bus_offset_write_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
+  if (handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT] != hardware_write_word) return false;
+  const u32 physical = cpu_virtual_to_physical_address(address);
+  return (physical >= BUS_MEMCTRL_BASE && physical < BUS_MEMCTRL_BASE + BUS_MEMCTRL_SIZE) ||
+         (physical >= BUS_MEMCTRL2_BASE && physical < BUS_MEMCTRL2_BASE + BUS_MEMCTRL2_SIZE) ||
+         (physical >= BUS_INTC_BASE && physical < BUS_INTC_BASE + BUS_INTC_SIZE) ||
+         (physical >= BUS_DMA_BASE && physical < BUS_DMA_BASE + BUS_DMA_SIZE) ||
+         (physical >= BUS_GPU_BASE && physical < BUS_GPU_BASE + BUS_GPU_SIZE) ||
+         (physical >= BUS_MDEC_BASE && physical < BUS_MDEC_BASE + BUS_MDEC_SIZE);
+}
+
 void bus_set_ram_code_page(u32 index)
 {
   if (index >= BUS_RAM_8MB_CODE_PAGE_COUNT || code_bit_get(index))
@@ -1902,6 +1918,34 @@ static void hardware_write_word(virtual_memory_address_t address, u32 value)
 {
   if (!s_hw_dispatch_built) build_hw_dispatch();
   s_hw_dispatch.write_word[(address >> 4) & 0xFFu](address, value);
+}
+
+bool bus_try_write_partial_device(virtual_memory_address_t address, u32 value, u32 enabled_bytes)
+{
+  if ((address & 3u) || !enabled_bytes || (enabled_bytes & ~0xFu)) return false;
+  const u32                         physical = cpu_virtual_to_physical_address(address);
+  const bus_memory_write_handler_t* handlers =
+      bus_offset_write_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
+  if (physical < BUS_SPU_BASE || physical >= BUS_SPU_BASE + BUS_SPU_SIZE ||
+      !s_MEMCTRL.r.spu_delay_size.b.data_bus_16bit ||
+      handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT] != hardware_write_word)
+    return false;
+
+  if (enabled_bytes == 0xFu) {
+    spu_write_common(address, value, MEMORY_ACCESS_SIZE_WORD);
+    return true;
+  }
+
+  /* A partial access issues one halfword at the lowest enabled byte. Only
+   * single-byte accesses retain a single write enable on the external bus. */
+  u32 first = 0;
+  while (!(enabled_bytes & (1u << first)))
+    first++;
+  const u32  halfword = first & ~1u;
+  const bool single   = (enabled_bytes & (enabled_bytes - 1u)) == 0;
+  write_spu_bus_unit((address & BUS_SPU_MASK) + halfword, value >> (halfword * 8u), 2,
+                     single ? 1u << (first & 1u) : 3u);
+  return true;
 }
 
 #define KUSEG 0x00000000u

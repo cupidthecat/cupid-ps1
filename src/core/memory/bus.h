@@ -156,6 +156,8 @@ ALWAYS_INLINE bus_memory_write_handler_t* bus_offset_write_handler_array(void** 
 void* bus_get_fastmem_base(bool isc);
 void  bus_remap_fastmem_views(void);
 bool  bus_can_use_fastmem_for_address(virtual_memory_address_t address);
+bool  bus_is_word_latch_address(virtual_memory_address_t address);
+bool  bus_try_write_partial_device(virtual_memory_address_t address, u32 value, u32 enabled_bytes);
 
 /* Optional RAM-write tap for diagnostics. Fastmem writes can bypass this hook.
  * writer_pc is the CPU's current-instruction field and can be stale in native code. */

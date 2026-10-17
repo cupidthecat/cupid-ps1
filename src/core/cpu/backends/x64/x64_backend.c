@@ -1851,69 +1851,87 @@ static void hook_compile_lwx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   cpu_recompiler_free_host_reg(r, addr_idx);
 }
 
-static void hook_compile_swx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
-                             memory_access_size_t size, bool sign,
+static void hook_compile_swx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf, memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr)
 {
   (void)size;
   (void)sign;
   x64_emit_t* e = current_emit(be_from(r));
 
-  const u32 addr_idx = cpu_recompiler_allocate_temp_host_reg(r, CPU_RC_HR_CALLEE_SAVED);
-  const x64_reg_t addr = (x64_reg_t)addr_idx;
+  const u32       addr_idx = cpu_recompiler_allocate_temp_host_reg(r, CPU_RC_HR_CALLEE_SAVED);
+  const x64_reg_t addr     = (x64_reg_t)addr_idx;
 
   prepare_memory_access(r, &cf);
   compute_loadstore_address_into(r, cf, known_addr, addr);
 
-  /* Read existing word at aligned addr into RWRET. */
-  x64_mov_r_r  (e, X64_SZ_32, RWARG1, addr);
-  x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, RWARG1, (s32)~0x3u);
-  if (use_fastmem)
+  u8* slow_isolated = NULL;
+  u8* slow_device   = NULL;
+  u8* done_ram      = NULL;
+  if (use_fastmem) {
+    /* An MMIO store must reach its write handler without a speculative read. */
+    x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 0x10000);
+    slow_isolated = x64_jcc_rel32(e, X64_CC_NE);
+    x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+    x64_call_abs64(e, (const void*)&bus_can_use_fastmem_for_address);
+    x64_test_r_imm(e, X64_SZ_8, RWRET, 1);
+    slow_device = x64_jcc_rel32(e, X64_CC_E);
+
+    /* RAM keeps its direct host merge and write-protection recovery. */
+    x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+    x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, RWARG1, (s32)~0x3u);
     emit_fastmem_load(r, RWARG1, RWRET, MEMORY_ACCESS_SIZE_WORD, false);
-  else
-    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
-  emit_memory_exception_exit(r);
+    emit_memory_exception_exit(r);
 
-  /* CL = (addr & 3) * 8;  align addr in place for the writeback. */
-  x64_mov_r_r   (e, X64_SZ_32, X64_RCX, addr);
-  x64_alu_r_imm (e, X64_ALU_AND, X64_SZ_32, X64_RCX, 3);
-  x64_shift_r_imm(e, X64_SH_SHL, X64_SZ_32, X64_RCX, 3);
-  x64_alu_r_imm (e, X64_ALU_AND, X64_SZ_32, addr, (s32)~0x3u);
+    /* CL = (addr & 3) * 8;  align addr in place for the writeback. */
+    x64_mov_r_r(e, X64_SZ_32, X64_RCX, addr);
+    x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, X64_RCX, 3);
+    x64_shift_r_imm(e, X64_SH_SHL, X64_SZ_32, X64_RCX, 3);
+    x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, addr, (s32)~0x3u);
 
-  /* Materialize rt into RWARG2 so the merge sequence can clobber CL. */
-  emit_load_mips_to_reg(r, RWARG2, (cpu_reg_t)r->inst->r.rt);
+    /* Materialize rt into RWARG2 so the merge sequence can clobber CL. */
+    emit_load_mips_to_reg(r, RWARG2, (cpu_reg_t)r->inst->r.rt);
 
-  if ((cpu_instruction_op_t)r->inst->any.op == CPU_OP_SWL) {
-    /* mem_mask = 0xFFFFFF00 << shift; new = (mem & mem_mask) | (rt >> (24-shift)) */
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG3, (s32)0xFFFFFF00u);
-    x64_shift_r_cl (e, X64_SH_SHL, X64_SZ_32, RWARG3);
-    x64_alu_r_r    (e, X64_ALU_AND, X64_SZ_32, RWRET, RWARG3);
+    if ((cpu_instruction_op_t)r->inst->any.op == CPU_OP_SWL) {
+      /* mem_mask = 0xFFFFFF00 << shift; new = (mem & mem_mask) | (rt >> (24-shift)) */
+      x64_mov_r_imm32(e, X64_SZ_32, RWARG3, (s32)0xFFFFFF00u);
+      x64_shift_r_cl(e, X64_SH_SHL, X64_SZ_32, RWARG3);
+      x64_alu_r_r(e, X64_ALU_AND, X64_SZ_32, RWRET, RWARG3);
 
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG3, 24);
-    x64_alu_r_r    (e, X64_ALU_SUB, X64_SZ_32, RWARG3, X64_RCX);
-    x64_mov_r_r    (e, X64_SZ_32, X64_RCX, RWARG3);
-    x64_shift_r_cl (e, X64_SH_SHR, X64_SZ_32, RWARG2);
-    x64_alu_r_r    (e, X64_ALU_OR,  X64_SZ_32, RWARG2, RWRET);
-  } else { /* SWR */
-    /* mem_mask = 0x00FFFFFF >> (24-shift); new = (mem & mem_mask) | (rt << shift) */
-    x64_shift_r_cl (e, X64_SH_SHL, X64_SZ_32, RWARG2);
+      x64_mov_r_imm32(e, X64_SZ_32, RWARG3, 24);
+      x64_alu_r_r(e, X64_ALU_SUB, X64_SZ_32, RWARG3, X64_RCX);
+      x64_mov_r_r(e, X64_SZ_32, X64_RCX, RWARG3);
+      x64_shift_r_cl(e, X64_SH_SHR, X64_SZ_32, RWARG2);
+      x64_alu_r_r(e, X64_ALU_OR, X64_SZ_32, RWARG2, RWRET);
+    } else { /* SWR */
+      /* mem_mask = 0x00FFFFFF >> (24-shift); new = (mem & mem_mask) | (rt << shift) */
+      x64_shift_r_cl(e, X64_SH_SHL, X64_SZ_32, RWARG2);
 
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG3, 24);
-    x64_alu_r_r    (e, X64_ALU_SUB, X64_SZ_32, RWARG3, X64_RCX);
-    x64_mov_r_r    (e, X64_SZ_32, X64_RCX, RWARG3);
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG3, (s32)0x00FFFFFFu);
-    x64_shift_r_cl (e, X64_SH_SHR, X64_SZ_32, RWARG3);
-    x64_alu_r_r    (e, X64_ALU_AND, X64_SZ_32, RWRET, RWARG3);
-    x64_alu_r_r    (e, X64_ALU_OR,  X64_SZ_32, RWARG2, RWRET);
+      x64_mov_r_imm32(e, X64_SZ_32, RWARG3, 24);
+      x64_alu_r_r(e, X64_ALU_SUB, X64_SZ_32, RWARG3, X64_RCX);
+      x64_mov_r_r(e, X64_SZ_32, X64_RCX, RWARG3);
+      x64_mov_r_imm32(e, X64_SZ_32, RWARG3, (s32)0x00FFFFFFu);
+      x64_shift_r_cl(e, X64_SH_SHR, X64_SZ_32, RWARG3);
+      x64_alu_r_r(e, X64_ALU_AND, X64_SZ_32, RWRET, RWARG3);
+      x64_alu_r_r(e, X64_ALU_OR, X64_SZ_32, RWARG2, RWRET);
+    }
+
+    /* Write the merged word through the selected memory path. */
+    x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+    emit_fastmem_store(r, RWARG1, RWARG2, MEMORY_ACCESS_SIZE_WORD);
+    emit_memory_exception_exit(r);
+    done_ram = x64_jmp_rel32(e);
   }
 
-  /* Write the merged word through the selected memory path. */
-  x64_mov_r_r  (e, X64_SZ_32, RWARG1, addr);
-  if (use_fastmem)
-    emit_fastmem_store(r, RWARG1, RWARG2, MEMORY_ACCESS_SIZE_WORD);
-  else
-    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_write_memory_word);
+  void* slow = x64_emit_cursor(e);
+  if (slow_isolated) x64_patch_rel32(slow_isolated, slow);
+  if (slow_device) x64_patch_rel32(slow_device, slow);
+  x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+  emit_load_mips_to_reg(r, RWARG2, (cpu_reg_t)r->inst->r.rt);
+  x64_call_abs64(e, (const void*)((cpu_instruction_op_t)r->inst->any.op == CPU_OP_SWL
+                                      ? &cpu_recompiler_thunk_store_word_left
+                                      : &cpu_recompiler_thunk_store_word_right));
   emit_memory_exception_exit(r);
+  if (done_ram) x64_patch_rel32(done_ram, x64_emit_cursor(e));
 
   cpu_recompiler_free_host_reg(r, addr_idx);
 }
@@ -1924,11 +1942,10 @@ static void hook_compile_swx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
 static void emit_test_interrupts(cpu_recompiler_t* r)
 {
   x64_emit_t* e = current_emit(be_from(r));
-  x64_mov_r_m  (e, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)));
+  x64_mov_r_m(e, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)));
   x64_test_r_imm(e, X64_SZ_32, RWARG1, 1);
   u8* j_a = x64_jcc_rel32(e, X64_CC_E);
-  x64_alu_r_m  (e, X64_ALU_AND, X64_SZ_32, RWARG1,
-                x64_mem(RSTATE, STATE_DISP(cop0_regs.cause.bits)));
+  x64_alu_r_m(e, X64_ALU_AND, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(cop0_regs.cause.bits)));
   x64_test_r_imm(e, X64_SZ_32, RWARG1, 0xFF00);
   u8* j_b = x64_jcc_rel32(e, X64_CC_E);
   x64_mov_m_imm32(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(downcount)), 0);

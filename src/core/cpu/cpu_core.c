@@ -113,6 +113,7 @@ static bool cpu_read_memory_word(virtual_memory_address_t addr, u32* value);
 static bool cpu_write_memory_byte(virtual_memory_address_t addr, u32 value);
 static bool cpu_write_memory_halfword(virtual_memory_address_t addr, u32 value);
 static bool cpu_write_memory_word(virtual_memory_address_t addr, u32 value);
+static bool cpu_write_memory_partial(virtual_memory_address_t addr, u32 value, bool left);
 
 static u32  cpu_read_icache(virtual_memory_address_t address);
 
@@ -864,24 +865,9 @@ static void cpu_execute_instruction(bool observe_tty)
 
     case CPU_OP_SWL:
     case CPU_OP_SWR: {
-      /* SWL/SWR perform a read-modify-write on the aligned word containing
-       * the requested address. */
       const virtual_memory_address_t addr = cpu_read_reg((cpu_reg_t)inst.i.rs) + cpu_instr_imm_sext32(inst);
-      const virtual_memory_address_t aligned_addr = addr & ~3u;
       const u32 reg_value = cpu_read_reg((cpu_reg_t)inst.i.rt);
-      u32 mem_value;
-      if (!cpu_read_memory_word(aligned_addr, &mem_value))
-        return;
-      const u8 shift = ((u8)addr & 3u) * 8u;
-      u32 new_value;
-      if ((cpu_instruction_op_t)inst.any.op == CPU_OP_SWL) {
-        const u32 mem_mask = 0xFFFFFF00u << shift;
-        new_value = (mem_value & mem_mask) | (reg_value >> (24u - shift));
-      } else {
-        const u32 mem_mask = 0x00FFFFFFu >> (24u - shift);
-        new_value = (mem_value & mem_mask) | (reg_value << shift);
-      }
-      cpu_write_memory_word(aligned_addr, new_value);
+      if (!cpu_write_memory_partial(addr, reg_value, (cpu_instruction_op_t)inst.any.op == CPU_OP_SWL)) return;
     } break;
 
     case CPU_OP_J: {
@@ -1458,6 +1444,16 @@ void cpu_recompiler_thunk_write_memory_halfword(u32 address, u32 value)
 void cpu_recompiler_thunk_write_memory_word(u32 address, u32 value)
 {
   (void)cpu_write_memory_word(address, value);
+}
+
+void cpu_recompiler_thunk_store_word_left(u32 address, u32 value)
+{
+  (void)cpu_write_memory_partial(address, value, true);
+}
+
+void cpu_recompiler_thunk_store_word_right(u32 address, u32 value)
+{
+  (void)cpu_write_memory_partial(address, value, false);
 }
 
 void cpu_execute(void)
@@ -2057,6 +2053,31 @@ static bool cpu_write_memory_word(virtual_memory_address_t addr, u32 value)
     return false;
   }
   return true;
+}
+
+static bool cpu_write_memory_partial(virtual_memory_address_t addr, u32 value, bool left)
+{
+  const u32 aligned = addr & ~3u;
+  const u32 shift   = (addr & 3u) * 8u;
+  const u32 driven  = left ? value >> (24u - shift) : value << shift;
+  if (bus_is_word_latch_address(addr)) return cpu_write_memory_word(aligned, driven);
+
+  const u32 lane    = addr & 3u;
+  const u32 enabled = left ? 0xFu >> (3u - lane) : (0xFu << lane) & 0xFu;
+  if (bus_try_write_partial_device(aligned, driven, enabled)) {
+    if (g_cpu_state.bus_error) {
+      g_cpu_state.bus_error = false;
+      cpu_raise_data_bus_exception();
+      return false;
+    }
+    return true;
+  }
+
+  /* Other device widths still use the existing merge until their strobes are handled. */
+  u32 memory;
+  if (!cpu_read_memory_word(aligned, &memory)) return false;
+  const u32 preserved = left ? 0xFFFFFF00u << shift : 0x00FFFFFFu >> (24u - shift);
+  return cpu_write_memory_word(aligned, (memory & preserved) | driven);
 }
 
 extern void cpu_add_pending_ticks(tick_count_t ticks);

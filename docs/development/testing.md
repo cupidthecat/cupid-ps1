@@ -49,6 +49,11 @@ under every CPU execution mode and continue after component-state restoration.
 See [device bus accesses](../memory/device-bus.md) for the implemented behavior
 and the configurations and timing that remain unqualified.
 
+The `CpuPartial` filter checks shifted stores to internal word latches and
+16-bit SPU registers. It checks neighboring registers, address stepping,
+component-state continuation and the absence of extra device reads. See
+[partial stores](../memory/partial-stores.md) for the remaining access paths.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and

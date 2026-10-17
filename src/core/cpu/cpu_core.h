@@ -245,5 +245,7 @@ u32  cpu_recompiler_thunk_read_memory_word    (u32 address);
 void cpu_recompiler_thunk_write_memory_byte    (u32 address, u32 value);
 void cpu_recompiler_thunk_write_memory_halfword(u32 address, u32 value);
 void cpu_recompiler_thunk_write_memory_word    (u32 address, u32 value);
+void cpu_recompiler_thunk_store_word_left(u32 address, u32 value);
+void cpu_recompiler_thunk_store_word_right(u32 address, u32 value);
 
 #endif /* CUPID_CORE_CPU_CORE_H */
