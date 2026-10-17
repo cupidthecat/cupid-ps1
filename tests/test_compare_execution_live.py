@@ -55,7 +55,13 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                                         kind='state', modes=('recomp', 'recomp'), fastmem='lut',
                                         interval=2, checkpoints=2, min_blocks=10, timeout=30)
         self.assertFalse(result['passed'], result)
-        self.assertTrue(all('unexpected execution configuration' in ' '.join(run['failures'])
+        self.assertTrue(all(run['exit_code'] == 0 and not run['timed_out']
+                            for run in result['runs']), result)
+        self.assertTrue(all(run.get('execution', {}).get('native_completed', 0) >= 10
+                            for run in result['runs']), result)
+        self.assertTrue(all(run['observed_configuration'] == [('recomp', 'off', 'on')]
+                            for run in result['runs']), result)
+        self.assertTrue(all(run['failures'] == ['missing, repeated or unexpected execution configuration']
                             for run in result['runs']), result)
 
     def test_native_linked_mmap_checkpoints(self):
