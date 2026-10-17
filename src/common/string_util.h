@@ -1,17 +1,11 @@
 /*
- * StringUtil:: namespace collapsed to string_util_* prefix.  std::string_view
- * args become (const char* data, u32 len) pairs (suffix _view), std::string
- * returns become small_string_t* out-params, std::optional<T> becomes a bool
- * return + out-pointer, std::vector<T> becomes a heap (T*, size_t) pair plus
- * a free helper, std::span<T> becomes a (T* data, size_t count) pair.
+ * String parsing, formatting and encoding helpers. Functions with a _view
+ * suffix accept a pointer and length. String results use small_string_t output
+ * parameters; optional results use a bool return and an output pointer.
+ * Heap arrays use a pointer/count pair and have a matching free helper.
  *
- * FromChars/ToChars are emitted per concrete type (s32/u32/s64/u64/float/
- * double + bool).  Pure-template helpers (IsInStringList, AddToStringList,
- * RemoveFromStringList, JoinString) are skipped - call sites will rewrite
- * ad-hoc when ported.
- *
- * Windows-only UTF-16/wide-string helpers from the original header are
- * dropped (Linux only).
+ * Numeric conversions have functions for each supported type. These Linux
+ * helpers do not include Windows wide-string APIs.
  */
 
 #ifndef CUPID_COMMON_STRING_UTIL_H

@@ -1,8 +1,6 @@
 /*
- *
-
- * Linux mmap / mprotect / memfd_create only.  Windows VirtualAlloc and Apple
- * Mach VM paths removed entirely.
+ * Linux memory mappings and JIT allocation using mmap, mprotect and
+ * memfd_create, with shm_open when memfd is unavailable.
  */
 #include "memmap.h"
 

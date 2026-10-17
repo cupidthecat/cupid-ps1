@@ -1,9 +1,7 @@
 /*
- * Linux-only port. See input_manager.h for the SCOPE NOTES describing the
- * dropped sub-features (USB key code tables, ImGui hooks, macros, mouse
- * pointer, profiles, hooks, sensor calibration). What stays is enough to
- * load bindings from a settings file, dispatch events from SDL keyboard +
- * gamepads into per-binding callbacks, and pump simple rumble.
+ * Loads host input bindings, dispatches keyboard and SDL device events to
+ * callbacks, and updates controller rumble. See input_manager.h for the
+ * binding key format and callback contracts.
  */
 
 #include "input_manager.h"

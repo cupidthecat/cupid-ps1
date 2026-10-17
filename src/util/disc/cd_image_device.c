@@ -1,16 +1,10 @@
 /*
- * Win32 / Darwin / IOKit dropped.
+ * Reads Linux CD-ROM devices such as /dev/sr0 through ioctl and SG_IO.
+ * Tries SCSI READ CD with full subcode first, then SubQ-only, CDROMREADRAW
+ * and SCSI raw reads.
  *
- * CDImageDeviceLinux: opens a real CD-ROM device file (/dev/sr*, /dev/cdrom)
- * via O_RDONLY + ioctl/SG_IO.  Tries SCSI READ CD with full subcode first;
- * falls back to SubQ-only, then CDROMREADRAW, then SCSI raw.
- *
- * GetDeviceList enumerates block-class devices with ID_CDROM=1 via libudev.
- * Both functions are reachable only when the user provides a /dev path or
- * a future CLI flag invokes the listing - they're cold paths.
- *
- * No `Core::GetBaseBoolSettingValue("CDROM", "IgnoreHostSubcode", false)`
- * equivalent in cupid-ps1; subcode reads are attempted unconditionally.
+ * Device discovery uses libudev to find block devices with ID_CDROM=1.
+ * Subcode reads are attempted unconditionally.
  */
 
 #include "cd_image.h"

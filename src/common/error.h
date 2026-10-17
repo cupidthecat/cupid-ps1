@@ -1,10 +1,10 @@
 /*
- * C++ Error class collapsed to struct Error + Error_* funcs.  fmt:: replaced
- * with printf-style varargs.  Win32/HResult/Socket-on-Windows paths dropped.
+ * Error values for errno, socket and application messages. Formatted messages
+ * use printf-style arguments. Native Windows error conversion is not implemented.
  *
- * All Error_* setters tolerate a NULL Error* - callers may freely pass NULL
+ * All Error_* setters accept NULL and discard the message.
  *
- * Lifecycle: Error e = ERROR_INIT;  use ...  Error_destroy(&e);
+ * Initialize with Error e = ERROR_INIT; release the message with Error_destroy(&e).
  */
 
 #ifndef CUPID_COMMON_ERROR_H

@@ -1,15 +1,9 @@
 /*
- * Win32 raw input back-ends; those are dropped here. SDL is the only external
- * source. Keyboard / pointer events are dispatched directly by the input
- * manager and do not have a vtable entry.
+ * SDL input devices use a shared interface. The input manager dispatches
+ * keyboard and pointer events directly, without an input-source vtable.
  *
- * The C++ class hierarchy:
- *   class InputSource (virtual)  -> input_source_t  + input_source_vtable_t
- *   class SDLInputSource         -> sdl_input_source_t (embeds input_source_t)
- *
- * Concrete sources zero-init, then assign vtbl. The manager hands out the
- * input_source_t* and never pokes vtbl directly - call sites use the inline
- * input_source_* dispatch helpers below.
+ * Concrete sources embed input_source_t, zero-initialize their state and
+ * assign a vtable. Callers use the inline input_source_* dispatch helpers.
  */
 
 #ifndef CUPID_UTIL_INPUT_SOURCE_H

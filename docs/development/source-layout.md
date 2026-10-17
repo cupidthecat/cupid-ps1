@@ -47,7 +47,7 @@ src/
 ```
 
 The current graphics context uses EGL/X11. Native Windows support remains
-[planned](building.md).
+[planned](building.md#native-windows-support-planned).
 
 Tests follow the same groups under `tests/core/` and `tests/util/`.
 `tests/common/` covers shared primitives. The test runner and host stubs live
