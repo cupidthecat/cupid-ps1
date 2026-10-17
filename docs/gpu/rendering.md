@@ -27,6 +27,9 @@ Source: `src/core/gpu/hardware/gpu_hw.c`, `src/core/gpu/hardware/gpu_hw_shaderge
 - Eager batch-pipeline compilation at startup; unused filter rows are skipped.
 - VRAM readback via PBO with synchronous `glReadPixels` fallback.
 
-`make gl-smoke` builds an isolated EGL/X11 context-creation test for verifying GL setup.
+`make gl-smoke` builds an EGL/X11 context check. A successful run completes 120
+buffer swaps. Setup or swap failures return a nonzero status. Automated tests
+check success, failed swaps and cleanup with controlled window and context
+operations; running the standalone binary requires an X11 display.
 
 Automated rasterizer checks cover specific operations, fixed-point arithmetic and selected SIMD comparisons. Complete command coverage, display timing and gameplay rendering remain unverified. See [testing limits](../development/testing.md).
