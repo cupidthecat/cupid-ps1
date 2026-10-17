@@ -122,9 +122,7 @@ typedef struct {
   bool                 cpu_mode_requested;
   cpu_execution_mode_t requested_cpu_mode;
 
-  /* --fastmem off|lut|mmap.  Picks the recompiler's load/store dispatch
-   * strategy. off uses the C thunk; native LUT access is unfinished and
-   * currently uses that same slow path; mmap uses direct host addressing. */
+  /* --fastmem selects bus helpers, page lookups or a directly mapped guest arena. */
   bool                 fastmem_requested;
   cpu_fastmem_mode_t   requested_fastmem_mode;
 
@@ -201,27 +199,27 @@ static void quit_signal_handler(int sig)
 static void print_usage(FILE* fp, const char* argv0)
 {
   fprintf(fp,
-    "Usage: %s [--bios /path/to/SCPH1001.BIN] <game.cue>\n"
-    "\n"
-    "Options:\n"
-    "  --bios PATH         Override BIOS image path.  If omitted, falls back to\n"
-    "                      ./SCPH1001.BIN then ./SCPH7003.bin in the current dir.\n"
-    "  --gpu-renderer NAME Backend selection: software (default), opengl, automatic.\n"
-    "                      OpenGL falls back to software until the hardware\n"
-    "                      factory lands.\n"
-    "  --gpu-resolution-scale N\n"
-    "                      Internal resolution multiplier for the OpenGL backend.\n"
-    "                      1..16 (default 1).  Ignored for the software backend.\n"
-    "  --cdrom-precache    Decompress the whole disc image into RAM at boot.\n"
-    "                      Eliminates per-hunk decode cost for .chd images.\n"
-    "  --cpu-mode MODE     interp | cached | recomp (default: interp).\n"
-    "  --fastmem MODE      off | lut | mmap (recompiler load/store dispatch;\n"
-    "                      lut currently uses the slow path; mmap uses direct addressing).\n"
-    "  --pgxp on|off       Enable PGXP subpixel-precision tracking.\n"
-    "  --no-block-linking  Disable recompiler block linking (bisect knob).\n"
-    "  --no-icache         Disable recompiler icache emulation (bisect knob).\n"
-    "  -h, --help          Show this message.\n",
-    argv0 ? argv0 : "cupid-ps1");
+          "Usage: %s [--bios /path/to/SCPH1001.BIN] <game.cue>\n"
+          "\n"
+          "Options:\n"
+          "  --bios PATH         Override BIOS image path.  If omitted, falls back to\n"
+          "                      ./SCPH1001.BIN then ./SCPH7003.bin in the current dir.\n"
+          "  --gpu-renderer NAME Backend selection: software (default), opengl, automatic.\n"
+          "                      OpenGL falls back to software until the hardware\n"
+          "                      factory lands.\n"
+          "  --gpu-resolution-scale N\n"
+          "                      Internal resolution multiplier for the OpenGL backend.\n"
+          "                      1..16 (default 1).  Ignored for the software backend.\n"
+          "  --cdrom-precache    Decompress the whole disc image into RAM at boot.\n"
+          "                      Eliminates per-hunk decode cost for .chd images.\n"
+          "  --cpu-mode MODE     interp | cached | recomp (default: interp).\n"
+          "  --fastmem MODE      off | lut | mmap (recompiler load/store dispatch;\n"
+          "                      lut uses page lookups; mmap uses direct addressing).\n"
+          "  --pgxp on|off       Enable PGXP subpixel-precision tracking.\n"
+          "  --no-block-linking  Disable recompiler block linking (bisect knob).\n"
+          "  --no-icache         Disable recompiler icache emulation (bisect knob).\n"
+          "  -h, --help          Show this message.\n",
+          argv0 ? argv0 : "cupid-ps1");
 }
 
 static bool file_exists(const char* path)
@@ -1746,6 +1744,8 @@ static bool boot_and_run(void)
             (unsigned long long)execution->native_blocks_completed);
     fprintf(stderr, "[cpu-stats] native_dispatch delay_slots_interpreted=%llu\n",
             (unsigned long long)execution->native_dispatch_delay_slots);
+    fprintf(stderr, "[cpu-stats] lut loads=%llu stores=%llu\n", (unsigned long long)execution->native_lut_loads,
+            (unsigned long long)execution->native_lut_stores);
     const cpu_cached_interpreter_stats_t stats = cpu_code_cache_get_cached_interpreter_stats();
     fprintf(stderr, "[cpu-stats] cached created=%llu hits=%llu blocks=%llu instructions=%llu fallback=%llu\n",
             (unsigned long long)stats.blocks_created, (unsigned long long)stats.block_hits,

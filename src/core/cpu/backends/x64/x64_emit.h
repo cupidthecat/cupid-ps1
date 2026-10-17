@@ -1,13 +1,8 @@
 /*
  * Minimal x86_64 instruction encoder for the cupid-ps1 recompiler.
  *
- * own ARM / RISCV / LoongArch backends (each rolls its own encoder); the
- * x64 backend originally used Xbyak, which brought C++ template
- * machinery we don't want in a pure-C tree.
- *
- * Scope: just what cpu_recompiler_x64.c emits - no general-purpose x86
- * assembler.  All ops use a tiny [base + disp32] addressing model; fastmem
- * will extend to [base + index*scale + disp32] when needed.
+ * Encodes the instructions used by the x64 backend. Memory operands support
+ * base plus displacement and base plus scaled index plus displacement.
  *
  * Conventions:
  *   - Sizes are 8/16/32/64-bit, named X64_SZ_*.

@@ -14,8 +14,9 @@ window and reject addresses outside the supported segments.
 
 Slow accesses use the bus handlers. The LUT contains a host address bias for
 each 4 KB guest page, with unmapped and isolated entries leading to fault
-addresses. Native LUT execution still needs to be implemented in
-[issue #15](https://github.com/cupidthecat/cupid-ps1/issues/15).
+addresses. The x86-64 backend loads the page's bias and adds the original guest
+address. Recovery retains that guest address for the bus handler. A protected
+canonical RAM write invalidates the affected host blocks before retrying it.
 
 Mmap fastmem reserves the guest address space and maps the RAM aliases into it.
 Both mapping layouts use 2 MB chunks with the correct backing offset. This

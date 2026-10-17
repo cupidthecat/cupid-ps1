@@ -79,7 +79,7 @@ class LiveExecutionComparisonTest(unittest.TestCase):
 
         for mode, fastmem, linking in (('interp', 'off', True), ('cached', 'off', True),
                                       ('recomp', 'off', True), ('recomp', 'mmap', True),
-                                      ('recomp', 'off', False)):
+                                      ('recomp', 'off', False), ('recomp', 'lut', True), ('recomp', 'lut', False)):
             with self.subTest(mode=mode, fastmem=fastmem, linking=linking):
                 directory = self.root / f'reserved-{mode}-{fastmem}-{linking}'
                 result = compare.run_comparison(self.binary, self.bios, self.media, directory,
@@ -118,24 +118,33 @@ class LiveExecutionComparisonTest(unittest.TestCase):
     def test_native_linked_checkpoints(self):
         self.run_pair(('recomp', 'recomp'), 'state')
 
-    def test_unimplemented_lut_path_cannot_qualify_as_fastmem(self):
-        # The native backend currently supports mmap only. Keep this as a
-        # failure until LUT execution is implemented, rather than accepting fallback.
+    def test_native_lut_checkpoints_require_direct_memory_accesses(self):
         result = compare.run_comparison(self.binary, self.bios, self.media, self.root / 'run',
                                         kind='state', modes=('recomp', 'recomp'), fastmem='lut',
                                         interval=2, checkpoints=2, min_blocks=10, timeout=30)
-        self.assertFalse(result['passed'], result)
+        self.assertTrue(result['passed'], result)
         self.assertTrue(all(run['exit_code'] == 0 and not run['timed_out']
                             for run in result['runs']), result)
         self.assertTrue(all(run.get('execution', {}).get('native_completed', 0) >= 10
                             for run in result['runs']), result)
-        self.assertTrue(all(run['observed_configuration'] == [('recomp', 'off', 'on', 'on')]
+        self.assertTrue(all(run['observed_configuration'] == [('recomp', 'lut', 'on', 'on')]
                             for run in result['runs']), result)
-        self.assertTrue(all(run['failures'] == ['missing, repeated or unexpected execution configuration']
-                            for run in result['runs']), result)
+        self.assertTrue(all(run['lut']['loads'] > 0 and run['lut']['stores'] > 0 for run in result['runs']), result)
 
     def test_native_linked_mmap_checkpoints(self):
         self.run_pair(('recomp', 'recomp'), 'state', 'mmap')
+
+    def test_native_lut_repeated_memory_accesses_survive_restore(self):
+        self.write_program((0x3C08A003, 0x24090000, 0xAD090000, 0x8D0A0000, 0, 0x25290001, 0x1000FFFB, 0))
+        for linking in (True, False):
+            with self.subTest(linking=linking):
+                result = compare.run_comparison(self.binary, self.bios, self.media,
+                                                self.root / f'lut-restore-{linking}', kind='state',
+                                                modes=('recomp', 'recomp'), fastmem='lut', linking=linking,
+                                                interval=2, checkpoints=2, min_blocks=10, restore_at=1, timeout=30)
+                self.assertTrue(result['passed'], result)
+                self.assertTrue(all(run['lut']['loads'] > 0 and run['lut']['stores'] > 0
+                                    for run in result['runs']), result)
 
     def test_disabled_native_instruction_cache_cannot_qualify(self):
         directory = self.root / 'disabled-cache'

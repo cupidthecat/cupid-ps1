@@ -10,6 +10,9 @@ typedef struct {
   u64 native_dispatch_delay_slots;
   u64 native_blocks_entered;
   u64 native_blocks_completed;
+  /* Successful emitted accesses; backpatched bus helpers do not increment these. */
+  u64 native_lut_loads;
+  u64 native_lut_stores;
 } cpu_execution_stats_t;
 
 /* Enable before compiling blocks. Resetting counts does not change generated code. */

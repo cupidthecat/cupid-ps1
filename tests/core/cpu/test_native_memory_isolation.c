@@ -22,7 +22,7 @@ static void check_consecutive_stores(cpu_execution_mode_t mode, cpu_fastmem_mode
       const u32 offset = cpu_get_icache_line(0x80031000) * CPU_ICACHE_WORDS_PER_LINE;
       EXPECT_EQ(g_cpu_state.icache_data[offset], 0x11223344);
       EXPECT_EQ(g_cpu_state.icache_data[offset + 1], 0x11223344);
-      if (fastmem == CPU_FASTMEM_MODE_MMAP) {
+      if (fastmem != CPU_FASTMEM_MODE_DISABLED) {
         EXPECT_TRUE(!cpu_code_cache_has_previously_faulted_on_pc(0xA0010000));
         EXPECT_TRUE(!cpu_code_cache_has_previously_faulted_on_pc(0xA0010004));
       }
@@ -33,7 +33,7 @@ static void check_consecutive_stores(cpu_execution_mode_t mode, cpu_fastmem_mode
       EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
       EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
     }
-    if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+    if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
     finish_cpu();
   }
 }
@@ -57,4 +57,9 @@ TEST(NativeMemoryIsolation, consecutive_stores_mmap)
 TEST(NativeMemoryIsolation, consecutive_stores_unlinked)
 {
   check_consecutive_stores(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);
+}
+
+TEST(NativeMemoryIsolation, consecutive_stores_lut)
+{
+  check_consecutive_stores(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);
 }

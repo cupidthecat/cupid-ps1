@@ -127,9 +127,10 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
     result["observed_configuration"] = configurations
     execution = re.findall(r"\[cpu-stats\] execution interpreted=(\d+) native_entered=(\d+) native_completed=(\d+)", log)
     dispatch = re.findall(r"^\[cpu-stats\] native_dispatch delay_slots_interpreted=(\d+)$", log, re.MULTILINE)
+    lut = re.findall(r"^\[cpu-stats\] lut loads=(\d+) stores=(\d+)$", log, re.MULTILINE)
     cached = re.findall(r"\[cpu-stats\] cached created=(\d+) hits=(\d+) blocks=(\d+) instructions=(\d+) fallback=(\d+)", log)
-    if (len(execution) != 1 or len(cached) != 1 or len(dispatch) != 1
-            or log.count('[cpu-stats] native_dispatch') != 1):
+    if (len(execution) != 1 or len(cached) != 1 or len(dispatch) != 1 or len(lut) != 1
+            or log.count('[cpu-stats] native_dispatch') != 1 or log.count('[cpu-stats] lut') != 1):
         failures.append("missing or repeated execution counters")
     else:
         result["execution"] = dict(zip(("interpreted", "native_entered", "native_completed"), map(int, execution[0])))
@@ -137,6 +138,13 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
         if int(dispatch[0]) > int(execution[0][0]):
             failures.append("native dispatch delay slots exceed interpreted instructions")
         result["cached"] = dict(zip(("created", "hits", "blocks", "instructions", "fallback"), map(int, cached[0])))
+        result["lut"] = dict(zip(("loads", "stores"), map(int, lut[0])))
+        lut_progress = sum(result["lut"].values())
+        if mode == "recomp" and fastmem == "lut":
+            if not lut_progress:
+                failures.append("no successful native LUT accesses")
+        elif lut_progress:
+            failures.append("unexpected native LUT accesses")
         if mode == "recomp":
             if min(map(int, execution[0][1:])) < min_blocks:
                 failures.append("insufficient native block progress")

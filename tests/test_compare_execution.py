@@ -13,7 +13,7 @@ spec.loader.exec_module(compare)
 
 @unittest.skipUnless(os.name == "posix", "Linux process runner")
 class ExecutionComparisonTest(unittest.TestCase):
-    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0):
+    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0, fastmem='off'):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary, bios, media = (root / name for name in ("emulator", "bios", "media"))
@@ -22,12 +22,14 @@ class ExecutionComparisonTest(unittest.TestCase):
             code = f'''#!/usr/bin/env python3
 import os, pathlib, struct, sys, time
 mode = sys.argv[sys.argv.index('--cpu-mode') + 1]
+fastmem = sys.argv[sys.argv.index('--fastmem') + 1] if mode == 'recomp' else 'off'
 right = pathlib.Path.cwd().name == 'right'
 header = {compare.TRACE_HEADER!r}
 rows = [str(i) + ' ' + ' '.join(['00000000'] * 116 + ['0000000000000000']) + '\\n' for i in range(1, 5)]
 footer = '# completed 4\\n'
 progress = "[cpu-stats] execution interpreted=100 native_entered=0 native_completed=0"
 dispatch = "[cpu-stats] native_dispatch delay_slots_interpreted=0"
+lut = "[cpu-stats] lut loads=0 stores=0"
 cached = "[cpu-stats] cached created=3 hits=30 blocks=50 instructions=100 fallback=0"
 if mode == 'recomp':
     progress = "[cpu-stats] execution interpreted=0 native_entered=100 native_completed=100"
@@ -53,16 +55,17 @@ else:
     if restore_report and restore_after:
         print(restore_report)
     print('[execution-checkpoint] completed count=2')
-print(f'[cpu-stats] configuration mode={{mode}} fastmem=off linking=on icache={{icache}}')
+print(f'[cpu-stats] configuration mode={{mode}} fastmem={{fastmem}} linking=on icache={{icache}}')
 print(progress)
 print(dispatch)
+print(lut)
 print(cached)
 '''
             binary.write_text(code, encoding="utf-8")
             binary.chmod(0o700)
             return compare.run_comparison(binary, bios, media, root / "run", kind=kind,
                                           modes=modes, instructions=4, interval=2, checkpoints=2,
-                                          min_blocks=1, timeout=timeout, restore_at=restore_at)
+                                          min_blocks=1, timeout=timeout, restore_at=restore_at, fastmem=fastmem)
 
     def test_complete_trace(self):
         self.assertTrue(self.run_fake()["passed"])
@@ -151,6 +154,26 @@ print(cached)
 
     def test_missing_counters(self):
         self.assertFalse(self.run_fake("progress = ''")["passed"])
+
+    def test_lut_configuration_without_actual_accesses_fails(self):
+        result = self.run_fake(kind='state', modes=('recomp', 'recomp'), fastmem='lut')
+        self.assertFalse(result['passed'], result)
+        self.assertTrue(all('no successful native LUT accesses' in run['failures'] for run in result['runs']), result)
+
+    def test_lut_success_requires_direct_access_counts(self):
+        result = self.run_fake("lut = '[cpu-stats] lut loads=7 stores=3'", kind='state',
+                               modes=('recomp', 'recomp'), fastmem='lut')
+        self.assertTrue(result['passed'], result)
+        self.assertTrue(all(run['lut'] == {'loads': 7, 'stores': 3} for run in result['runs']), result)
+
+    def test_missing_repeated_or_malformed_lut_counts_fail(self):
+        for counter in ('', '[cpu-stats] lut loads=invalid stores=0',
+                        '[cpu-stats] lut loads=1 stores=0\n' * 2):
+            with self.subTest(counter=counter):
+                self.assertFalse(self.run_fake(f'lut = {counter!r}')["passed"])
+
+    def test_lut_counts_in_other_modes_fail(self):
+        self.assertFalse(self.run_fake("lut = '[cpu-stats] lut loads=1 stores=0'")["passed"])
 
     def test_missing_repeated_or_invalid_dispatch_counters_fail(self):
         for counter in ('', '[cpu-stats] native_dispatch delay_slots_interpreted=invalid',

@@ -102,7 +102,7 @@ static void check_coprocessor_branch(u32 cop, u32 scenario, cpu_execution_mode_t
       EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
       EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
     }
-    if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+    if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
     finish_cpu();
   }
 }
@@ -119,6 +119,10 @@ static void check_coprocessor_branch(u32 cop, u32 scenario, cpu_execution_mode_t
   TEST(CpuCoprocessorBranch, name##_native)                                                                          \
   {                                                                                                                  \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
+  }                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_lut)                                                                             \
+  {                                                                                                                  \
+    check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                                                  \
   TEST(CpuCoprocessorBranch, name##_mmap)                                                                            \
   {                                                                                                                  \

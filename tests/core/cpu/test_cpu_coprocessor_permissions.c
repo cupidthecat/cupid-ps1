@@ -130,6 +130,11 @@ TEST(CpuCoprocessorPermission, mmap_disabled_memory_operations)
   disabled_memory_operations(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP);
 }
 
+TEST(CpuCoprocessorPermission, lut_disabled_memory_operations)
+{
+  disabled_memory_operations(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT);
+}
+
 TEST(CpuCoprocessorPermission, enabled_register_operations_do_not_trap)
 {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,

@@ -25,7 +25,7 @@ static void check_native_ri_progress(cpu_execution_mode_t mode, cpu_fastmem_mode
     EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
     EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
   }
-  if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+  if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
 static void check_ri_program(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 entry,
@@ -170,6 +170,10 @@ static void check_restored_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t f
   TEST(ReservedInstruction, name##_native)                                            \
   {                                                                                   \
     function(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
+  }                                                                                   \
+  TEST(ReservedInstruction, name##_lut)                                               \
+  {                                                                                   \
+    function(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                   \
   TEST(ReservedInstruction, name##_mmap)                                              \
   {                                                                                   \

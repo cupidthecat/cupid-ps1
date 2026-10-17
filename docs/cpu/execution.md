@@ -41,7 +41,7 @@ A pending branch slot retains its resolved target and branch outcome when
 execution returns to the dispatcher. These exits preserve pending loads and
 busy-unit deadlines.
 
-Generated cases include slow memory, mmap fastmem and execution without block
+Generated cases include slow memory, LUT and mmap fastmem, and execution without block
 linking. They check the shared pipeline model; full native fetch and event
 timing still need hardware qualification.
 
@@ -70,7 +70,7 @@ modes. Native code preserves device-read effects, checks alignment and
 propagates reported bus failures without interpreting the instruction. Faults
 retain preceding register writes, pending loads and branch context. Generated
 cases cover constant and dynamic addresses, normal and taken/untaken branch
-slots, slow memory, mmap fastmem and disabled block linking. The bus-failure
+slots, slow memory, LUT and mmap fastmem, and disabled block linking. The bus-failure
 cases inject an error through a valid device handler; they check propagation,
 not physical address decoding or hardware timing.
 
@@ -229,8 +229,19 @@ PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-preci
 | Mode | Strategy |
 |------|----------|
 | `off` | Always go through the C helper (slow path). |
-| `lut` | Requested LUT mode (default). The x86-64 backend currently uses the slow C helper path; native LUT execution is unfinished. |
+| `lut` | The x86-64 backend looks up a host address bias for each 4 KB guest page, then accesses RAM directly. |
 | `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses through `src/util/platform/page_fault_handler.c`. |
+
+LUT accesses include byte, halfword and word transfers, unaligned word merges,
+discarded coprocessor loads and GTE memory transfers. Alignment and permission
+checks precede the access. Unmapped pages and isolated views use the bus handlers
+after fault recovery; known device accesses can select those handlers directly.
+Enabling checked memory exceptions disables fastmem and reports it as `off`.
+
+With `CUPID_CPU_STATS=1`, the `lut` report counts successful emitted loads and
+stores. A backpatched bus access skips that counter. Writes to protected code
+pages invalidate host blocks and retry the direct store, while preserving the
+emulated instruction-cache contents. See [memory mapping](../memory/mapping.md).
 
 ## Execution comparisons
 

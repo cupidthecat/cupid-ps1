@@ -125,14 +125,11 @@ enum {
 };
 #define SETTINGS_DEFAULT_CONSOLE_REGION             CONSOLE_REGION_AUTO
 #define SETTINGS_DEFAULT_FORCE_VIDEO_TIMING_MODE    FORCE_VIDEO_TIMING_MODE_DISABLED
-/* x64 recompiler is now the default (M1-M6 closed: mtc0/rfe + SMC + icache
- * + fastmem + PGXP + end-block-and-interpret fallback).  Override via
- * `--cpu-mode interp` for diff-trace harness or hosts without x64. */
+/* Request native execution by default. Use --cpu-mode interp for instruction
+ * traces or hosts without a supported native backend. */
 #define SETTINGS_DEFAULT_CPU_EXECUTION_MODE         CPU_EXECUTION_MODE_RECOMPILER
-/* M5: MMap is the only mode the recompiler emits inline-SIB fastmem
- * sites against (LUT mode falls through to slow path).  Default to MMap
- * so out-of-the-box recomp gets the SIGSEGV-backed path.  Users on hosts
- * where 4 GiB virtual reservation fails can override via --fastmem lut. */
+/* Mmap uses a guest-address arena. LUT uses page lookups and can run without
+ * that 4 GiB reservation; select it with --fastmem lut. */
 #define SETTINGS_DEFAULT_CPU_FASTMEM_MODE           CPU_FASTMEM_MODE_MMAP
 #define SETTINGS_DEFAULT_CDROM_READAHEAD_SECTORS    8
 #define SETTINGS_DEFAULT_CDROM_MAX_SEEK_SPEEDUP_CYCLES 30000u
