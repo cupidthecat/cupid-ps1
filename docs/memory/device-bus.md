@@ -34,6 +34,9 @@ Host block metadata records the ROM transfer view. Switching views does not
 count as repeated code mutation within one view; the recompile limit itself
 is unchanged.
 
+System reset initializes the bus controls before the CPU fetches its first
+instruction from the reset vector.
+
 The serialized memory-control registers retain their 32-bit layout. The
 transfer helper has no state, and the save-state version remains 87.
 

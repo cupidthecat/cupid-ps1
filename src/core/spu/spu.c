@@ -1374,7 +1374,7 @@ static void volume_envelope_reset(volume_envelope_t* e, u8 rate, u8 rate_mask,
 
   if (rate < 44) {
     /* AdsrStep = StepValue SHL Max(0, 11 - ShiftValue) */
-    e->step = (s16)(e->step << (11 - (rate >> 2)));
+    e->step = (s16)((s32)e->step * (1 << (11 - (rate >> 2))));
   } else if (rate >= 48) {
     /* AdsrCycles = 1 SHL Max(0, ShiftValue - 11) */
     e->counter_increment >>= ((rate >> 2) - 11);

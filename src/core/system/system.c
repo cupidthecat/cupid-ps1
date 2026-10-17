@@ -1195,11 +1195,11 @@ static void system_internal_reset(void)
   system_set_taints_from_settings();
 
   timing_events_reset();
+  bus_reset();
   cpu_reset();
   if (cpu_code_cache_reset) cpu_code_cache_reset();
   if (g_settings.gpu_pgxp_enable) pgxp_reset();
 
-  bus_reset();
   dma_reset();
   interrupt_controller_reset();
   gpu_reset(true);
