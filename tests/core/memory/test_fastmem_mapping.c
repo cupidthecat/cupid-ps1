@@ -68,6 +68,16 @@ TEST(FastmemMapping, code_pages_protect_every_mmap_alias)
   for (u32 segment = 0; segment < 3; segment++)
     for (u32 mirror = 0; mirror < 4; mirror++)
       EXPECT_EQ(mapping_permissions(arena + segments[segment] + mirror * BUS_RAM_2MB_SIZE + offset), 3);
+  bus_set_ram_code_page(page);
+  bus_reset();
+  EXPECT_FALSE(bus_is_ram_code_page(page));
+  EXPECT_EQ(mapping_permissions(bus_get_ram_pointer() + offset), 3);
+  for (u32 segment = 0; segment < 3; segment++)
+    for (u32 mirror = 0; mirror < 4; mirror++)
+      EXPECT_EQ(mapping_permissions(arena + segments[segment] + mirror * BUS_RAM_2MB_SIZE + offset), 3);
+  u32 cleared;
+  memcpy(&cleared, bus_get_unprotected_ram_pointer() + offset, sizeof(cleared));
+  EXPECT_EQ(cleared, 0);
   finish_cpu();
 }
 

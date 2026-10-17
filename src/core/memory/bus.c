@@ -422,6 +422,7 @@ void bus_shutdown(void)
 
 void bus_reset(void)
 {
+  bus_clear_ram_code_page_flags();
   if (s_ram)
     memset(s_ram, 0, s_ram_size);
 
@@ -435,7 +436,6 @@ void bus_reset(void)
   s_MEMCTRL.r.exp2_delay_size.bits = 0x00070777u;
   s_MEMCTRL.r.common_delay.bits    = 0x00031125u;
 
-  memset(s_ram_code_bits, 0, sizeof(s_ram_code_bits));
   s_kernel_initialize_hook_run = false;
   recalculate_memory_timings();
 
