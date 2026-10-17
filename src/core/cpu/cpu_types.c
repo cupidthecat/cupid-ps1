@@ -22,6 +22,7 @@ bool cpu_is_nop_instruction(cpu_instruction_t inst)
 
 bool cpu_is_branch_instruction(cpu_instruction_t inst)
 {
+  if (cpu_is_coprocessor_branch_instruction(inst)) return true;
   switch ((cpu_instruction_op_t)inst.any.op)
   {
     case CPU_OP_J:
@@ -50,6 +51,7 @@ bool cpu_is_branch_instruction(cpu_instruction_t inst)
 
 bool cpu_is_unconditional_branch_instruction(cpu_instruction_t inst)
 {
+  if (cpu_is_coprocessor_branch_instruction(inst)) return (inst.i.rt & 1u) == 0u;
   switch ((cpu_instruction_op_t)inst.any.op)
   {
     case CPU_OP_J:
@@ -78,6 +80,7 @@ bool cpu_is_unconditional_branch_instruction(cpu_instruction_t inst)
 
 bool cpu_is_direct_branch_instruction(cpu_instruction_t inst)
 {
+  if (cpu_is_coprocessor_branch_instruction(inst)) return true;
   switch ((cpu_instruction_op_t)inst.any.op)
   {
     case CPU_OP_J:
@@ -98,6 +101,7 @@ bool cpu_is_direct_branch_instruction(cpu_instruction_t inst)
 {
   /* MIPS branch targets are computed from PC+4 (the delay-slot PC). */
   const virtual_memory_address_t pc = instruction_pc + 4u;
+  if (cpu_is_coprocessor_branch_instruction(inst)) return pc + (cpu_instr_imm_sext32(inst) << 2);
 
   switch ((cpu_instruction_op_t)inst.any.op)
   {

@@ -514,6 +514,18 @@ restart_instruction:;
   if (inst.bits == 0u)
     return;
 
+  if (cpu_is_coprocessor_branch_instruction(inst)) {
+    /* Branches require CU0 even in kernel mode. The condition input is low
+     * for every coprocessor; rt bit 1 does not annul the delay slot. */
+    if (!(g_cpu_state.cop0_regs.sr.bits & (1u << (28u + inst.cop.cop_n)))) {
+      cpu_raise_exception(CPU_EXCEPTION_CPU);
+      return;
+    }
+    g_cpu_state.next_instruction_is_branch_delay_slot = true;
+    if ((inst.i.rt & 1u) == 0u) cpu_branch(g_cpu_state.pc + (cpu_instr_imm_sext32(inst) << 2));
+    return;
+  }
+
   switch ((cpu_instruction_op_t)inst.any.op) {
     case CPU_OP_FUNCT: {
       switch ((cpu_instruction_funct_t)inst.r.funct) {

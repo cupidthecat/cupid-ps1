@@ -1974,6 +1974,18 @@ void cpu_recompiler_compile_branch_delay_slot(cpu_recompiler_t* r, bool dirty_pc
   cpu_recompiler_compile_loadstore_template(r, r->v ? r->v->compile_##FN : NULL, \
                                             (SIZE), (STORE), (SIGN), (TF))
 
+static void compile_coprocessor_branch(cpu_recompiler_t* r)
+{
+  const bool taken = (r->inst->i.rt & 1u) == 0u;
+  const u32  newpc =
+      taken ? cpu_get_direct_branch_target(*r->inst, r->current_instruction_pc) : r->compiler_pc + CPU_INSTRUCTION_SIZE;
+  if (r->v && r->v->store_constant_to_cpu_pointer) r->v->store_constant_to_cpu_pointer(r, newpc, &g_cpu_state.pc);
+  r->delay_slot_branch_was_taken = taken;
+  cpu_recompiler_compile_branch_delay_slot(r, true);
+  if (!r->block_ended && r->v && r->v->end_block) r->v->end_block(r, &newpc, true);
+  r->block_ended = true;
+}
+
 void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
 {
   if (r->v && r->v->generate_instruction_fetch) r->v->generate_instruction_fetch(r);
@@ -2004,6 +2016,19 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
       break;
     default:
       break;
+  }
+
+  if (cpu_is_coprocessor_branch_instruction(*r->inst)) {
+    /* Native branches need per-instruction fetch and permission checks. */
+    if (r->v && r->v->generate_instruction_fetch && r->v->check_cop_enabled) {
+      compile_coprocessor_branch(r);
+    } else {
+      if (r->v && r->v->compile_fallback) r->v->compile_fallback(r);
+      cpu_recompiler_invalidate_speculative_values(r);
+      cpu_recompiler_truncate_block(r);
+    }
+    cpu_recompiler_clear_host_regs_needed(r);
+    return;
   }
 
   switch ((cpu_instruction_op_t)r->inst->any.op) {

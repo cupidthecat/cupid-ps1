@@ -456,6 +456,12 @@ void cpu_disassemble(small_string_t* out, u32 instr, u32 pc)
 {
   const cpu_instruction_t inst = {.bits = instr};
 
+  if (cpu_is_coprocessor_branch_instruction(inst)) {
+    small_string_sprintf(out, "bc%u%c 0x%08x", (unsigned)inst.cop.cop_n, (inst.i.rt & 1u) ? 't' : 'f',
+                         (unsigned)cpu_get_direct_branch_target(inst, pc));
+    return;
+  }
+
   switch ((cpu_instruction_op_t)inst.any.op)
   {
     case CPU_OP_FUNCT:

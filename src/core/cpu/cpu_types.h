@@ -222,6 +222,10 @@ ALWAYS_INLINE cpu_cop_common_instruction_t cpu_cop_common_op(cpu_instruction_t i
 {
   return (cpu_cop_common_instruction_t)((inst.bits >> 21) & 0xFu);
 }
+ALWAYS_INLINE bool cpu_is_coprocessor_branch_instruction(cpu_instruction_t inst)
+{
+  return inst.any.op >= CPU_OP_COP0 && inst.any.op <= CPU_OP_COP3 && inst.i.rs == 8u;
+}
 ALWAYS_INLINE cpu_cop0_instruction_t cpu_cop0_op(cpu_instruction_t inst)
 {
   return (cpu_cop0_instruction_t)(inst.bits & 0x3Fu);

@@ -71,11 +71,32 @@ slots, slow memory, mmap fastmem and disabled block linking. The bus-failure
 cases inject an error through a valid device handler; they check propagation,
 not physical address decoding or hardware timing.
 
-Enabled SWC0/1/3 stores and coprocessor branches still need qualification.
+Enabled SWC0/1/3 stores still need qualification.
 
 With COP2 enabled, unsupported GTE command encodings are logged and execution
 continues without a CPU exception. Their arithmetic effects and exact timing
 [remain unqualified](https://github.com/cupidthecat/cupid-ps1/issues/18).
+
+## Coprocessor branches
+
+With the corresponding CU bit enabled, `BCnF` branches and `BCnT` falls through
+for all four coprocessors. Both execute their delay slot. The `rt=2/3` encodings
+behave as `rt=0/1`, without branch-likely nullification. A pending GTE command
+or FLAG.31 does not change the condition or make the branch wait for the GTE.
+See the [hardware reference](https://psx-spx.consoledev.net/dev/ps1/cpu/cpuspecifications/#coprocessor-branches).
+
+A disabled coprocessor raises a coprocessor-unusable exception before executing
+the slot. COP0 branches require CU0 even in kernel mode; COP0 register moves
+retain their kernel-mode access rule. Interpreter, cached and native execution
+share the branch classification and target calculation. Native branches compile
+their slot and preserve its exception context and pending loads.
+
+Generated cases check all four `rt` forms, forward and backward targets,
+status-register changes, slot exceptions, GTE busy state and FLAG. They require
+native progress without interpreted instructions in the native configurations.
+The original published branch program provides an additional instruction-stream
+check. These cases cover the documented `rs=8` encoding and do not establish
+complete CPU timing or other raw encoding aliases.
 
 ## Data-access exceptions
 

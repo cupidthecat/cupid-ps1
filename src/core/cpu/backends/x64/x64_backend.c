@@ -804,7 +804,7 @@ static void hook_check_cop_enabled(cpu_recompiler_t* r)
 {
   x64_emit_t* e      = current_emit(be_from(r));
   u8*         kernel = NULL;
-  if ((cpu_instruction_op_t)r->inst->any.op == CPU_OP_COP0) {
+  if ((cpu_instruction_op_t)r->inst->any.op == CPU_OP_COP0 && !cpu_is_coprocessor_branch_instruction(*r->inst)) {
     /* COP0 register operations remain available in kernel mode with CU0 clear. */
     x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 2u);
     kernel = x64_jcc_rel32(e, X64_CC_E);
