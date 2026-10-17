@@ -112,15 +112,20 @@ print(cached)
                 compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
 
     def test_current_state_version(self):
+        self.assertTrue(self.run_fake("state_version = 86", kind="state")["passed"])
+
+    def test_previous_state_version(self):
         self.assertTrue(self.run_fake("state_version = 85", kind="state")["passed"])
 
     def test_unsupported_state_version(self):
-        self.assertFalse(self.run_fake("state_version = 86", kind="state")["passed"])
+        self.assertFalse(self.run_fake("state_version = 87", kind="state")["passed"])
 
     def test_state_version_difference_is_not_normalized(self):
-        result = self.run_fake("if right: state_version = 85", kind="state")
-        self.assertFalse(result["passed"])
-        self.assertEqual([item['first_different_byte'] for item in result['differences']], [4, 4])
+        for version in (85, 86):
+            with self.subTest(version=version):
+                result = self.run_fake(f"if right: state_version = {version}", kind="state")
+                self.assertFalse(result["passed"])
+                self.assertEqual([item['first_different_byte'] for item in result['differences']], [4, 4])
 
     def test_startup_failure(self):
         self.assertFalse(self.run_fake("raise SystemExit(2)")["passed"])

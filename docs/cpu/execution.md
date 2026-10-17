@@ -90,6 +90,16 @@ qualification.
 Save-state version 85 stores the pending fetch exception with the pipeline.
 Version 84 has no such field and loads with no pending fetch exception.
 
+The two cached address regions share physical instruction-cache tags. A jump
+between KUSEG and KSEG0 keeps cached words after a RAM write; KSEG1 bypasses
+the cache. Different physical RAM mirrors still have distinct tags. The
+virtual execution address remains intact for branches and exceptions.
+
+Save-state version 86 stores physical cache tags. Loading an older stream
+converts its KSEG0 tags while retaining cached words and per-word validity.
+This correction does not qualify cache enable, programmable refill sizes or
+tag-test mode.
+
 ## Recompiler backends
 
 | Backend | Status | Files |

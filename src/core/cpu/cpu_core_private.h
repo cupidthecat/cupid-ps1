@@ -77,7 +77,7 @@ ALWAYS_INLINE u32 cpu_get_icache_line_word_offset(virtual_memory_address_t addre
 }
 ALWAYS_INLINE u32 cpu_get_icache_tag_for_address(virtual_memory_address_t address)
 {
-  return address & CPU_ICACHE_TAG_ADDRESS_MASK;
+  return address & CPU_KSEG_MASK & CPU_ICACHE_TAG_ADDRESS_MASK;
 }
 
 /* Low tag bits mark invalid words. A partial fill leaves words before the

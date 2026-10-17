@@ -4,7 +4,7 @@
 #include "common/types.h"
 
 #define SAVE_STATE_MAGIC           0x43435544u  /* 'DUCC' little-endian */
-#define SAVE_STATE_VERSION         85u
+#define SAVE_STATE_VERSION         86u
 #define SAVE_STATE_MINIMUM_VERSION 42u
 
 _Static_assert(SAVE_STATE_VERSION >= SAVE_STATE_MINIMUM_VERSION,

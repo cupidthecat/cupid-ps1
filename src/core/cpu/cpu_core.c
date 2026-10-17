@@ -241,6 +241,14 @@ bool cpu_do_state(state_wrapper_t* sw)
   state_wrapper_do_array(sw, g_cpu_state.icache_data, sizeof(u32),
                          CPU_ICACHE_LINES * CPU_ICACHE_WORDS_PER_LINE);
 
+  if (state_wrapper_is_reading(sw) && state_wrapper_get_version(sw) < 86u) {
+    /* Older streams used the cached virtual address as the internal tag. */
+    for (u32 i = 0; i < CPU_ICACHE_LINES; i++) {
+      if ((g_cpu_state.icache_tags[i] & 0xE0000000u) == 0x80000000u)
+        g_cpu_state.icache_tags[i] &= ~0x80000000u;
+    }
+  }
+
   state_wrapper_do_bool(sw, &g_cpu_state.using_interpreter);
 
   if (state_wrapper_is_reading(sw)) {
@@ -1509,8 +1517,9 @@ void cpu_check_and_update_icache_tags(u32 line_count)
   const tick_count_t cached_ticks_per_line = cpu_get_icache_fill_ticks(current_pc);
   for (u32 i = 0; i < line_count; i++, current_pc += CPU_ICACHE_LINE_SIZE) {
     const u32 line = cpu_get_icache_line(current_pc);
-    if (g_cpu_state.icache_tags[line] != current_pc) {
-      g_cpu_state.icache_tags[line] = current_pc;
+    const u32 tag = cpu_get_icache_tag_for_address(current_pc);
+    if (g_cpu_state.icache_tags[line] != tag) {
+      g_cpu_state.icache_tags[line] = tag;
       ticks += cached_ticks_per_line;
     }
   }
