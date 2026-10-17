@@ -2191,8 +2191,12 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
     case CPU_OP_SWC2: LST(swc2, MEMORY_ACCESS_SIZE_WORD, true,  false, CPU_RC_TF_GTE_STALL | CPU_RC_TF_READS_S);
                       cpu_recompiler_spec_exec_swc2(r); break;
 
-    case CPU_OP_COP1: case CPU_OP_COP3:
     case CPU_OP_LWC0: case CPU_OP_LWC1: case CPU_OP_LWC3:
+      LST(lwc_discard, MEMORY_ACCESS_SIZE_WORD, false, false, CPU_RC_TF_READS_S);
+      break;
+
+    case CPU_OP_COP1:
+    case CPU_OP_COP3:
     case CPU_OP_SWC0: case CPU_OP_SWC1: case CPU_OP_SWC3:
       break;
 

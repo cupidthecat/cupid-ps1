@@ -340,6 +340,14 @@ static const void* hook_end_compile(cpu_recompiler_t* r,
   return code;
 }
 
+static void emit_native_block_completion(x64_emit_t* e)
+{
+  if (cpu_execution_stats_is_enabled()) {
+    x64_mov_r_imm64(e, RWARG3, (u64)(uintptr_t)&cpu_execution_stats_get()->native_blocks_completed);
+    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(RWARG3, 0), 1);
+  }
+}
+
 /* Helper: emit cycle accounting + downcount check + jump to dispatcher or
  * next block.  Called from end_block + end_block_with_exception. */
 static void emit_end_and_link_block(cpu_recompiler_t* r, const u32* newpc, bool do_event_test, bool force_run_events,
@@ -358,10 +366,7 @@ static void emit_end_and_link_block(cpu_recompiler_t* r, const u32* newpc, bool 
   r->cycles = 0;
   /* All architectural registers have been flushed before reaching this epilogue.
    * Count normal block exits, including linked exits, before the event test. */
-  if (cpu_execution_stats_is_enabled() && count_progress) {
-    x64_mov_r_imm64(e, RWARG3, (u64)(uintptr_t)&cpu_execution_stats_get()->native_blocks_completed);
-    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(RWARG3, 0), 1);
-  }
+  if (count_progress) emit_native_block_completion(e);
 
   if (!do_event_test && r->gte_done_cycle <= cycles) {
     /* Fast path: only need to advance pending_ticks. */
@@ -2104,6 +2109,33 @@ static void hook_compile_cop2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
   r->dirty_gte_done_cycle = true;
 }
 
+static void hook_compile_lwc_discard(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf, memory_access_size_t size,
+                                     bool sign, bool use_fastmem, const u32* known_addr)
+{
+  (void)size;
+  (void)sign;
+  (void)use_fastmem;
+  /* A failed read enters the CPU exception handler. Synchronize registers
+   * and pending loads before it can modify them, keeping the branch target. */
+  cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_INTERPRETER & ~CPU_RC_FLUSH_PC);
+  cf.valid_host_s         = 0;
+  cf.const_s              = 0;
+  x64_emit_t*     e       = current_emit(be_from(r));
+  const x64_reg_t address = compute_loadstore_address(r, cf, known_addr);
+  if (address != RWARG1) x64_mov_r_r(e, X64_SZ_32, RWARG1, address);
+  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
+
+  /* The result is discarded. Leave a fault before post-instruction updates
+   * can overwrite the exception handler's pipeline or pending-load state. */
+  x64_test_m_imm(e, X64_SZ_8, x64_mem(RSTATE, STATE_DISP(exception_raised)), 1);
+  switch_to_far_code(r, true, true, X64_CC_NE);
+  x64_emit_t* far = current_emit(be_from(r));
+  emit_native_block_completion(far);
+  u8* jump = x64_jmp_rel32(far);
+  x64_patch_rel32(jump, g_dispatcher);
+  switch_to_near_code(r, false, false, X64_CC_E);
+}
+
 static void hook_compile_lwc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                               memory_access_size_t size, bool sign,
                               bool use_fastmem, const u32* known_addr)
@@ -2393,12 +2425,13 @@ static const struct cpu_recompiler_vtable s_vtable = {
     .compile_rfe  = hook_compile_rfe,
 
     /* Coprocessor permissions, COP2 transfers and GTE commands. */
-    .check_cop_enabled = hook_check_cop_enabled,
-    .compile_mfc2      = hook_compile_mfc2,
-    .compile_mtc2      = hook_compile_mtc2,
-    .compile_cop2      = hook_compile_cop2,
-    .compile_lwc2      = hook_compile_lwc2,
-    .compile_swc2      = hook_compile_swc2,
+    .check_cop_enabled   = hook_check_cop_enabled,
+    .compile_mfc2        = hook_compile_mfc2,
+    .compile_mtc2        = hook_compile_mtc2,
+    .compile_cop2        = hook_compile_cop2,
+    .compile_lwc_discard = hook_compile_lwc_discard,
+    .compile_lwc2        = hook_compile_lwc2,
+    .compile_swc2        = hook_compile_swc2,
 
     /* Multi-cycle muldiv stall (partial: closes the steady-state
    * cached-block residual "un-modeled muldiv stall". Uncached

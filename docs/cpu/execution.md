@@ -62,8 +62,16 @@ changes made earlier in the same block. Disabled transfers trap before device
 access or a GTE busy wait. Generated cases check pending loads and exceptions
 in both taken and untaken branch slots.
 
-Enabled memory transfers involving absent coprocessors still differ between
-engines and remain unqualified. Coprocessor branches also need further work.
+Enabled LWC0/1/3 instructions read a word and discard its value in all three
+modes. Native code preserves device-read effects, checks alignment and
+propagates reported bus failures without interpreting the instruction. Faults
+retain preceding register writes, pending loads and branch context. Generated
+cases cover constant and dynamic addresses, normal and taken/untaken branch
+slots, slow memory, mmap fastmem and disabled block linking. The bus-failure
+cases inject an error through a valid device handler; they check propagation,
+not physical address decoding or hardware timing.
+
+Enabled SWC0/1/3 stores and coprocessor branches still need qualification.
 
 With COP2 enabled, unsupported GTE command encodings are logged and execution
 continues without a CPU exception. Their arithmetic effects and exact timing

@@ -378,6 +378,8 @@ struct cpu_recompiler_vtable {
   void (*compile_lwx) (cpu_recompiler_t*, cpu_recomp_compile_flags_t,
                        memory_access_size_t size, bool sign, bool use_fastmem,
                        const u32* known_addr);
+  void (*compile_lwc_discard)(cpu_recompiler_t*, cpu_recomp_compile_flags_t, memory_access_size_t size, bool sign,
+                              bool use_fastmem, const u32* known_addr);
   void (*compile_lwc2)(cpu_recompiler_t*, cpu_recomp_compile_flags_t,
                        memory_access_size_t size, bool sign, bool use_fastmem,
                        const u32* known_addr);
