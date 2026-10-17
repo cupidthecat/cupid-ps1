@@ -123,7 +123,7 @@ TEST(CpuExecutionTransition, pending_load_crosses_native_to_interpreter_switch)
   const u32 words[] = {0x3C08A003, 0x2409002A, 0xAD090000, 0x10000002, 0x8D0A0000,
                        0x240B0001, 0x254C0001, 0x254D0001, 0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0xA0010000, words, 10);
-  run_slice(1);
+  run_to_pc(0xA0010018);
   EXPECT_EQ(g_cpu_state.pc, 0xA0010018);
   EXPECT_EQ(g_cpu_state.load_delay_reg, CPU_REG_T2);
   EXPECT_EQ(g_cpu_state.regs.r[10], 0);
@@ -174,11 +174,7 @@ static void compare_continuation_after_restore(bool gte, cpu_execution_mode_t mo
   g_cpu_state.cop0_regs.sr.CE2 = 1;
   g_cpu_state.regs.r[8]        = 12345;
   g_cpu_state.regs.r[9]        = 7;
-  run_slice(1);
-  if (mode != CPU_EXECUTION_MODE_RECOMPILER) {
-    run_slice(1);
-    run_slice(1);
-  }
+  run_to_pc(0xA001000C);
   EXPECT_EQ(g_cpu_state.pc, 0xA001000C);
   EXPECT_TRUE((gte ? g_cpu_state.gte_completion_tick : g_cpu_state.muldiv_completion_tick) > g_cpu_state.pending_ticks);
   timing_event_t anchor;
@@ -214,10 +210,11 @@ TEST(CpuStateTiming, gte_stall_survives_save_and_restore)
 static void native_gte_consumer_waits(u32 consumer)
 {
   const u32 words[] = {0x4A000030, 0x10000001, 0, consumer, 0, 0x1000FFFF, 0};
-  start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0xA0010000, words, 7);
+  /* Cache hits keep the long GTE stall outstanding at the result-read boundary. */
+  start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0x80010000, words, 7);
   g_cpu_state.cop0_regs.sr.CE2 = 1;
-  run_slice(1);
-  EXPECT_EQ(g_cpu_state.pc, 0xA001000C);
+  run_to_pc(0x8001000C);
+  EXPECT_EQ(g_cpu_state.pc, 0x8001000C);
   const u32 remaining = g_cpu_state.gte_completion_tick;
   EXPECT_TRUE(remaining > 16);
   const global_ticks_t before = timing_events_get_event_run_tick_counter();
@@ -282,7 +279,7 @@ static divide_deadline_t divide_with_independent_gte(u32 operation, u32 padding)
   g_cpu_state.cop0_regs.sr.CE2 = 1;
   g_cpu_state.regs.r[8]        = 12345;
   g_cpu_state.regs.r[9]        = 7;
-  run_slice(1);
+  run_to_pc(0xA0010000 + (index + 3) * 4);
   EXPECT_EQ(g_cpu_state.pc, 0xA0010000 + (index + 3) * 4);
   const divide_deadline_t result = {g_cpu_state.muldiv_completion_tick, timing_events_get_global_tick_counter(),
                                     timing_events_get_event_run_tick_counter()};
@@ -342,8 +339,7 @@ static void disabled_gte_instructions_trap(cpu_execution_mode_t mode)
       g_cpu_state.load_delay_reg   = CPU_REG_T1;
       g_cpu_state.load_delay_value = 42;
       const cpu_gte_regs_t before  = g_cpu_state.gte_regs;
-      run_slice(1);
-      if (delay && mode != CPU_EXECUTION_MODE_RECOMPILER) run_slice(1);
+      run_to_pc(0x80000080);
       EXPECT_EQ(g_cpu_state.cop0_regs.cause.Excode, CPU_EXCEPTION_CPU);
       EXPECT_EQ(g_cpu_state.cop0_regs.cause.CE, 2);
       EXPECT_EQ(g_cpu_state.cop0_regs.cause.BD, delay);
@@ -383,7 +379,7 @@ TEST(CpuCoprocessorException, native_status_write_disables_gte_within_block)
   const u32 handler[] = {0x1000FFFF, 0};
   memcpy(bus_get_unprotected_ram_pointer() + 0x80, handler, sizeof(handler));
   g_cpu_state.cop0_regs.sr.CE2 = 1;
-  run_slice(1);
+  run_to_pc(0x80000080);
   EXPECT_EQ(g_cpu_state.cop0_regs.cause.Excode, CPU_EXCEPTION_CPU);
   EXPECT_EQ(g_cpu_state.cop0_regs.cause.CE, 2);
   EXPECT_EQ(g_cpu_state.cop0_regs.EPC, 0xA0010004);
@@ -405,7 +401,7 @@ TEST(CpuCoprocessorException, native_gte_delay_trap_retains_branch_outcome)
       g_cpu_state.cop0_regs.sr.BEV = 0;
       g_cpu_state.cop0_regs.sr.CE2 = 0;
       g_cpu_state.regs.r[10]       = taken ? 0 : 1;
-      run_slice(1);
+      run_to_pc(0x80000080);
       EXPECT_EQ(g_cpu_state.cop0_regs.cause.Excode, CPU_EXCEPTION_CPU);
       EXPECT_EQ(g_cpu_state.cop0_regs.cause.CE, 2);
       EXPECT_EQ(g_cpu_state.cop0_regs.cause.BD, 1);
@@ -446,7 +442,7 @@ TEST(CpuStateTiming, native_divide_deadline_survives_interpreter_fallback)
   g_cpu_state.cop0_regs.sr.BEV = 0;
   g_cpu_state.regs.r[8]        = 12345;
   g_cpu_state.regs.r[9]        = 7;
-  run_slice(1);
+  run_to_pc(0x80000080);
   EXPECT_EQ(g_cpu_state.cop0_regs.cause.Excode, CPU_EXCEPTION_RI);
   EXPECT_EQ(g_cpu_state.cop0_regs.EPC, 0xA0010004);
   EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_entered > 0);

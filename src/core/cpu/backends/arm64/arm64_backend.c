@@ -419,31 +419,31 @@ static const char* arm64_get_host_reg_name(u32 reg)
 }
 
 static const struct cpu_recompiler_vtable s_vtable = {
-  /* Lifecycle. */
-   .reset                    = hook_reset,
-  .begin_block              = hook_begin_block,
-  .end_compile              = hook_end_compile,
-  .end_block                = hook_end_block,
-  .end_block_with_exception = hook_end_block_with_exception, 
+    /* Lifecycle. */
+    .reset                    = hook_reset,
+    .begin_block              = hook_begin_block,
+    .end_compile              = hook_end_compile,
+    .end_block                = hook_end_block,
+    .end_block_with_exception = hook_end_block_with_exception,
 
-  /* Codegen primitives. */
-  .get_current_code_pointer        = hook_get_current_code_pointer,
-  .generate_block_protect_check    = NULL, /* TODO arm64 chunk M2 */
-  .generate_icache_check_and_update= NULL, /* TODO arm64 chunk M3 */
-  .generate_call                   = hook_generate_call,
-  .generate_pgxp_call_with_mips_regs = NULL, /* TODO arm64 chunk M5 */
+    /* Codegen primitives. */
+    .get_current_code_pointer          = hook_get_current_code_pointer,
+    .generate_block_protect_check      = NULL, /* TODO arm64 chunk M2 */
+    .generate_instruction_fetch        = NULL,
+    .generate_call                     = hook_generate_call,
+    .generate_pgxp_call_with_mips_regs = NULL, /* TODO arm64 chunk M5 */
 
-  /* Host-reg primitives. */
-   .load_host_reg_with_constant   = hook_load_host_reg_with_constant,
-  .load_host_reg_from_cpu_pointer= hook_load_host_reg_from_cpu_pointer,
-  .store_host_reg_to_cpu_pointer = hook_store_host_reg_to_cpu_pointer,
-  .store_constant_to_cpu_pointer = hook_store_constant_to_cpu_pointer,
-  .copy_host_reg                 = hook_copy_host_reg,
-  .flush                         = hook_flush, 
+    /* Host-reg primitives. */
+    .load_host_reg_with_constant    = hook_load_host_reg_with_constant,
+    .load_host_reg_from_cpu_pointer = hook_load_host_reg_from_cpu_pointer,
+    .store_host_reg_to_cpu_pointer  = hook_store_host_reg_to_cpu_pointer,
+    .store_constant_to_cpu_pointer  = hook_store_constant_to_cpu_pointer,
+    .copy_host_reg                  = hook_copy_host_reg,
+    .flush                          = hook_flush,
 
-  .compile_fallback = hook_compile_fallback,
+    .compile_fallback = hook_compile_fallback,
 
-  .get_host_reg_name = arm64_get_host_reg_name,
+    .get_host_reg_name = arm64_get_host_reg_name,
 };
 
 static void arm64_emit_jump_at_site(void* site, const void* dst, bool flush_icache)

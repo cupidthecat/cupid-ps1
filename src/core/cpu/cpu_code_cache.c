@@ -866,8 +866,9 @@ void cpu_code_cache_invalidate_all_ram_blocks(void)
 
 static bool read_block_instruction(u32 pc, u32* word)
 {
+  if (cpu_code_cache_is_using_recompiler() && cpu_get_prefetched_instruction(pc, word)) return true;
   if (cpu_code_cache_is_using_recompiler() && g_settings.cpu_recompiler_icache &&
-      cpu_is_cached_address(pc) && cpu_compare_icache_tag(pc)) {
+      g_cpu_state.cache_control.icache_enable && cpu_is_cached_address(pc) && cpu_compare_icache_tag(pc)) {
     *word = g_cpu_state.icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE +
                                    cpu_get_icache_line_word_offset(pc)];
     return true;
@@ -875,27 +876,14 @@ static bool read_block_instruction(u32 pc, u32* word)
   return cpu_safe_read_instruction(pc, word);
 }
 
-bool cpu_code_cache_prepare_cached_line(cpu_code_cache_block_t* block, u32 pc)
+bool cpu_code_cache_prepare_native_instruction(cpu_code_cache_block_t* block, u32 pc, u32 word, u32 flags)
 {
-  const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(block);
-  const u32 line = pc & CPU_ICACHE_TAG_ADDRESS_MASK;
-  for (u32 i = (pc - block->pc) / CPU_INSTRUCTION_SIZE;
-       i < block->size && (pc & CPU_ICACHE_TAG_ADDRESS_MASK) == line;
-       i++, pc += CPU_INSTRUCTION_SIZE) {
-    u32 word = 0;
-    bool read = true;
-    if (cpu_compare_icache_tag(pc))
-      word = g_cpu_state.icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE +
-                                    cpu_get_icache_line_word_offset(pc)];
-    else
-      read = cpu_fill_icache(pc, &word);
-    if (!read || word != instructions[i].bits) {
-      remove_block_from_page_list(block);
-      invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
-      return false;
-    }
+  const u32 result = cpu_native_prepare_instruction(pc, word, flags);
+  if (result == CPU_NATIVE_FETCH_RECOMPILE) {
+    remove_block_from_page_list(block);
+    invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
   }
-  return true;
+  return result == CPU_NATIVE_FETCH_READY;
 }
 
 static bool is_block_code_current(const cpu_code_cache_block_t* b)
@@ -1001,6 +989,12 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
     Assert(block->next_block_in_page == NULL);
     recompile_frame = block->compile_frame;
     recompile_count = block->compile_count;
+    /* Changing the cache view selects different instruction storage; it is
+     * not repeated mutation of the same decoded view. */
+    if ((block->flags ^ metadata->flags) & CPU_CODE_CACHE_BF_IS_USING_ICACHE) {
+      recompile_frame = frame;
+      recompile_count = 0u;
+    }
     if (block->size != size) {
       blocks_unregister(block);
       free(block);
@@ -1074,7 +1068,8 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
 static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_t* metadata)
 {
   const cpu_code_cache_page_protection_mode_t protection = get_protection_mode_for_pc(start_pc);
-  const bool use_icache = cpu_is_cached_address(start_pc);
+  const bool use_icache = cpu_is_cached_address(start_pc) && g_cpu_state.cache_control.icache_enable &&
+                          (!cpu_code_cache_is_using_recompiler() || g_settings.cpu_recompiler_icache);
   const bool dynamic_fetch_ticks = !use_icache &&
       bus_get_memory_access_time_ptr(cpu_virtual_to_physical(start_pc), MEMORY_ACCESS_SIZE_WORD) != NULL;
   u32 pc = start_pc;
@@ -1455,7 +1450,8 @@ void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
   const u32 free_far  = cpu_code_cache_get_free_far_code_space();
   if (free_code < (block_size * CPU_RECOMP_MAX_NEAR_HOST_BYTES_PER_INST) ||
       free_code < CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK ||
-      free_far  < CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK) {
+      free_far < (block_size * CPU_RECOMP_MAX_FAR_HOST_BYTES_PER_INST) ||
+      free_far < CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK) {
     ERROR_LOG("Out of code space while compiling %08X. Resetting code cache.", start_pc);
     cpu_code_cache_reset();
   }

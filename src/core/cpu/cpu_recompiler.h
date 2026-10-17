@@ -22,14 +22,15 @@ enum {
   CPU_RECOMP_NUM_HOST_REGS                = 16u,
   CPU_RECOMP_HAS_MEMORY_OPERANDS          = 1u,
   CPU_RECOMP_FUNCTION_ALIGNMENT           = 16u,
-  CPU_RECOMP_MAX_NEAR_HOST_BYTES_PER_INST = 32u, /* worst-case near-block growth */
+  CPU_RECOMP_MAX_NEAR_HOST_BYTES_PER_INST = 512u, /* includes instruction-fetch guards */
+  CPU_RECOMP_MAX_FAR_HOST_BYTES_PER_INST  = 512u,
   CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK   = 512u,
 };
 
- /* Global compile-time options: EMULATE_LOAD_DELAYS / SWAP_BRANCH_DELAY_SLOTS. */
+/* Global compile-time options: EMULATE_LOAD_DELAYS / SWAP_BRANCH_DELAY_SLOTS. */
 enum {
   CPU_RECOMP_EMULATE_LOAD_DELAYS     = 1u,
-  CPU_RECOMP_SWAP_BRANCH_DELAY_SLOTS = 1u,
+  CPU_RECOMP_SWAP_BRANCH_DELAY_SLOTS = 0u,
 };
 
 /* CPU_REG_COUNT must fit the constant-tracking u64 bitset. */
@@ -315,8 +316,7 @@ struct cpu_recompiler_vtable {
   const void* (*get_current_code_pointer)(cpu_recompiler_t*);
   void        (*generate_block_protect_check)(cpu_recompiler_t*,
                                               const u8* ram, const u8* shadow, u32 size);
-  void        (*generate_icache_check_and_update)(cpu_recompiler_t*);
-  void        (*generate_icache_line_check)(cpu_recompiler_t*);
+  void (*generate_instruction_fetch)(cpu_recompiler_t*);
   void        (*generate_call)(cpu_recompiler_t*, const void* func,
                                s32 a1reg, s32 a2reg, s32 a3reg);
   void        (*generate_pgxp_call_with_mips_regs)(cpu_recompiler_t*,

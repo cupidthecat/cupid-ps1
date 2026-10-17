@@ -1976,11 +1976,7 @@ void cpu_recompiler_compile_branch_delay_slot(cpu_recompiler_t* r, bool dirty_pc
 
 void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
 {
-  if (g_settings.cpu_recompiler_icache && cpu_is_cached_address(r->block->pc) &&
-      r->current_instruction_pc != r->block->pc &&
-      cpu_get_icache_line_word_offset(r->current_instruction_pc) == 0 &&
-      r->v && r->v->generate_icache_line_check)
-    r->v->generate_icache_line_check(r);
+  if (r->v && r->v->generate_instruction_fetch) r->v->generate_instruction_fetch(r);
 
   const u32 physical_pc = cpu_virtual_to_physical(r->current_instruction_pc);
   const void* tty = physical_pc == 0xA0u ? (const void*)&cpu_handle_a0_syscall :
@@ -1992,7 +1988,7 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
     r->v->generate_call(r, tty, -1, -1, -1);
   }
 
-  r->cycles++;
+  if (!r->v || !r->v->generate_instruction_fetch) r->cycles++;
 
   if (cpu_is_nop_instruction(*r->inst)) {
     cpu_recompiler_update_load_delay(r);

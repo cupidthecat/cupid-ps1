@@ -24,24 +24,23 @@ creation, reuse and execution counts when `--mode cached` is selected.
 
 ## Execution state and timing
 
-Ordinary and cached interpretation share a prefetch pipeline. Switching between
-these modes retains prefetched words and instruction-cache data. Before native
-dispatch starts, pending branch-delay instructions finish through the shared
-executor. Leaving native execution rebuilds prefetch at the current PC and
-preserves pending loads. All three modes retain instruction-cache words and
-partial-line validity across mode changes.
+All three execution modes share instruction prefetch. Switching modes retains
+the fetched word, pending loads, instruction-cache data and partial-line
+validity. Before native dispatch starts, pending branch-delay instructions
+finish through the shared executor.
 
 Native instruction-cache emulation is enabled by default. Blocks decode the
 words the CPU cache serves, including stale instructions after a RAM write.
-Each line fills and validates as execution reaches it. Changed words invalidate
-host code, and execution resumes at that instruction without repeating the
-block prefix. A changed branch-delay word runs through the shared executor
-with the resolved branch context, including when an event interrupts that
-handoff. Cache-line checks preserve pending loads and busy-unit deadlines.
+Before each compiled instruction executes, native code checks its latched word
+and event deadline, then fetches the next instruction through the shared CPU
+path. Changed words invalidate host code without repeating the block prefix.
+A pending branch slot retains its resolved target and branch outcome when
+execution returns to the dispatcher. These exits preserve pending loads and
+busy-unit deadlines.
 
 Generated cases include slow memory, mmap fastmem and execution without block
-linking. Native fetch and event timing still need qualification;
-line-boundary checks do not establish full per-instruction prefetch accuracy.
+linking. They check the shared pipeline model; full native fetch and event
+timing still need hardware qualification.
 
 GTE commands arm a completion deadline. Result-register reads wait for that
 deadline, including native reads whose destination is register zero. Outstanding
@@ -97,8 +96,18 @@ virtual execution address remains intact for branches and exceptions.
 
 Save-state version 86 stores physical cache tags. Loading an older stream
 converts its KSEG0 tags while retaining cached words and per-word validity.
-This correction does not qualify cache enable, programmable refill sizes or
-tag-test mode.
+Cache-control bit 11 selects instruction-cache use in cached address regions.
+When it is clear, instruction reads bypass the cache without filling or
+clearing its words and tags. Re-enabling it exposes retained cache contents.
+The instruction already prefetched stays latched across a guest control write.
+Generated tests check that ordering across execution modes; the exact hardware
+latency of adjacent cache-control writes still needs independent qualification.
+Programmable refill sizes and tag-test mode also remain unqualified.
+
+Save-state version 87 retains the native pipeline's fetched word. Earlier
+native streams rebuild it from the saved execution PC, except when the stream
+already contains a pending branch slot or fetch exception. The CPU serializer
+keeps pending loads and GTE/multiply/divide deadlines during restoration.
 
 ## Recompiler backends
 

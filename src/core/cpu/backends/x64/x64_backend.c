@@ -273,45 +273,6 @@ static void hook_generate_block_protect_check(cpu_recompiler_t* r,
   DebugAssert(size == 0u);
 }
 
-/* Uncached fetch ticks are charged at block entry. Cached blocks check each
- * line before executing its words. */
-static void hook_generate_icache_check_and_update(cpu_recompiler_t* r)
-{
-  x64_emit_t* e = current_emit(be_from(r));
-  const cpu_code_cache_block_t* b = r->block;
-
-  if (!cpu_code_cache_block_has_flag(b, CPU_CODE_CACHE_BF_IS_USING_ICACHE)) {
-    if (cpu_code_cache_block_has_flag(b, CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS)) {
-      const tick_count_t* tp = cpu_recompiler_get_fetch_memory_access_time_ptr(r);
-      /* RAX = block size; ECX = *tp; imul RAX, ECX; add [pending_ticks], EAX. */
-      x64_mov_r_imm32(e, X64_SZ_32, X64_RAX, (s32)b->size);
-      x64_mov_r_imm64(e, RXARG2, (u64)(uintptr_t)tp);
-      x64_mov_r_m   (e, X64_SZ_32, RWARG2, x64_mem(RXARG2, 0));
-      x64_imul_r_r  (e, X64_SZ_32, X64_RAX, RWARG2);
-      x64_alu_m_r   (e, X64_ALU_ADD, X64_SZ_32,
-                     x64_mem(RSTATE, STATE_DISP(pending_ticks)), X64_RAX);
-    } else {
-      x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32,
-                    x64_mem(RSTATE, STATE_DISP(pending_ticks)),
-                    (s32)b->uncached_fetch_ticks);
-    }
-    return;
-  }
-
-  if (b->icache_line_count == 0u) return;
-
-  /* Validate the entry line. Later lines are checked when execution reaches
-   * them, so earlier stores can change words that have not been fetched. */
-  x64_mov_r_imm64(e, RXARG1, (u64)(uintptr_t)b);
-  x64_mov_r_imm32(e, X64_SZ_32, RWARG2, (s32)b->pc);
-  x64_call_abs64(e, (const void*)&cpu_code_cache_prepare_cached_line);
-  x64_test_r_r(e, X64_SZ_8, X64_RAX, X64_RAX);
-  u8* const current = x64_jcc_rel32(e, X64_CC_NE);
-  u8* const changed = x64_jmp_rel32(e);
-  x64_patch_rel32(changed, g_dispatcher);
-  x64_patch_rel32(current, x64_emit_cursor(e));
-}
-
 static void hook_begin_block(cpu_recompiler_t* r)
 {
   /* Agnostic BeginBlock state-seeding happens in cpu_recompiler_compile_block
@@ -344,21 +305,6 @@ static void hook_begin_block(cpu_recompiler_t* r)
     x64_mov_r_imm32(e, X64_SZ_32, RWARG1, (s32)r->block->pc);
     x64_call_abs64 (e, (const void*)&cpu_pc_trigger_on_block);
   }
-
-  if (r->block != NULL &&
-      r->block->protection == CPU_CODE_CACHE_PROT_MANUAL_CHECK &&
-      !(g_settings.cpu_recompiler_icache &&
-        cpu_code_cache_block_has_flag(r->block, CPU_CODE_CACHE_BF_IS_USING_ICACHE)) &&
-      r->v && r->v->generate_block_protect_check) {
-    const u32 phys = cpu_virtual_to_physical(r->block->pc);
-    const u8* ram_ptr = bus_get_ram_pointer() + phys;
-    const u8* shadow_ptr = (const u8*)cpu_code_cache_block_instructions(r->block);
-    r->v->generate_block_protect_check(r, ram_ptr, shadow_ptr,
-                                       r->block->size * CPU_INSTRUCTION_SIZE);
-  }
-
-  if (r->block != NULL && r->v && r->v->generate_icache_check_and_update)
-    r->v->generate_icache_check_and_update(r);
 
   /* The allocator is empty here. Count entry only after protection/cache checks.
    * No C call, replay, CPU-state mutation or device access is involved. */
@@ -396,9 +342,8 @@ static const void* hook_end_compile(cpu_recompiler_t* r,
 
 /* Helper: emit cycle accounting + downcount check + jump to dispatcher or
  * next block.  Called from end_block + end_block_with_exception. */
-static void emit_end_and_link_block(cpu_recompiler_t* r,
-                                    const u32* newpc, bool do_event_test,
-                                    bool force_run_events)
+static void emit_end_and_link_block(cpu_recompiler_t* r, const u32* newpc, bool do_event_test, bool force_run_events,
+                                    bool count_progress)
 {
   x64_backend_state_t* b = be_from(r);
   x64_emit_t* e = current_emit(b);
@@ -413,7 +358,7 @@ static void emit_end_and_link_block(cpu_recompiler_t* r,
   r->cycles = 0;
   /* All architectural registers have been flushed before reaching this epilogue.
    * Count normal block exits, including linked exits, before the event test. */
-  if (cpu_execution_stats_is_enabled()) {
+  if (cpu_execution_stats_is_enabled() && count_progress) {
     x64_mov_r_imm64(e, RWARG3, (u64)(uintptr_t)&cpu_execution_stats_get()->native_blocks_completed);
     x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(RWARG3, 0), 1);
   }
@@ -515,7 +460,7 @@ static void hook_end_block(cpu_recompiler_t* r, const u32* newpc, bool do_event_
 
   cpu_recompiler_flush(r, CPU_RC_FLUSH_END_BLOCK);
 
-  emit_end_and_link_block(r, newpc, do_event_test, false);
+  emit_end_and_link_block(r, newpc, do_event_test, false, true);
 }
 
 static void hook_end_block_with_exception(cpu_recompiler_t* r, cpu_exception_t excode)
@@ -544,7 +489,7 @@ static void hook_end_block_with_exception(cpu_recompiler_t* r, cpu_exception_t e
   }
 
   r->dirty_pc = false;
-  emit_end_and_link_block(r, NULL, /*do_event_test=*/true, /*force=*/false);
+  emit_end_and_link_block(r, NULL, /*do_event_test=*/true, /*force=*/false, true);
 }
 
 static const void* hook_get_current_code_pointer(cpu_recompiler_t* r)
@@ -743,50 +688,13 @@ static void hook_flush(cpu_recompiler_t* r, u32 flags)
 
 static void hook_compile_fallback(cpu_recompiler_t* r)
 {
-  DEBUG_LOG("Compiling instruction fallback at PC=0x%08X, instruction=0x%08X",
-            r->current_instruction_pc, r->inst->bits);
-
-  if (r->cycles > 0) r->cycles--;
-
-  cpu_recompiler_flush(r,
-    CPU_RC_FLUSH_FLUSH_MIPS_REGISTERS |
-    CPU_RC_FLUSH_INVALIDATE_MIPS_REGISTERS |
-    CPU_RC_FLUSH_FREE_CALLER_SAVED_REGISTERS |
-    CPU_RC_FLUSH_PC |
-    CPU_RC_FLUSH_LOAD_DELAY_FROM_STATE |
-    CPU_RC_FLUSH_LOAD_DELAY |
-    CPU_RC_FLUSH_GTE_DONE_CYCLE |
-    CPU_RC_FLUSH_MULDIV_DONE_CYCLE |
-    CPU_RC_FLUSH_INVALIDATE_SPECULATIVE_CONSTANTS);
-
+  cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_INTERPRETER & ~CPU_RC_FLUSH_PC);
   x64_emit_t* e = current_emit(be_from(r));
-
-  /* PC must point at the fallback op so g_interpret_block fetches it
-   * first.  cpu_recompiler_flush(...PC) wrote r->compiler_pc, but for the
-   * end-block-and-interpret path we want the *current* op address. */
-  x64_mov_m_imm32(e, X64_SZ_32,
-                  x64_mem(RSTATE, STATE_DISP(pc)),
-                  (s32)r->current_instruction_pc);
-
-  /* Flush accumulated block cycles to pending_ticks (mirrors the prefix
-   * of emit_end_and_link_block), since we bypass the normal end_block. */
-  if (r->cycles == 1) {
-    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32,
-                  x64_mem(RSTATE, STATE_DISP(pending_ticks)), 1);
-  } else if (r->cycles > 0) {
-    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32,
-                  x64_mem(RSTATE, STATE_DISP(pending_ticks)), r->cycles);
-  }
-  r->cycles = 0;
-
-  /* Shared execution must not repeat the first instruction's TTY observation. */
-  const u32 physical_pc = cpu_virtual_to_physical(r->current_instruction_pc);
-  u8* j = x64_jmp_rel32(e);
-  x64_patch_rel32(j, physical_pc == 0xA0u || physical_pc == 0xB0u ?
-                       s_backend.interpret_after_tty : g_interpret_block);
-
+  x64_call_abs64(e, (const void*)&cpu_native_execute_prepared_instruction);
+  u8* jump = x64_jmp_rel32(e);
+  x64_patch_rel32(jump, g_dispatcher);
   cpu_recompiler_truncate_block(r);
-  r->block_ended = true;  /* skip the agnostic-loop end_block emission */
+  r->block_ended = true;
 }
 
 static void hook_compile_andi(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf)
@@ -861,29 +769,28 @@ static void switch_to_near_code(cpu_recompiler_t* r, bool emit_jump,
   b->is_far = false;
 }
 
-static void hook_generate_icache_line_check(cpu_recompiler_t* r)
+static void hook_generate_instruction_fetch(cpu_recompiler_t* r)
 {
   cpu_recompiler_flush(r, CPU_RC_FLUSH_FOR_C_CALL | CPU_RC_FLUSH_CYCLES |
                           CPU_RC_FLUSH_GTE_DONE_CYCLE | CPU_RC_FLUSH_MULDIV_DONE_CYCLE);
+  r->gte_done_cycle          = 0;
+  r->muldiv_done_cycle       = 0;
+  r->dirty_gte_done_cycle    = true;
+  r->dirty_muldiv_done_cycle = true;
   x64_emit_t* e = current_emit(be_from(r));
+  const u32   flags          = (r->current_instruction_branch_delay_slot ? CPU_NATIVE_FETCH_DELAY_SLOT : 0u) |
+                    (r->delay_slot_branch_was_taken ? CPU_NATIVE_FETCH_BRANCH_TAKEN : 0u);
   x64_mov_r_imm64(e, RXARG1, (u64)(uintptr_t)r->block);
   x64_mov_r_imm32(e, X64_SZ_32, RWARG2, (s32)r->current_instruction_pc);
-  x64_call_abs64(e, (const void*)&cpu_code_cache_prepare_cached_line);
+  x64_mov_r_imm32(e, X64_SZ_32, RWARG3, (s32)r->inst->bits);
+  x64_mov_r_imm32(e, X64_SZ_32, RWARG4, (s32)flags);
+  x64_call_abs64(e, (const void*)&cpu_code_cache_prepare_native_instruction);
   x64_test_r_r(e, X64_SZ_8, X64_RAX, X64_RAX);
   switch_to_far_code(r, true, true, X64_CC_E);
   cpu_recompiler_backup_host_state(r);
-  cpu_recompiler_flush(r, (CPU_RC_FLUSH_FOR_EARLY_BLOCK_EXIT & ~CPU_RC_FLUSH_PC) |
-                          CPU_RC_FLUSH_FOR_C_CALL);
-  e = current_emit(be_from(r));
-  if (r->current_instruction_branch_delay_slot) {
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG1, (s32)r->current_instruction_pc);
-    x64_mov_r_imm32(e, X64_SZ_32, RWARG2, r->delay_slot_branch_was_taken ? 1 : 0);
-    x64_call_abs64(e, (const void*)&cpu_recompiler_execute_changed_delay_slot);
-  } else {
-    x64_mov_m_imm32(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pc)), (s32)r->current_instruction_pc);
-  }
+  cpu_recompiler_flush(r, (CPU_RC_FLUSH_FOR_EARLY_BLOCK_EXIT & ~CPU_RC_FLUSH_PC) | CPU_RC_FLUSH_FOR_C_CALL);
   r->dirty_pc = false;
-  emit_end_and_link_block(r, NULL, true, false);
+  emit_end_and_link_block(r, NULL, true, false, r->current_instruction_pc != r->block->pc);
   cpu_recompiler_restore_host_state(r);
   switch_to_near_code(r, false, false, X64_CC_E);
 }
@@ -2333,6 +2240,7 @@ static u32 emit_asm_functions(void* code, u32 code_size)
   /* g_dispatcher */
   u8* const dispatch_addr = x64_emit_cursor(&e);
   g_dispatcher = (const void*)dispatch_addr;
+  x64_call_abs64(&e, (const void*)&cpu_native_prepare_dispatch);
   x64_mov_r_m    (&e, X64_SZ_32, RWARG1, x64_mem(RSTATE, STATE_DISP(pc)));
   /* Delay slots have retired. Check before indexing the LUT, whose slots
    * otherwise alias unaligned PCs to already-compiled aligned instructions. */
@@ -2407,94 +2315,92 @@ static const char* x64_get_host_reg_name(u32 reg)
   return (reg < 16u) ? names[reg] : "??";
 }
 
-
 static const struct cpu_recompiler_vtable s_vtable = {
-  /* Lifecycle. */
-   .reset                    = hook_reset,
-  .begin_block              = hook_begin_block,
-  .end_compile              = hook_end_compile,
-  .end_block                = hook_end_block,
-  .end_block_with_exception = hook_end_block_with_exception, 
+    /* Lifecycle. */
+    .reset                    = hook_reset,
+    .begin_block              = hook_begin_block,
+    .end_compile              = hook_end_compile,
+    .end_block                = hook_end_block,
+    .end_block_with_exception = hook_end_block_with_exception,
 
-  /* Codegen primitives. */
-   .get_current_code_pointer        = hook_get_current_code_pointer,
-  .generate_block_protect_check    = hook_generate_block_protect_check,
-  .generate_icache_check_and_update= hook_generate_icache_check_and_update,
-  .generate_icache_line_check     = hook_generate_icache_line_check,
-  .generate_call                   = hook_generate_call,
-  .generate_pgxp_call_with_mips_regs = hook_generate_pgxp_call_with_mips_regs, 
+    /* Codegen primitives. */
+    .get_current_code_pointer          = hook_get_current_code_pointer,
+    .generate_block_protect_check      = hook_generate_block_protect_check,
+    .generate_instruction_fetch        = hook_generate_instruction_fetch,
+    .generate_call                     = hook_generate_call,
+    .generate_pgxp_call_with_mips_regs = hook_generate_pgxp_call_with_mips_regs,
 
-  /* Host-reg primitives. */
-   .load_host_reg_with_constant   = hook_load_host_reg_with_constant,
-  .load_host_reg_from_cpu_pointer= hook_load_host_reg_from_cpu_pointer,
-  .store_host_reg_to_cpu_pointer = hook_store_host_reg_to_cpu_pointer,
-  .store_constant_to_cpu_pointer = hook_store_constant_to_cpu_pointer,
-  .copy_host_reg                 = hook_copy_host_reg,
-  .flush                         = hook_flush, 
+    /* Host-reg primitives. */
+    .load_host_reg_with_constant    = hook_load_host_reg_with_constant,
+    .load_host_reg_from_cpu_pointer = hook_load_host_reg_from_cpu_pointer,
+    .store_host_reg_to_cpu_pointer  = hook_store_host_reg_to_cpu_pointer,
+    .store_constant_to_cpu_pointer  = hook_store_constant_to_cpu_pointer,
+    .copy_host_reg                  = hook_copy_host_reg,
+    .flush                          = hook_flush,
 
-  .compile_fallback = hook_compile_fallback,
+    .compile_fallback = hook_compile_fallback,
 
-  /* Bitwise immediate operations. */
-   .compile_andi = hook_compile_andi,
-  .compile_ori  = hook_compile_ori,
-  .compile_xori = hook_compile_xori, 
+    /* Bitwise immediate operations. */
+    .compile_andi = hook_compile_andi,
+    .compile_ori  = hook_compile_ori,
+    .compile_xori = hook_compile_xori,
 
-  /* Arithmetic and register ALU operations. */
-   .compile_addi  = hook_compile_addi,
-  .compile_addiu = hook_compile_addiu,
-  .compile_slti  = hook_compile_slti,
-  .compile_sltiu = hook_compile_sltiu,
-  .compile_add   = hook_compile_add,
-  .compile_addu  = hook_compile_addu,
-  .compile_sub   = hook_compile_sub,
-  .compile_subu  = hook_compile_subu,
-  .compile_and   = hook_compile_and,
-  .compile_or    = hook_compile_or,
-  .compile_xor   = hook_compile_xor,
-  .compile_nor   = hook_compile_nor,
-  .compile_slt   = hook_compile_slt,
-  .compile_sltu  = hook_compile_sltu, 
+    /* Arithmetic and register ALU operations. */
+    .compile_addi  = hook_compile_addi,
+    .compile_addiu = hook_compile_addiu,
+    .compile_slti  = hook_compile_slti,
+    .compile_sltiu = hook_compile_sltiu,
+    .compile_add   = hook_compile_add,
+    .compile_addu  = hook_compile_addu,
+    .compile_sub   = hook_compile_sub,
+    .compile_subu  = hook_compile_subu,
+    .compile_and   = hook_compile_and,
+    .compile_or    = hook_compile_or,
+    .compile_xor   = hook_compile_xor,
+    .compile_nor   = hook_compile_nor,
+    .compile_slt   = hook_compile_slt,
+    .compile_sltu  = hook_compile_sltu,
 
-  /* Shifts; LUI uses the shared compiler. */
-   .compile_sll   = hook_compile_sll,
-  .compile_srl   = hook_compile_srl,
-  .compile_sra   = hook_compile_sra,
-  .compile_sllv  = hook_compile_sllv,
-  .compile_srlv  = hook_compile_srlv,
-  .compile_srav  = hook_compile_srav, 
+    /* Shifts; LUI uses the shared compiler. */
+    .compile_sll  = hook_compile_sll,
+    .compile_srl  = hook_compile_srl,
+    .compile_sra  = hook_compile_sra,
+    .compile_sllv = hook_compile_sllv,
+    .compile_srlv = hook_compile_srlv,
+    .compile_srav = hook_compile_srav,
 
-  /* Branches and register jumps; J/JAL use the shared compiler. */
-   .compile_jr    = hook_compile_jr,
-  .compile_jalr  = hook_compile_jalr,
-  .compile_bxx   = hook_compile_bxx, 
+    /* Branches and register jumps; J/JAL use the shared compiler. */
+    .compile_jr   = hook_compile_jr,
+    .compile_jalr = hook_compile_jalr,
+    .compile_bxx  = hook_compile_bxx,
 
-  /* Multiply/divide; HI/LO moves use the shared register template. */
-   .compile_mult  = hook_compile_mult,
-  .compile_multu = hook_compile_multu,
-  .compile_div   = hook_compile_div,
-  .compile_divu  = hook_compile_divu, 
+    /* Multiply/divide; HI/LO moves use the shared register template. */
+    .compile_mult  = hook_compile_mult,
+    .compile_multu = hook_compile_multu,
+    .compile_div   = hook_compile_div,
+    .compile_divu  = hook_compile_divu,
 
-  /* Memory loads and stores, including unaligned word operations. */
-   .compile_lxx   = hook_compile_lxx,
-  .compile_sxx   = hook_compile_sxx,
-  .compile_lwx   = hook_compile_lwx,
-  .compile_swx   = hook_compile_swx, 
+    /* Memory loads and stores, including unaligned word operations. */
+    .compile_lxx = hook_compile_lxx,
+    .compile_sxx = hook_compile_sxx,
+    .compile_lwx = hook_compile_lwx,
+    .compile_swx = hook_compile_swx,
 
-  /* COP0 writes reload RMEMBASE after memory-pointer updates. Speculative
+    /* COP0 writes reload RMEMBASE after memory-pointer updates. Speculative
    * COP0 state is updated by spec_exec_mtc0 and spec_exec_rfe. MFC0 uses
    * the shared compiler. */
-   .compile_mtc0  = hook_compile_mtc0,
-  .compile_rfe   = hook_compile_rfe, 
+    .compile_mtc0 = hook_compile_mtc0,
+    .compile_rfe  = hook_compile_rfe,
 
-  /* Coprocessor permissions, COP2 transfers and GTE commands. */
-  .check_cop_enabled = hook_check_cop_enabled,
-   .compile_mfc2  = hook_compile_mfc2,
-  .compile_mtc2  = hook_compile_mtc2,
-  .compile_cop2  = hook_compile_cop2,
-  .compile_lwc2  = hook_compile_lwc2,
-  .compile_swc2  = hook_compile_swc2,
+    /* Coprocessor permissions, COP2 transfers and GTE commands. */
+    .check_cop_enabled = hook_check_cop_enabled,
+    .compile_mfc2      = hook_compile_mfc2,
+    .compile_mtc2      = hook_compile_mtc2,
+    .compile_cop2      = hook_compile_cop2,
+    .compile_lwc2      = hook_compile_lwc2,
+    .compile_swc2      = hook_compile_swc2,
 
-  /* Multi-cycle muldiv stall (partial: closes the steady-state
+    /* Multi-cycle muldiv stall (partial: closes the steady-state
    * cached-block residual "un-modeled muldiv stall". Uncached
    * BIOS/KSEG1 blocks have a structural eager-prologue vs
    * lazy-per-inst-fetch mismatch with the interp replay that we don't
@@ -2503,7 +2409,7 @@ static const struct cpu_recompiler_vtable s_vtable = {
    * + set_muldiv_done_cycle_static).  Per-arch backends emit the FLUSH
    * codepaths via hook_flush below. */
 
-  .get_host_reg_name = x64_get_host_reg_name,
+    .get_host_reg_name = x64_get_host_reg_name,
 };
 
 void x64_backend_register(void)

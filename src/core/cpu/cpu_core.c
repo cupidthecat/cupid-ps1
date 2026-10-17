@@ -46,6 +46,8 @@ cpu_state_t g_cpu_state;
 typedef struct {
   cpu_execution_mode_t current_execution_mode;
   jmp_buf exit_jmp_buf;
+  u32                  prefetched_pc;
+  bool                 prefetch_valid;
 } cpu_locals_t;
 
 static cpu_locals_t s_locals;
@@ -252,6 +254,10 @@ bool cpu_do_state(state_wrapper_t* sw)
   state_wrapper_do_bool(sw, &g_cpu_state.using_interpreter);
 
   if (state_wrapper_is_reading(sw)) {
+    s_locals.prefetched_pc  = g_cpu_state.pc;
+    s_locals.prefetch_valid = state_wrapper_get_version(sw) >= 87u || g_cpu_state.using_interpreter ||
+                              g_cpu_state.next_instruction_is_branch_delay_slot ||
+                              g_cpu_state.next_instruction_fetch_exception != 0;
     s_locals.current_execution_mode =
       g_cpu_state.using_interpreter
         ? CPU_EXECUTION_MODE_INTERPRETER
@@ -1161,7 +1167,7 @@ void cpu_dispatch_interrupt(void)
   timing_events_update_cpu_downcount();
 }
 
-static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
+static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction, bool observe_tty)
 {
   if (cpu_raise_pending_fetch_exception())
     return false;
@@ -1196,7 +1202,7 @@ static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
   if (cpu_diff_is_enabled())
     cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
                                 g_cpu_state.current_instruction.bits);
-  cpu_execute_instruction(true);
+  cpu_execute_instruction(observe_tty);
   cpu_update_load_delay();
   if (cpu_execution_stats_is_enabled())
     cpu_execution_stats_get()->interpreted_instructions++;
@@ -1207,7 +1213,68 @@ static bool cpu_execute_prefetched_instruction(cpu_instruction_t instruction)
 
 void cpu_core_execute_interpreter_instruction(void)
 {
-  cpu_execute_prefetched_instruction(g_cpu_state.next_instruction);
+  cpu_execute_prefetched_instruction(g_cpu_state.next_instruction, true);
+}
+
+bool cpu_get_prefetched_instruction(u32 pc, u32* word)
+{
+  if (!s_locals.prefetch_valid || s_locals.prefetched_pc != pc || g_cpu_state.next_instruction_fetch_exception)
+    return false;
+  *word = g_cpu_state.next_instruction.bits;
+  return true;
+}
+
+u32 cpu_native_prepare_instruction(u32 pc, u32 word, u32 flags)
+{
+  const bool delay_slot = (flags & CPU_NATIVE_FETCH_DELAY_SLOT) != 0;
+  const u32  next_pc    = delay_slot ? g_cpu_state.pc : pc + CPU_INSTRUCTION_SIZE;
+  const bool changed =
+      !s_locals.prefetch_valid || s_locals.prefetched_pc != pc || g_cpu_state.next_instruction.bits != word;
+  if (g_cpu_state.pending_ticks >= g_cpu_state.downcount || g_cpu_state.next_instruction_fetch_exception || changed) {
+    g_cpu_state.pc                                    = s_locals.prefetched_pc;
+    g_cpu_state.npc                                   = next_pc;
+    g_cpu_state.next_instruction_is_branch_delay_slot = delay_slot;
+    g_cpu_state.branch_was_taken                      = (flags & CPU_NATIVE_FETCH_BRANCH_TAKEN) != 0;
+    return changed ? CPU_NATIVE_FETCH_RECOMPILE : CPU_NATIVE_FETCH_DISPATCH;
+  }
+
+  const u32 wire_pc = g_cpu_state.pc;
+  g_cpu_state.pending_ticks++;
+  g_cpu_state.current_instruction.bits                 = word;
+  g_cpu_state.current_instruction_pc                   = pc;
+  g_cpu_state.current_instruction_in_branch_delay_slot = delay_slot;
+  g_cpu_state.current_instruction_was_branch_taken     = (flags & CPU_NATIVE_FETCH_BRANCH_TAKEN) != 0;
+  g_cpu_state.next_instruction_is_branch_delay_slot    = false;
+  g_cpu_state.branch_was_taken                         = false;
+  g_cpu_state.exception_raised                         = false;
+  g_cpu_state.npc                                      = next_pc;
+  cpu_fetch_instruction();
+  /* Native branch code uses pc to carry its resolved target into the slot. */
+  g_cpu_state.pc = wire_pc;
+  return CPU_NATIVE_FETCH_READY;
+}
+
+void cpu_native_prepare_dispatch(void)
+{
+  if (!s_locals.prefetch_valid) {
+    g_cpu_state.npc = g_cpu_state.pc;
+    cpu_fetch_instruction();
+  }
+  g_cpu_state.pc = s_locals.prefetched_pc;
+  for (;;) {
+    if (g_cpu_state.pending_ticks >= g_cpu_state.downcount) timing_events_run_events();
+    if (cpu_raise_pending_fetch_exception()) continue;
+    if (!g_cpu_state.next_instruction_is_branch_delay_slot) return;
+    cpu_core_execute_interpreter_instruction();
+  }
+}
+
+void cpu_native_execute_prepared_instruction(void)
+{
+  g_cpu_state.pc = s_locals.prefetched_pc;
+  cpu_execute_instruction(false);
+  cpu_update_load_delay();
+  if (cpu_execution_stats_is_enabled()) cpu_execution_stats_get()->interpreted_instructions++;
 }
 
 cpu_cached_block_result_t cpu_core_execute_cached_block(const cpu_code_cache_block_t* block)
@@ -1223,8 +1290,7 @@ cpu_cached_block_result_t cpu_core_execute_cached_block(const cpu_code_cache_blo
         g_cpu_state.next_instruction.bits != instructions[i].bits)
       break;
     result.steps++;
-    if (cpu_execute_prefetched_instruction(instructions[i]))
-      result.instructions++;
+    if (cpu_execute_prefetched_instruction(instructions[i], true)) result.instructions++;
     if (g_cpu_state.exception_raised || g_cpu_state.pending_ticks >= g_cpu_state.downcount)
       break;
   }
@@ -1271,7 +1337,7 @@ static void cpu_check_for_execution_mode_change(void)
     return;
 
   g_cpu_state.bus_error = false;
-  if (!native && was_native) {
+  if (!s_locals.prefetch_valid) {
     g_cpu_state.npc = g_cpu_state.pc;
     (void)cpu_fetch_instruction();
   }
@@ -1303,20 +1369,6 @@ void cpu_execute_gte(u32 instruction)
   gte_execute(instruction);
 }
 
-void cpu_recompiler_execute_changed_delay_slot(u32 pc, u32 branch_taken)
-{
-  g_cpu_state.npc = g_cpu_state.pc;
-  g_cpu_state.pc = pc;
-  g_cpu_state.next_instruction.bits = cpu_read_icache(pc);
-  g_cpu_state.next_instruction_is_branch_delay_slot = true;
-  g_cpu_state.branch_was_taken = branch_taken != 0;
-  do {
-    if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
-      timing_events_run_events();
-    cpu_core_execute_interpreter_instruction();
-  } while (g_cpu_state.next_instruction_is_branch_delay_slot);
-}
-
 void cpu_recompiler_thunk_interpret_instruction(void)
 {
   if (cpu_diff_is_enabled())
@@ -1331,42 +1383,16 @@ void cpu_recompiler_thunk_interpret_instruction(void)
 
 static void cpu_recompiler_run_uncached_block_impl(bool observe_tty)
 {
-  g_cpu_state.npc = g_cpu_state.pc;
-  g_cpu_state.exception_raised = false;
-  cpu_fetch_instruction();
+  cpu_native_prepare_dispatch();
 
   bool in_branch_delay_slot = false;
   for (;;) {
-    if (cpu_raise_pending_fetch_exception())
-      break;
-
-    g_cpu_state.pending_ticks++;
-
-    g_cpu_state.current_instruction.bits = g_cpu_state.next_instruction.bits;
-    g_cpu_state.current_instruction_pc = g_cpu_state.pc;
-    g_cpu_state.current_instruction_in_branch_delay_slot = g_cpu_state.next_instruction_is_branch_delay_slot;
-    g_cpu_state.current_instruction_was_branch_taken = g_cpu_state.branch_was_taken;
-    g_cpu_state.next_instruction_is_branch_delay_slot = false;
-    g_cpu_state.branch_was_taken = false;
-
-    const bool branch = cpu_is_branch_instruction(g_cpu_state.current_instruction);
-    if (!g_cpu_state.current_instruction_in_branch_delay_slot || branch) {
-      cpu_fetch_instruction();
-    } else {
-      g_cpu_state.pc = g_cpu_state.npc;
-    }
-
-    if (cpu_diff_is_enabled())
-      cpu_diff_record_instruction(g_cpu_state.current_instruction_pc,
-                                  g_cpu_state.current_instruction.bits);
-    cpu_execute_instruction(observe_tty);
+    const bool branch = cpu_is_branch_instruction(g_cpu_state.next_instruction);
+    cpu_execute_prefetched_instruction(g_cpu_state.next_instruction, observe_tty);
     observe_tty = true;
-    cpu_update_load_delay();
-    if (cpu_execution_stats_is_enabled())
-      cpu_execution_stats_get()->interpreted_instructions++;
 
-    if (g_cpu_state.exception_raised || (!branch && in_branch_delay_slot) ||
-        cpu_is_exit_block_instruction(g_cpu_state.current_instruction))
+    if (g_cpu_state.exception_raised || g_cpu_state.pending_ticks >= g_cpu_state.downcount ||
+        (!branch && in_branch_delay_slot) || cpu_is_exit_block_instruction(g_cpu_state.current_instruction))
       break;
 
     if ((g_cpu_state.current_instruction.bits & 0xFFC0FFFFu) == 0x40806000u &&
@@ -1567,7 +1593,10 @@ static bool cpu_fetch_instruction(void)
   } else switch (address >> 29) {
     case 0x00: /* KUSEG 0M-512M */
     case 0x04: /* KSEG0   cached */
-      if (cpu_compare_icache_tag(address))
+      if (!g_cpu_state.cache_control.icache_enable ||
+          (!g_cpu_state.using_interpreter && !g_settings.cpu_recompiler_icache)) {
+        if (!cpu_do_instruction_read(address, &instruction, true, false, 1u, true)) exception = CPU_EXCEPTION_IBE;
+      } else if (cpu_compare_icache_tag(address))
         instruction = cpu_read_icache(address);
       else if (!cpu_fill_icache(address, &instruction))
         exception = CPU_EXCEPTION_IBE;
@@ -1585,6 +1614,8 @@ static bool cpu_fetch_instruction(void)
   }
   g_cpu_state.next_instruction.bits = instruction;
   g_cpu_state.next_instruction_fetch_exception = exception;
+  s_locals.prefetched_pc                       = address;
+  s_locals.prefetch_valid                      = true;
   g_cpu_state.pc = g_cpu_state.npc;
   g_cpu_state.npc += sizeof(g_cpu_state.next_instruction.bits);
   return exception == 0;

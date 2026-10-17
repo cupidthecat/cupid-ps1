@@ -162,7 +162,7 @@ cpu_cached_interpreter_stats_t cpu_code_cache_get_cached_interpreter_stats(void)
 
 /* Fill and validate this line's block words. A mismatch invalidates host code
  * so execution can resume from the current instruction-cache view. */
-bool cpu_code_cache_prepare_cached_line(cpu_code_cache_block_t* block, u32 pc);
+bool cpu_code_cache_prepare_native_instruction(cpu_code_cache_block_t* block, u32 pc, u32 word, u32 flags);
 
 /* Allocates resources, call once at startup. */
 bool cpu_code_cache_process_startup(Error* error);

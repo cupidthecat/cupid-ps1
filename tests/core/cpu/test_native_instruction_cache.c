@@ -174,7 +174,7 @@ static void changed_delay_slot(bool taken, bool trap, bool interrupt_before_slot
   g_cpu_state.regs.r[10]           = trap ? 0x4A000030 : 0x24100002;
   g_cpu_state.regs.r[12]           = taken ? 0 : 1;
   if (interrupt_before_slot) {
-    run_slice(1);
+    run_to_pc(0x80010040);
     EXPECT_EQ(g_cpu_state.pc, 0x80010040);
     EXPECT_TRUE(g_cpu_state.next_instruction_is_branch_delay_slot);
   }
@@ -251,7 +251,7 @@ static void changed_line_keeps_busy_deadline(bool gte)
   g_cpu_state.regs.r[10]           = 0x24100002;
   g_cpu_state.regs.r[12]           = 12345;
   g_cpu_state.regs.r[13]           = 7;
-  run_slice(1);
+  run_to_pc(0x80010040);
   EXPECT_EQ(g_cpu_state.pc, 0x80010040);
   EXPECT_TRUE((gte ? g_cpu_state.gte_completion_tick : g_cpu_state.muldiv_completion_tick) > g_cpu_state.pending_ticks);
   run_slice(1000);

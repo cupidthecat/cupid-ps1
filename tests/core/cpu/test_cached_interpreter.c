@@ -64,6 +64,8 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
 
   cpu_initialize();
   cpu_reset();
+  /* Generated RAM programs start with the BIOS's enabled cache setup. */
+  g_cpu_state.cache_control.bits = 0x1E988;
   EXPECT_TRUE(cpu_code_cache_process_startup(&error));
   cpu_code_cache_reset();
   cpu_set_pc(start);

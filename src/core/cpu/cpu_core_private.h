@@ -29,6 +29,22 @@ typedef struct cpu_cached_block_result {
 } cpu_cached_block_result_t;
 /* Consume the current prefetched instruction with normal fetch/tick handling. */
 void cpu_core_execute_interpreter_instruction(void);
+enum {
+  CPU_NATIVE_FETCH_READY,
+  CPU_NATIVE_FETCH_RECOMPILE,
+  CPU_NATIVE_FETCH_DISPATCH,
+};
+enum {
+  CPU_NATIVE_FETCH_DELAY_SLOT   = 1u,
+  CPU_NATIVE_FETCH_BRANCH_TAKEN = 2u,
+};
+bool cpu_get_prefetched_instruction(u32 pc, u32* word);
+/* On success, charge one instruction tick and fetch its successor exactly once. */
+u32 cpu_native_prepare_instruction(u32 pc, u32 word, u32 flags);
+/* Call with registers and pending loads flushed before native block lookup. */
+void cpu_native_prepare_dispatch(void);
+/* Execute a fallback whose tick, metadata and successor fetch are prepared. */
+void cpu_native_execute_prepared_instruction(void);
 /* Execute cached words while their PC, pipeline word and block state match. */
 cpu_cached_block_result_t cpu_core_execute_cached_block(const struct cpu_code_cache_block* block);
 
@@ -143,9 +159,6 @@ void* cpu_get_direct_write_memory_pointer(virtual_memory_address_t address, memo
 
 /* The caller has waited for the previous command and committed its issue tick. */
 void cpu_execute_gte(u32 instruction);
-
-/* Resume a changed delay-slot word after a native cache-line check. */
-void cpu_recompiler_execute_changed_delay_slot(u32 pc, u32 branch_taken);
 
 /* GTE pipeline stall.  COP2 instructions take a variable number of cycles;
  * a cfc/mfc that reads back from the GTE before completion has to wait. */
