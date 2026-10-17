@@ -503,11 +503,14 @@ static void cpu_code_cache_dbg_record_block(u32 pc, u32 size, const void* host_c
     s_dbg_block_ring_count++;
 }
 
-/* Forward decls for the dynamic backpatch buffer (defined further below
- * near the registration code), so process_shutdown can free it. */
+/* Recovery buffers survive cache resets and are freed on process shutdown. */
 static cpu_code_cache_loadstore_backpatch_info_t* s_fastmem_backpatch_info;
-static u32 s_fastmem_backpatch_info_count;
-static u32 s_fastmem_backpatch_info_cap;
+static u32                                       s_fastmem_backpatch_info_count;
+static u32                                       s_fastmem_backpatch_info_cap;
+static u32*                                       s_fastmem_faulting_pcs;
+static u32                                        s_fastmem_faulting_pcs_count;
+static u32                                        s_fastmem_faulting_pcs_cap;
+static bool                                       s_fastmem_faulted_at_zero;
 
 static void reset_code_buffer(void)
 {
@@ -1611,11 +1614,15 @@ void cpu_code_cache_process_shutdown(void)
   g_compile_or_revalidate_block = NULL;
   g_discard_and_recompile_block = NULL;
   g_interpret_block = NULL;
-  /* Free dynamic backpatch buffer.  Cache resets only zero the count
-   * (buffer reused for next session); only process shutdown frees it. */
+  /* Cache resets retain these allocations; process shutdown releases them. */
   free(s_fastmem_backpatch_info);
   s_fastmem_backpatch_info     = NULL;
   s_fastmem_backpatch_info_cap = 0u;
+  free(s_fastmem_faulting_pcs);
+  s_fastmem_faulting_pcs       = NULL;
+  s_fastmem_faulting_pcs_count = 0u;
+  s_fastmem_faulting_pcs_cap   = 0u;
+  s_fastmem_faulted_at_zero    = false;
 }
 
 void cpu_code_cache_reset(void)
@@ -1656,20 +1663,11 @@ NORETURN void cpu_code_cache_execute(void)
 
 enum {
   FASTMEM_BACKPATCH_INFO_INITIAL_CAP = 4096u, /* grows on demand via realloc */
-  FASTMEM_FAULTING_PCS_CAP           = 4096u, /* power of two for mask wrap */
+  FASTMEM_FAULTING_PCS_INITIAL_CAP   = 4096u,
 };
 
-/* Dynamic-grow array (forward-declared near top of file so
- * process_shutdown can free it).  Was a fixed 16384-entry table; MGS Disc 1
- * emits more than that across its first ~60s (saturated at 16384 in repro),
- * and past saturation `cpu_code_cache_add_load_store_info` silently dropped
- * new entries.  The first fault at an unregistered site then aborted via
- * the crash handler.  Now grows by doubling; cleared on cache reset
- * (count zeroed, buffer reused). */
-
-/* Open-addressing hash set, key 0 = empty slot.  PC=0 is never a valid
- * guest PC (BIOS starts at 0xBFC00000), so the sentinel is safe. */
-static u32 s_fastmem_faulting_pcs[FASTMEM_FAULTING_PCS_CAP];
+/* Fault history grows before the table reaches 75 percent full. Empty slots
+ * contain zero; a separate flag records faults at guest PC zero. */
 
 /* FNV-1a 32-bit hash. */
 static u32 fastmem_pc_hash(u32 pc)
@@ -1684,10 +1682,11 @@ static u32 fastmem_pc_hash(u32 pc)
 
 bool cpu_code_cache_has_previously_faulted_on_pc(u32 guest_pc)
 {
-  if (guest_pc == 0u) return false;
-  const u32 mask = FASTMEM_FAULTING_PCS_CAP - 1u;
+  if (guest_pc == 0u) return s_fastmem_faulted_at_zero;
+  if (s_fastmem_faulting_pcs_cap == 0u) return false;
+  const u32 mask = s_fastmem_faulting_pcs_cap - 1u;
   u32 slot = fastmem_pc_hash(guest_pc) & mask;
-  for (u32 probes = 0u; probes < FASTMEM_FAULTING_PCS_CAP; probes++) {
+  for (u32 probes = 0u; probes < s_fastmem_faulting_pcs_cap; probes++) {
     const u32 v = s_fastmem_faulting_pcs[slot];
     if (v == 0u)        return false;
     if (v == guest_pc)  return true;
@@ -1696,17 +1695,49 @@ bool cpu_code_cache_has_previously_faulted_on_pc(u32 guest_pc)
   return false;
 }
 
-static void fastmem_record_faulting_pc(u32 guest_pc)
+static bool fastmem_grow_faulting_pcs(void)
 {
-  if (guest_pc == 0u) return;
-  const u32 mask = FASTMEM_FAULTING_PCS_CAP - 1u;
+  if (s_fastmem_faulting_pcs_cap > UINT32_MAX / 2u) return false;
+  const u32 new_cap = s_fastmem_faulting_pcs_cap ? s_fastmem_faulting_pcs_cap * 2u : FASTMEM_FAULTING_PCS_INITIAL_CAP;
+  u32*      keys    = calloc(new_cap, sizeof(*keys));
+  if (!keys) return false;
+  for (u32 i = 0u; i < s_fastmem_faulting_pcs_cap; i++) {
+    const u32 pc = s_fastmem_faulting_pcs[i];
+    if (pc == 0u) continue;
+    u32 slot = fastmem_pc_hash(pc) & (new_cap - 1u);
+    while (keys[slot] != 0u)
+      slot = (slot + 1u) & (new_cap - 1u);
+    keys[slot] = pc;
+  }
+  free(s_fastmem_faulting_pcs);
+  s_fastmem_faulting_pcs     = keys;
+  s_fastmem_faulting_pcs_cap = new_cap;
+  return true;
+}
+
+static bool fastmem_record_faulting_pc(u32 guest_pc)
+{
+  if (guest_pc == 0u) {
+    s_fastmem_faulted_at_zero = true;
+    return true;
+  }
+  if (cpu_code_cache_has_previously_faulted_on_pc(guest_pc)) return true;
+  if ((s_fastmem_faulting_pcs_cap == 0u ||
+       s_fastmem_faulting_pcs_count >= s_fastmem_faulting_pcs_cap - s_fastmem_faulting_pcs_cap / 4u) &&
+      !fastmem_grow_faulting_pcs())
+    return false;
+  const u32 mask = s_fastmem_faulting_pcs_cap - 1u;
   u32 slot = fastmem_pc_hash(guest_pc) & mask;
-  for (u32 probes = 0u; probes < FASTMEM_FAULTING_PCS_CAP; probes++) {
+  for (u32 probes = 0u; probes < s_fastmem_faulting_pcs_cap; probes++) {
     const u32 v = s_fastmem_faulting_pcs[slot];
-    if (v == 0u)        { s_fastmem_faulting_pcs[slot] = guest_pc; return; }
-    if (v == guest_pc)  return;
+    if (v == 0u) {
+      s_fastmem_faulting_pcs[slot] = guest_pc;
+      s_fastmem_faulting_pcs_count++;
+      return true;
+    }
     slot = (slot + 1u) & mask;
   }
+  return false;
 }
 
 /* Comparator for qsort: ascending by code_address. */
@@ -1809,7 +1840,10 @@ void cpu_code_cache_remove_backpatch_info_for_range(const void* start, u32 size)
 static void fastmem_backpatch_clear_all(void)
 {
   s_fastmem_backpatch_info_count = 0u;
-  memset(s_fastmem_faulting_pcs, 0, sizeof(s_fastmem_faulting_pcs));
+  if (s_fastmem_faulting_pcs)
+    memset(s_fastmem_faulting_pcs, 0, (size_t)s_fastmem_faulting_pcs_cap * sizeof(*s_fastmem_faulting_pcs));
+  s_fastmem_faulting_pcs_count = 0u;
+  s_fastmem_faulted_at_zero    = false;
 }
 
 /* x64 register IDs of the SysV caller-saved set we must spill across the
@@ -2027,7 +2061,7 @@ page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* except
 
   /* Mark the guest PC as a known fastmem-fault site so subsequent compiles
    * of the same MIPS instruction skip fastmem and emit straight slow path. */
-  fastmem_record_faulting_pc(info->guest_pc);
+  const bool recorded = fastmem_record_faulting_pc(info->guest_pc);
 
   void* stub = emit_fastmem_slow_path_stub(info);
   if (stub == NULL)
@@ -2035,16 +2069,17 @@ page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* except
   if (!patch_fastmem_site_to_stub(info, stub))
     return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
 
-  /* Evict the owning JIT block so a clean recompile picks up the per-PC
-   * faulting flag we just set, rather than re-emitting the same broken
-   * lookup_block may return NULL after races; guard. */
+  /* Recompile with C helpers when the fault history was retained. Otherwise
+   * keep the patched block so it can reuse its recovery stub. */
   cpu_code_cache_block_t* block = lookup_block(info->guest_block);
-  if (block != NULL) {
+  if (recorded && block != NULL) {
     remove_block_from_page_list(block);
     invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
     block->compile_frame = system_get_frame_number();
     block->compile_count = 1u;
   }
+  if (!recorded)
+    WARNING_LOG("Could not retain fastmem fault history for %08X; keeping the patched block", info->guest_pc);
 
   /* Drop the now-handled entry so the binary-search table stays tight
    * (s_fastmem_backpatch_info.erase(iter)). */

@@ -172,6 +172,13 @@ RAM and MMIO, both address forms, branch slots, pending loads and exception
 metadata. Aligned transfer data and bus effects remain unqualified: the
 interpreter writes zero, while native execution performs no data transfer.
 
+Recovered host fault sites are remembered by guest instruction PC, including
+zero. The history grows with the number of sites, so later compilations select
+bus helpers. Cache reset clears it; process shutdown releases its allocation.
+If the history cannot grow, the patched block stays valid and reuses its
+recovery stub. Generated tests observe host LUT and mmap faults in linked and
+unlinked load/store loops at PC zero, plus 5,000 distinct faulting instructions.
+
 These cases verify error propagation within the current bus model. Merge
 operations still use aligned word reads and read-modify-write stores; their
 device access widths remain unqualified. GTE transfer timing and physical bus
