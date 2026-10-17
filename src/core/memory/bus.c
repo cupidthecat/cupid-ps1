@@ -563,7 +563,8 @@ void* bus_get_fastmem_base(bool isc)
 
 static u8* get_lut_fastmem_pointer(u32 address, u8* ram_ptr)
 {
-  return ram_ptr - address;
+  /* Entries encode a host address bias, including null targets for holes. */
+  return (u8*)((uintptr_t)ram_ptr - (uintptr_t)address);
 }
 
 static void map_fastmem_views_lut(void)
