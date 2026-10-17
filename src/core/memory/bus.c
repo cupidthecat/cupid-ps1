@@ -4,6 +4,7 @@
  */
 
 #include "bus.h"
+#include "device_bus.h"
 #include "core/bios/bios.h"
 #include "core/cpu/cpu_code_cache.h"
 #include "core/cpu/cpu_core.h"
@@ -93,7 +94,8 @@ typedef union {
     u32 use_com2_time   : 1;
     u32 use_com3_time   : 1;
     u32 data_bus_16bit  : 1;
-    u32 unused_mid      : 3;
+    u32 auto_increment : 1;
+    u32 unused_mid : 2;
     u32 memory_window_size : 5;
     u32 unused_high     : 11;
   } b;
@@ -1151,24 +1153,48 @@ static void ram_write_word(virtual_memory_address_t address, u32 value)
                                                g_cpu_state.current_instruction_pc);
 }
 
+static u32 byte_device_control(u32 control)
+{
+  /* A 16-bit setting on a byte-only device model retains its previous mapping. */
+  return (control & DEVICE_BUS_16BIT) ? DEVICE_BUS_INCREMENT : control;
+}
+
+static u32 read_bios_bus_unit(u32 address, u32 unit_bytes)
+{
+  (void)unit_bytes;
+  return s_bios[address & BUS_BIOS_MASK];
+}
+
+u32 bus_read_bios_data(u32 address, memory_access_size_t size)
+{
+  const u32 control = byte_device_control(s_MEMCTRL.r.bios_delay_size.bits);
+  if (!(control & DEVICE_BUS_INCREMENT)) return device_bus_read(address, size, control, read_bios_bus_unit);
+  const u32 offset = address & BUS_BIOS_MASK;
+  if (size == MEMORY_ACCESS_SIZE_BYTE) return s_bios[offset];
+  if (size == MEMORY_ACCESS_SIZE_HALFWORD) {
+    u16 value;
+    memcpy(&value, s_bios + offset, sizeof(value));
+    return value;
+  }
+  u32 value;
+  memcpy(&value, s_bios + offset, sizeof(value));
+  return value;
+}
+
 static u32 bios_read_byte(virtual_memory_address_t address)
 {
   BUS_CYCLES(s_bios_access_time[0]);
-  return (u32)s_bios[address & 0x7FFFFu];
+  return bus_read_bios_data(address, MEMORY_ACCESS_SIZE_BYTE);
 }
 static u32 bios_read_half(virtual_memory_address_t address)
 {
   BUS_CYCLES(s_bios_access_time[1]);
-  u16 v;
-  memcpy(&v, &s_bios[address & 0x7FFFFu], sizeof(u16));
-  return (u32)v;
+  return bus_read_bios_data(address, MEMORY_ACCESS_SIZE_HALFWORD);
 }
 static u32 bios_read_word(virtual_memory_address_t address)
 {
   BUS_CYCLES(s_bios_access_time[2]);
-  u32 v;
-  memcpy(&v, &s_bios[address & 0x7FFFFu], sizeof(u32));
-  return v;
+  return bus_read_bios_data(address, MEMORY_ACCESS_SIZE_WORD);
 }
 
 static u32 scratchpad_read_byte(virtual_memory_address_t address)
@@ -1555,51 +1581,31 @@ static void sio_write_byte(virtual_memory_address_t a, u32 v) { sio_write_common
 static void sio_write_half(virtual_memory_address_t a, u32 v) { sio_write_common(a, v, MEMORY_ACCESS_SIZE_HALFWORD); }
 static void sio_write_word(virtual_memory_address_t a, u32 v) { sio_write_common(a, v, MEMORY_ACCESS_SIZE_WORD); }
 
-/* CDROM (byte-wide registers; halfword/word reads compose them). */
+/* CD-ROM register strobes share the configured device address stepping. */
+static u32 read_cdrom_bus_unit(u32 offset, u32 unit_bytes)
+{
+  (void)unit_bytes;
+  return cdrom_read_register(offset);
+}
+
+static void write_cdrom_bus_unit(u32 offset, u32 value, u32 unit_bytes, u32 enabled_bytes)
+{
+  (void)unit_bytes;
+  (void)enabled_bytes;
+  cdrom_write_register(offset, (u8)value);
+}
+
 static u32 cdrom_read_common(virtual_memory_address_t address, memory_access_size_t size)
 {
-  const u32 offset = address & BUS_CDROM_MASK;
-  u32 value;
-  if (size == MEMORY_ACCESS_SIZE_WORD)
-  {
-    const u32 b0 = (u32)cdrom_read_register(offset);
-    const u32 b1 = (u32)cdrom_read_register(offset + 1u);
-    const u32 b2 = (u32)cdrom_read_register(offset + 2u);
-    const u32 b3 = (u32)cdrom_read_register(offset + 3u);
-    value = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
-  }
-  else if (size == MEMORY_ACCESS_SIZE_HALFWORD)
-  {
-    const u32 lsb = (u32)cdrom_read_register(offset);
-    const u32 msb = (u32)cdrom_read_register(offset + 1u);
-    value = lsb | (msb << 8);
-  }
-  else
-  {
-    value = (u32)cdrom_read_register(offset);
-  }
+  const u32 control = byte_device_control(s_MEMCTRL.r.cdrom_delay_size.bits);
+  const u32 value   = device_bus_read(address & BUS_CDROM_MASK, size, control, read_cdrom_bus_unit);
   BUS_CYCLES(s_cdrom_access_time[(u32)size]);
   return value;
 }
 static void cdrom_write_common(virtual_memory_address_t address, u32 value, memory_access_size_t size)
 {
-  const u32 offset = address & BUS_CDROM_MASK;
-  if (size == MEMORY_ACCESS_SIZE_WORD)
-  {
-    cdrom_write_register(offset,        (u8)(value & 0xFFu));
-    cdrom_write_register(offset + 1u,   (u8)((value >> 8)  & 0xFFu));
-    cdrom_write_register(offset + 2u,   (u8)((value >> 16) & 0xFFu));
-    cdrom_write_register(offset + 3u,   (u8)((value >> 24) & 0xFFu));
-  }
-  else if (size == MEMORY_ACCESS_SIZE_HALFWORD)
-  {
-    cdrom_write_register(offset,        (u8)(value & 0xFFu));
-    cdrom_write_register(offset + 1u,   (u8)((value >> 8) & 0xFFu));
-  }
-  else
-  {
-    cdrom_write_register(offset, (u8)value);
-  }
+  const u32 control = byte_device_control(s_MEMCTRL.r.cdrom_delay_size.bits);
+  device_bus_write(address & BUS_CDROM_MASK, value, size, control, write_cdrom_bus_unit);
 }
 static u32 cdrom_read_byte_h(virtual_memory_address_t a) { return cdrom_read_common(a, MEMORY_ACCESS_SIZE_BYTE); }
 static u32 cdrom_read_half_h(virtual_memory_address_t a) { return cdrom_read_common(a, MEMORY_ACCESS_SIZE_HALFWORD); }
@@ -1718,46 +1724,29 @@ static void dma_write_byte_h(virtual_memory_address_t a, u32 v) { dma_write_comm
 static void dma_write_half_h(virtual_memory_address_t a, u32 v) { dma_write_common(a, v, MEMORY_ACCESS_SIZE_HALFWORD); }
 static void dma_write_word_h(virtual_memory_address_t a, u32 v) { dma_write_common(a, v, MEMORY_ACCESS_SIZE_WORD); }
 
+static u32 read_spu_bus_unit(u32 offset, u32 unit_bytes)
+{
+  (void)unit_bytes;
+  return spu_read_register(offset & ~1u);
+}
+
+static void write_spu_bus_unit(u32 offset, u32 value, u32 unit_bytes, u32 enabled_bytes)
+{
+  if (unit_bytes == 1)
+    spu_write_register(offset & ~1u, (u16)(0xFF00u | (value & 0xFFu)));
+  else if (enabled_bytes & 1u)
+    spu_write_register(offset & ~1u, (u16)value);
+}
+
 static u32 spu_read_common(virtual_memory_address_t address, memory_access_size_t size)
 {
-  const u32 offset = address & BUS_SPU_MASK;
-  u32 value;
-  if (size == MEMORY_ACCESS_SIZE_WORD)
-  {
-    const u16 lsb = spu_read_register(offset);
-    const u16 msb = spu_read_register(offset + 2u);
-    value = (u32)lsb | ((u32)msb << 16);
-  }
-  else if (size == MEMORY_ACCESS_SIZE_HALFWORD)
-  {
-    value = (u32)spu_read_register(offset);
-  }
-  else
-  {
-    const u16 v16 = spu_read_register(FIXUP_HALFWORD_OFFSET(size, offset));
-    value = FIXUP_HALFWORD_READ_VALUE(size, offset, (u32)v16);
-  }
+  const u32 value = device_bus_read(address & BUS_SPU_MASK, size, s_MEMCTRL.r.spu_delay_size.bits, read_spu_bus_unit);
   BUS_CYCLES(s_spu_access_time[(u32)size]);
   return value;
 }
 static void spu_write_common(virtual_memory_address_t address, u32 value, memory_access_size_t size)
 {
-  const u32 offset = address & BUS_SPU_MASK;
-  if (size == MEMORY_ACCESS_SIZE_WORD)
-  {
-    spu_write_register(offset,       (u16)value);
-    spu_write_register(offset + 2u,  (u16)(value >> 16));
-    return;
-  }
-  if (size == MEMORY_ACCESS_SIZE_HALFWORD)
-  {
-    spu_write_register(offset, (u16)value);
-    return;
-  }
-  /* byte write */
-  if (address & 1u)
-    return;
-  spu_write_register(offset, (u16)FIXUP_HALFWORD_READ_VALUE(size, offset, value));
+  device_bus_write(address & BUS_SPU_MASK, value, size, s_MEMCTRL.r.spu_delay_size.bits, write_spu_bus_unit);
 }
 static u32 spu_read_byte_h(virtual_memory_address_t a) { return spu_read_common(a, MEMORY_ACCESS_SIZE_BYTE); }
 static u32 spu_read_half_h(virtual_memory_address_t a) { return spu_read_common(a, MEMORY_ACCESS_SIZE_HALFWORD); }

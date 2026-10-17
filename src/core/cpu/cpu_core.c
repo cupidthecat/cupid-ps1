@@ -1502,7 +1502,8 @@ static bool cpu_do_instruction_read(physical_memory_address_t address, u32* data
     return true;
   }
   if (address >= BUS_BIOS_BASE && address < (BUS_BIOS_BASE + BUS_BIOS_SIZE)) {
-    memcpy(data, bus_get_bios_pointer() + ((address - BUS_BIOS_BASE) & BUS_BIOS_MASK), sizeof(u32) * word_count);
+    for (u32 word = 0; word < word_count; word++)
+      data[word] = bus_read_bios_data(address + word * sizeof(u32), MEMORY_ACCESS_SIZE_WORD);
     if (add_ticks)
       g_cpu_state.pending_ticks += (u32)bus_get_bios_access_time()[MEMORY_ACCESS_SIZE_WORD] * word_count;
     return true;

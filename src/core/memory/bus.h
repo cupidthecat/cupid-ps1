@@ -169,6 +169,9 @@ u32  bus_get_ram_mapped_size(void);
 u32  bus_get_ram_mask(void);
 u8*  bus_get_bios_pointer(void);
 
+/* Applies ROM bus address stepping without charging CPU ticks. */
+u32 bus_read_bios_data(u32 address, memory_access_size_t size);
+
 /* Per-region access timing tables, indexed by memory_access_size_t. */
 const tick_count_t* bus_get_exp1_access_time(void);
 const tick_count_t* bus_get_exp2_access_time(void);
