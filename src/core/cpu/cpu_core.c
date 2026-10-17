@@ -507,7 +507,6 @@ static void cpu_execute_instruction(bool observe_tty)
     if (pc == 0xA0u) cpu_handle_a0_syscall();
     else if (pc == 0xB0u) cpu_handle_b0_syscall();
   }
-restart_instruction:;
   const cpu_instruction_t inst = g_cpu_state.current_instruction;
 
   /* Fast-path nops without entering the switch. */
@@ -1137,20 +1136,10 @@ restart_instruction:;
       cpu_write_memory_word(addr, 0u);
     } break;
 
-    /* Reserved primary opcodes: 1*15 (illegal), 20..31 (reserved), 39, 44, 45,
-     * 47, 52..55, 60..63.  Each falls through to RI; if the icache happens to
-     * be stale we re-read RAM and try once more before raising. */
-    default: {
-      u32 ram_value;
-      if (cpu_safe_read_instruction(g_cpu_state.current_instruction_pc, &ram_value) &&
-          ram_value != g_cpu_state.current_instruction.bits) {
-        ERROR_LOG("Stale icache at 0x%08X - ICache: %08X RAM: %08X",
-                  g_cpu_state.current_instruction_pc, g_cpu_state.current_instruction.bits, ram_value);
-        g_cpu_state.current_instruction.bits = ram_value;
-        goto restart_instruction;
-      }
+    /* Reserved encodings trap using the fetched word, even when RAM differs. */
+    default:
       cpu_raise_exception(CPU_EXCEPTION_RI);
-    } break;
+      break;
   }
 }
 
@@ -1240,14 +1229,14 @@ u32 cpu_native_prepare_instruction(u32 pc, u32 word, u32 flags)
 {
   const bool delay_slot = (flags & CPU_NATIVE_FETCH_DELAY_SLOT) != 0;
   const u32  next_pc    = delay_slot ? g_cpu_state.pc : pc + CPU_INSTRUCTION_SIZE;
-  const bool changed =
-      !s_locals.prefetch_valid || s_locals.prefetched_pc != pc || g_cpu_state.next_instruction.bits != word;
-  if (g_cpu_state.pending_ticks >= g_cpu_state.downcount || g_cpu_state.next_instruction_fetch_exception || changed) {
+  const bool recompile  = (flags & CPU_NATIVE_FETCH_BLOCK_INVALIDATED) || !s_locals.prefetch_valid ||
+                         s_locals.prefetched_pc != pc || g_cpu_state.next_instruction.bits != word;
+  if (g_cpu_state.pending_ticks >= g_cpu_state.downcount || g_cpu_state.next_instruction_fetch_exception || recompile) {
     g_cpu_state.pc                                    = s_locals.prefetched_pc;
     g_cpu_state.npc                                   = next_pc;
     g_cpu_state.next_instruction_is_branch_delay_slot = delay_slot;
     g_cpu_state.branch_was_taken                      = (flags & CPU_NATIVE_FETCH_BRANCH_TAKEN) != 0;
-    return changed ? CPU_NATIVE_FETCH_RECOMPILE : CPU_NATIVE_FETCH_DISPATCH;
+    return recompile ? CPU_NATIVE_FETCH_RECOMPILE : CPU_NATIVE_FETCH_DISPATCH;
   }
 
   const u32 wire_pc = g_cpu_state.pc;

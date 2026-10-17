@@ -252,13 +252,13 @@ TEST(CachedInterpreter, branch_delay_wraps_at_end_of_physical_ram)
   release_result(result);
 }
 
-TEST(CachedInterpreter, reserved_instruction_fallback_raises_exception)
+TEST(CachedInterpreter, reserved_instruction_raises_exception_from_cached_block)
 {
   const u32           words[] = {0xFC000000u, 0x1000FFFFu, 0};
   execution_result_t* result  = compare_program(0xA0010000u, words, 3, false);
   EXPECT_EQ(result->checkpoints[0].regs.r[26] & 0x7Cu, 0x28u);
   EXPECT_EQ(result->checkpoints[0].regs.r[27], 0xA0010000u);
-  EXPECT_TRUE(result->stats.fallback_instructions > 0);
+  EXPECT_EQ(result->stats.fallback_instructions, 0);
   release_result(result);
 }
 

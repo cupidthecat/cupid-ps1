@@ -1974,6 +1974,18 @@ void cpu_recompiler_compile_branch_delay_slot(cpu_recompiler_t* r, bool dirty_pc
   cpu_recompiler_compile_loadstore_template(r, r->v ? r->v->compile_##FN : NULL, \
                                             (SIZE), (STORE), (SIGN), (TF))
 
+static void compile_reserved_instruction(cpu_recompiler_t* r)
+{
+  if (r->v && r->v->generate_instruction_fetch && r->v->end_block_with_exception) {
+    r->v->end_block_with_exception(r, CPU_EXCEPTION_RI);
+    r->block_ended = true;
+  } else if (r->v && r->v->compile_fallback) {
+    r->v->compile_fallback(r);
+  }
+  cpu_recompiler_invalidate_speculative_values(r);
+  cpu_recompiler_truncate_block(r);
+}
+
 static void compile_coprocessor_branch(cpu_recompiler_t* r)
 {
   const bool taken = (r->inst->i.rt & 1u) == 0u;
@@ -2105,9 +2117,7 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
                                  CPU_RC_TF_WRITES_D | CPU_RC_TF_READS_T | CPU_RC_TF_READS_S);
                               cpu_recompiler_spec_exec_sltu(r); break;
         default:
-          if (r->v && r->v->compile_fallback) r->v->compile_fallback(r);
-          cpu_recompiler_invalidate_speculative_values(r);
-          cpu_recompiler_truncate_block(r);
+          compile_reserved_instruction(r);
           break;
       }
     } break;
@@ -2226,9 +2236,7 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
       break;
 
     default:
-      if (r->v && r->v->compile_fallback) r->v->compile_fallback(r);
-      cpu_recompiler_invalidate_speculative_values(r);
-      cpu_recompiler_truncate_block(r);
+      compile_reserved_instruction(r);
       break;
   }
 

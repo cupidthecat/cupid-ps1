@@ -46,6 +46,68 @@ class LiveExecutionComparisonTest(unittest.TestCase):
     def test_generated_instruction_trace(self):
         self.run_pair(('interp', 'cached'), 'trace')
 
+    def test_reserved_cached_word_faults_after_a_ram_rewrite(self):
+        words = []
+
+        def constant(reg, value):
+            words.extend((0x3C000000 | (reg << 16) | (value >> 16),
+                          0x34000000 | (reg << 21) | (reg << 16) | (value & 0xFFFF)))
+
+        # Firmware installs a handler and RAM code, then jumps to its cached alias.
+        constant(8, 0xFFFE0130)
+        constant(9, 0x1E988)
+        words.extend((0xAD090000, 0x40806000))
+        constant(15, 0xA0000000)
+        handler = (0x40106800, 0x40127000, 0x25530000, 0x1000FFFF, 0)
+        for index, instruction in enumerate(handler):
+            constant(14, instruction)
+            words.append(0xADEE0080 | (index * 4))
+        constant(15, 0xA0010020)
+        program = (0xAD280008, 0x8D6A0000, 0x74000000, 0x26310001, 0x1000FFFF, 0)
+        for index, instruction in enumerate(program):
+            constant(14, instruction)
+            words.append(0xADEE0000 | (index * 4))
+        constant(8, 0x24140063)
+        constant(9, 0xA0010020)
+        constant(10, 7)
+        constant(11, 0xA0030000)
+        constant(14, 42)
+        words.append(0xAD6E0000)
+        constant(24, 0x80010020)
+        words.extend((0x03000008, 0))
+        self.write_program(words)
+
+        for mode, fastmem, linking in (('interp', 'off', True), ('cached', 'off', True),
+                                      ('recomp', 'off', True), ('recomp', 'mmap', True),
+                                      ('recomp', 'off', False)):
+            with self.subTest(mode=mode, fastmem=fastmem, linking=linking):
+                directory = self.root / f'reserved-{mode}-{fastmem}-{linking}'
+                result = compare.run_comparison(self.binary, self.bios, self.media, directory,
+                                                kind='state', modes=(mode, mode), fastmem=fastmem,
+                                                linking=linking, interval=2, checkpoints=2,
+                                                min_blocks=10, timeout=30)
+                self.assertTrue(result['passed'], result)
+                if mode == 'recomp':
+                    self.assertTrue(all(run['execution']['interpreted'] == 0 for run in result['runs']), result)
+                for side in ('left', 'right'):
+                    for frame in (2, 4):
+                        data = (directory / side / f'checkpoint-{frame:08d}.sav').read_bytes()
+                        self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 87))
+                        size, unpacked, start = struct.unpack_from('<III', data, 204)
+                        self.assertEqual(size, unpacked)
+                        self.assertEqual(start + size, len(data))
+                        self.assertEqual(data[start:start + 10], b'\x06\0\0\0System')
+                        cpu = start + 39
+                        self.assertEqual(data[cpu:cpu + 7], b'\x03\0\0\0CPU')
+                        # Four cycle fields precede the GPRs in the version 87 CPU record.
+                        regs = struct.unpack_from('<32I', data, cpu + 7 + 16)
+                        self.assertEqual((regs[16] >> 2) & 31, 10)
+                        self.assertEqual(regs[18], 0x80010028)
+                        self.assertEqual(regs[19], 42)
+                        self.assertEqual(regs[10], 42)
+                        self.assertEqual(regs[17], 0)
+                        self.assertEqual(regs[20], 0)
+
     def test_generated_machine_checkpoints(self):
         self.run_pair(('interp', 'cached'), 'state')
 

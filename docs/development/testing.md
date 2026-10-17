@@ -32,6 +32,17 @@ configurations. These generated cases complement the locally run published
 cache program. See [CPU execution](../cpu/execution.md#instruction-cache-tag-accesses-and-refills)
 for the behavior covered and the remaining limits.
 
+The `ReservedInstruction` filter checks reserved encodings, stale cached words,
+branch exception context and saved prefetch restoration. The Python suite also
+boots generated firmware that rewrites RAM beneath a cached reserved word and
+checks the saved exception results in interpreter, cached and native configurations.
+The generated inputs require no commercial BIOS or disc.
+
+The `FastmemMapping` filter checks RAM aliases, code-page protection and remapping
+through Linux mapping permissions. It also checks configured 8 MB offsets and
+unmapped holes. See [memory mapping](../memory/mapping.md) for the access paths
+and qualification limits.
+
 For a bounded save/load smoke check with authorized local inputs, run:
 
 ```sh

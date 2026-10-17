@@ -552,8 +552,8 @@ static const u32 s_fastmem_mirror_bases[12] = {
 
 void* bus_get_fastmem_base(bool isc)
 {
-  if (g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP && s_fastmem_arena_base)
-    return isc ? NULL : s_fastmem_arena_base;
+  if (g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP)
+    return isc || !s_fastmem_arena_active ? NULL : s_fastmem_arena_base;
 
   if (s_fastmem_lut)
     return (u8*)s_fastmem_lut + (isc ? (BUS_FASTMEM_LUT_SIZE * sizeof(void*)) : 0u);
@@ -592,8 +592,7 @@ static void map_fastmem_views_lut(void)
       continue;
 
     u8* ram_ptr = s_ram + (base_address & s_ram_mask);
-    for (u32 address = 0; address < s_ram_size; address += BUS_FASTMEM_LUT_PAGE_SIZE)
-    {
+    for (u32 address = 0; address < BUS_RAM_2MB_SIZE; address += BUS_FASTMEM_LUT_PAGE_SIZE) {
       const u32 lut_index = (base_address + address) >> BUS_FASTMEM_LUT_PAGE_SHIFT;
       s_fastmem_lut[lut_index] = get_lut_fastmem_pointer(base_address + address, ram_ptr);
       ram_ptr += BUS_FASTMEM_LUT_PAGE_SIZE;
@@ -641,11 +640,8 @@ static void unmap_fastmem_views_mmap(void)
   for (u32 b = 0; b < 12u; b++)
   {
     const u32 base_address = s_fastmem_mirror_bases[b];
-    if (cpu_virtual_to_physical_address(base_address) >= s_ram_mapped_size)
-      continue;
     void* slot = s_fastmem_arena_base + base_address;
-    void* p = mmap(slot, s_ram_size, PROT_NONE,
-                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0);
+    void* p = mmap(slot, BUS_RAM_2MB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0);
     if (p == MAP_FAILED)
       WARNING_LOG("Failed to unmap fastmem mirror at %p (%m)", slot);
   }
@@ -659,6 +655,7 @@ static void map_fastmem_views_mmap(void)
   if (s_fastmem_arena_active)
     unmap_fastmem_views_mmap();
 
+  bool failed = false;
   for (u32 b = 0; b < 12u; b++)
   {
     const u32 base_address = s_fastmem_mirror_bases[b];
@@ -667,16 +664,23 @@ static void map_fastmem_views_mmap(void)
       continue;
 
     u8* slot = s_fastmem_arena_base + base_address;
-    void* mapped = memmap_map_shared_memory(s_shmem_handle, MEMMAP_RAM_OFFSET,
-                                            slot, s_ram_size,
-                                            MEMMAP_PAGE_PROTECT_READ_WRITE);
+    void* mapped = memmap_map_shared_memory(s_shmem_handle, MEMMAP_RAM_OFFSET + (base_address & s_ram_mask), slot,
+                                            BUS_RAM_2MB_SIZE, MEMMAP_PAGE_PROTECT_READ_WRITE);
     if (!mapped)
     {
       ERROR_LOG("Failed to map fastmem mirror %u (base=0x%08X) at %p", b, base_address, slot);
-      continue;
+      failed = true;
+      break;
     }
   }
   s_fastmem_arena_active = true;
+  if (failed) {
+    unmap_fastmem_views_mmap();
+    return;
+  }
+  for (u32 page = 0; page < (s_ram_size >> HOST_PAGE_SHIFT); page++) {
+    if (code_bit_get(page)) set_ram_page_writable(page, false);
+  }
 }
 
 void bus_remap_fastmem_views(void)
@@ -705,7 +709,8 @@ void bus_remap_fastmem_views(void)
 bool bus_can_use_fastmem_for_address(virtual_memory_address_t address)
 {
   const physical_memory_address_t paddr = cpu_virtual_to_physical_address(address);
-  return paddr < BUS_RAM_MIRROR_END;
+  const u32                       segment = address >> 29;
+  return (segment == 0 || segment == 4 || segment == 5) && paddr < s_ram_mapped_size;
 }
 
 void bus_set_ram_code_page(u32 index)
@@ -741,6 +746,20 @@ static void set_ram_page_writable(u32 page_index, bool writable)
     ERROR_LOG("Failed to set RAM host page %u (%p) to %s", page_index,
               (void*)&s_ram[page_index * HOST_PAGE_SIZE], writable ? "read-write" : "read-only");
   }
+  if (!s_fastmem_arena_active) return;
+  const u32 offset = page_index << HOST_PAGE_SHIFT;
+  for (u32 b = 0; b < 12u; b++) {
+    const u32 base    = s_fastmem_mirror_bases[b];
+    const u32 backing = base & s_ram_mask;
+    if (cpu_virtual_to_physical_address(base) >= s_ram_mapped_size || offset < backing ||
+        offset >= backing + BUS_RAM_2MB_SIZE)
+      continue;
+    u8* page = s_fastmem_arena_base + base + (offset - backing);
+    if (!memmap_mem_protect(page, HOST_PAGE_SIZE,
+                            writable ? MEMMAP_PAGE_PROTECT_READ_WRITE : MEMMAP_PAGE_PROTECT_READ_ONLY))
+      ERROR_LOG("Failed to set fastmem code page %u at %p to %s", page_index, (void*)page,
+                writable ? "read-write" : "read-only");
+  }
 }
 
 void bus_clear_ram_code_page_flags(void)
@@ -748,6 +767,13 @@ void bus_clear_ram_code_page_flags(void)
   memset(s_ram_code_bits, 0, sizeof(s_ram_code_bits));
   if (s_ram && !memmap_mem_protect(s_ram, BUS_RAM_8MB_SIZE, MEMMAP_PAGE_PROTECT_READ_WRITE))
     ERROR_LOG("Failed to restore RAM protection to read-write.");
+  if (!s_fastmem_arena_active) return;
+  for (u32 b = 0; b < 12u; b++) {
+    const u32 base = s_fastmem_mirror_bases[b];
+    if (cpu_virtual_to_physical_address(base) >= s_ram_mapped_size) continue;
+    if (!memmap_mem_protect(s_fastmem_arena_base + base, BUS_RAM_2MB_SIZE, MEMMAP_PAGE_PROTECT_READ_WRITE))
+      ERROR_LOG("Failed to restore fastmem RAM protection at 0x%08X.", base);
+  }
 }
 
 bool bus_is_code_page_address(physical_memory_address_t address)

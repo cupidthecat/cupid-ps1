@@ -121,6 +121,29 @@ The original published branch program provides an additional instruction-stream
 check. These cases cover the documented `rs=8` encoding and do not establish
 complete CPU timing or other raw encoding aliases.
 
+## Reserved instructions and retained fetches
+
+Reserved primary and SPECIAL function encodings raise RI from the instruction
+already fetched. A later RAM write does not replace that word, whether the CPU
+serves it from cache or restores it from a saved prefetch. An explicit new fetch
+can observe the RAM change. See the
+[opcode tables](https://psx-spx.consoledev.net/cpuspecifications/#illegal-opcodes)
+and [cache behavior](https://psx-spx.consoledev.net/memorymap/#isolation-and-self-modifying-code).
+
+The block decoder retains a readable reserved word as a trapping terminator.
+Native execution emits the RI exit, including in taken and untaken branch slots,
+while preserving prior writes and pending loads. Backends without instruction
+fetch and exception hooks keep their existing interpreter fallback.
+Blocks decoded from RAM leave after a write invalidates their code, before
+entering a branch with an outdated slot. That exit retains the current prefetch.
+
+Generated tests cover all 24 reserved primary encodings and 36 reserved SPECIAL
+functions, cached RAM rewrites, cache bypass and restored prefetched words. A
+boot with generated firmware also checks the exception registers and unchanged canaries
+under each execution configuration. These checks cover the documented encoding
+tables; other coprocessor encodings, unused operand bits and exact exception
+timing need separate qualification. No new physical hardware capture ran.
+
 ## Data-access exceptions
 
 Native loads and stores save register writes, pending loads, instruction context

@@ -878,6 +878,11 @@ static bool read_block_instruction(u32 pc, u32* word)
 
 bool cpu_code_cache_prepare_native_instruction(cpu_code_cache_block_t* block, u32 pc, u32 word, u32 flags)
 {
+  /* Re-decode invalidated RAM blocks before entering a branch with an old slot.
+   * The retained prefetch still supplies this word; no extra guest tick is charged. */
+  if (block->state != CPU_CODE_CACHE_BS_VALID && !(block->flags & CPU_CODE_CACHE_BF_IS_USING_ICACHE) &&
+      !(flags & CPU_NATIVE_FETCH_DELAY_SLOT))
+    flags |= CPU_NATIVE_FETCH_BLOCK_INVALIDATED;
   const u32 result = cpu_native_prepare_instruction(pc, word, flags);
   if (result == CPU_NATIVE_FETCH_RECOMPILE) {
     remove_block_from_page_list(block);
@@ -1103,12 +1108,14 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
     }
 
     cpu_instruction_t inst = {.bits = 0u};
-    if (!read_block_instruction(pc, &inst.bits) || !cpu_is_valid_instruction(inst)) {
+    if (!read_block_instruction(pc, &inst.bits)) {
       ERROR_LOG("Instruction read failed at PC=0x%08X, truncating block", pc);
       if (is_branch_delay_slot && s_block_instructions_count > 0u)
         s_block_instructions_count--;
       break;
     }
+    /* A readable reserved word ends the block with a trap, not a fetch failure. */
+    const bool reserved = !cpu_is_valid_instruction(inst);
 
     cpu_code_cache_inst_info_t info;
     memset(&info, 0, sizeof(info));
@@ -1149,8 +1156,7 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
     is_branch_delay_slot = info.is_branch_instruction;
     is_load_delay_slot = info.has_load_delay;
 
-    if (cpu_is_exit_block_instruction(inst))
-      break;
+    if (reserved || cpu_is_exit_block_instruction(inst)) break;
   }
 
   if (s_block_instructions_count == 0u) {
@@ -1955,15 +1961,11 @@ page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* except
     if (arena != NULL && fa >= arena &&
         (uintptr_t)(fa - arena) < (uintptr_t)BUS_FASTMEM_ARENA_SIZE) {
       const u32 guest_address = (u32)(uintptr_t)(fa - arena);
-      /* KSEG2 starts at 0xC0000000; arena only mirrors KUSEG/KSEG0/KSEG1
-       * so this check is redundant in cupid-ps1's layout but kept for parity
-       */
-      if (!g_cpu_state.cop0_regs.sr.Isc &&
-          /* guest_address < 0xC0000000u && */
-          guest_address < bus_get_ram_size()) {
-        (void)is_write;
-        cpu_code_cache_invalidate_blocks_with_page_index(
-          bus_get_ram_code_page_index(guest_address));
+      const u32 physical      = cpu_virtual_to_physical_address(guest_address);
+      const u32 page          = bus_get_ram_code_page_index(physical);
+      if (is_write && !g_cpu_state.cop0_regs.sr.Isc && bus_can_use_fastmem_for_address(guest_address) &&
+          bus_is_ram_code_page(page)) {
+        cpu_code_cache_invalidate_blocks_with_page_index(page);
         return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
       }
     }

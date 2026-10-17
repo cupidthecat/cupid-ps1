@@ -35,8 +35,9 @@ enum {
   CPU_NATIVE_FETCH_DISPATCH,
 };
 enum {
-  CPU_NATIVE_FETCH_DELAY_SLOT   = 1u,
-  CPU_NATIVE_FETCH_BRANCH_TAKEN = 2u,
+  CPU_NATIVE_FETCH_DELAY_SLOT        = 1u,
+  CPU_NATIVE_FETCH_BRANCH_TAKEN      = 2u,
+  CPU_NATIVE_FETCH_BLOCK_INVALIDATED = 4u,
 };
 bool cpu_get_prefetched_instruction(u32 pc, u32* word);
 /* On success, charge one instruction tick and fetch its successor exactly once. */
