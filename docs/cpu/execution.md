@@ -77,6 +77,28 @@ With COP2 enabled, unsupported GTE command encodings are logged and execution
 continues without a CPU exception. Their arithmetic effects and exact timing
 [remain unqualified](https://github.com/cupidthecat/cupid-ps1/issues/18).
 
+## Data-access exceptions
+
+Native loads and stores save register writes, pending loads, instruction context
+and busy-unit deadlines before accessing memory. A reported bus failure exits
+the block before a load result, GTE register write or following instruction can
+change state. Halfword and word alignment checks also apply to mapped accesses
+when the optional recompiler memory-exception setting is disabled.
+
+Generated tests cover byte, halfword, word, merge and GTE transfers, constant and
+dynamic addresses, register zero, and taken and untaken branch slots. They check
+RAM and device alignment errors, injected device failures, pending loads and
+exception metadata. Native mmap tests require observed backpatches for dynamic
+device accesses. Consecutive-store tests check cache isolation and ordinary RAM
+writes without relying on an accidental mmap fault to select isolated handlers.
+Successful merge cases check both instruction orders at every word offset,
+neighboring store bytes, and a pending load into the address register.
+
+These cases verify error propagation within the current bus model. Merge
+operations still use aligned word reads and read-modify-write stores; their
+device access widths remain unqualified. GTE transfer timing and physical bus
+error decoding also need separate hardware checks.
+
 ## Instruction fetch
 
 Failed instruction reads stay pending until the faulting instruction reaches
