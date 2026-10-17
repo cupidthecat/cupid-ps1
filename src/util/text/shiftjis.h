@@ -1,7 +1,7 @@
 /*
- * Shift-JIS to UTF-8 conversion.  Used for PS1 game metadata, BIOS strings
- * two raw helpers; we additionally provide a small_string_t-based API and a
- * single-codepoint decoder for callers that want to walk a buffer.
+ * Shift-JIS conversion for PS1 game metadata and BIOS strings. The API has
+ * two raw helpers, a small_string_t-based UTF-8 converter and a decoder for
+ * callers that read a buffer one codepoint at a time.
  */
 
 #ifndef CUPID_UTIL_SHIFTJIS_H

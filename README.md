@@ -1,8 +1,6 @@
 # cupid-ps1
 
 A PlayStation 1 emulator written in C11 with an SDL2 frontend.
-The supported build is Linux x86-64; Windows users can build through WSL.
-Native Windows support is [planned](docs/development/building.md#native-windows-support-planned).
 
 The emulator is under development. It includes an interpreter, cached
 interpreter, x86-64 recompiler, software renderer and experimental OpenGL
@@ -17,6 +15,12 @@ renderer. Complete hardware accuracy and game compatibility remain unverified.
 </p>
 
 ## Build and run
+
+| Platform | Status |
+|----------|--------|
+| Linux x86-64 | Supported build. |
+| Windows through WSL | Uses the Linux build. |
+| Native Windows x86-64 | Planned; still needs to be implemented and added. See the [implementation checklist](docs/development/building.md#native-windows-support-planned). |
 
 Install the [build dependencies](docs/development/building.md), then run:
 

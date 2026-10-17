@@ -11,8 +11,8 @@ static void error_replace_desc(Error* e, char* new_desc, size_t new_len)
   e->len  = new_len;
 }
 
-/* Take ownership of a heap buffer that holds new_len bytes (no NUL guarantee
- * yet); caller already wrote those bytes.  We ensure NUL term and store. */
+/* Take ownership of a heap buffer containing len bytes. The caller reserves
+ * one extra byte; this helper adds the NUL terminator and stores the buffer. */
 static void error_take(Error* e, char* buf, size_t len)
 {
   buf[len] = '\0';

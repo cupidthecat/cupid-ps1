@@ -61,12 +61,15 @@ See [testing](testing.md) for the validation scope and
 Native Windows support still needs to be implemented and added to the supported
 builds. [Issue #13](https://github.com/cupidthecat/cupid-ps1/issues/13) tracks:
 
-- A reproducible native x86-64 build and dependency setup, including a Windows
+- [ ] Document a reproducible native x86-64 build and dependency setup, including a Windows
   build of the bundled audio library.
-- Windows backends or portable replacements for memory mapping and JIT
+- [ ] Implement Windows backends or portable replacements for memory mapping and JIT
   allocation, page-fault handling, threading, timing, filesystem access and
   graphics context creation.
-- An SDL2 executable with software rendering, audio, input, memory cards and
+- [ ] Build and check an SDL2 executable with software rendering, audio, input, memory cards and
   save states. Optional rendering and recompiler paths need separate checks.
-- Windows CI and local runtime checks for boot, shutdown, save/load and
-  persistence, while preserving the Linux build and tests.
+- [ ] Add Windows CI for compilation, header checks and automated tests.
+- [ ] Run local Windows checks for boot, shutdown, save/load and persistence.
+
+Keep the Linux build and tests passing throughout the port. WSL remains the
+Windows build option until the native executable and its runtime checks are ready.

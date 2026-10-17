@@ -270,8 +270,8 @@ static void timing_events_remove_active(timing_event_t* event)
 
 static void timing_events_sort_events(void)
 {
-  /* Snapshot all events into a small heap array, then re-add in order to
-   * normalise the linked list after a save-state load. */
+  /* Copy the active events into a heap array, then reinsert them to restore
+   * the linked-list order after loading a save state. */
   const u32 count = s_state.active_event_count;
   timing_event_t** events = NULL;
   if (count > 0)
