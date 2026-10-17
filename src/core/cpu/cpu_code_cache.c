@@ -1543,12 +1543,8 @@ bool cpu_code_cache_is_using_recompiler(void)
 
 bool cpu_code_cache_is_using_fastmem(void)
 {
-  /* M4c: MMap mode is the only path the recompiler can emit fastmem load/
-   * store sites against today.  LUT mode requires per-page pointer
-   * lookups that don't fit the inline `[RBX+addr]` SIB shape, so it stays
-   * slow-path only.  Fastmem only on if mode==MMAP and arena allocated. */
-  return g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP &&
-         bus_get_fastmem_base(/*isc=*/false) != NULL;
+  return cpu_code_cache_is_using_recompiler() && !g_settings.cpu_recompiler_memory_exceptions &&
+         g_settings.cpu_fastmem_mode != CPU_FASTMEM_MODE_DISABLED && bus_get_fastmem_base(/*isc=*/false) != NULL;
 }
 
 bool cpu_code_cache_process_startup(Error* error)
@@ -1933,7 +1929,7 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
   return base;
 }
 
-/* Patch the original [RBX+addr] site as `JMP rel32` to the stub, NOP-pad
+/* Patch the registered memory site as `JMP rel32` to the stub, NOP-pad
  * any extra bytes.  Site MUST be at least 5 bytes (the JMP rel32 size). */
 static bool patch_fastmem_site_to_stub(
   const cpu_code_cache_loadstore_backpatch_info_t* info,
@@ -1954,8 +1950,19 @@ static bool patch_fastmem_site_to_stub(
 
 page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write)
 {
-  /* SMC branch. */
-  if (cpu_code_cache_is_using_fastmem()) {
+  /* LUT stores and host-side RAM writes share the canonical protected mapping. */
+  const uintptr_t ram   = (uintptr_t)bus_get_ram_pointer();
+  const uintptr_t fault = (uintptr_t)fault_address;
+  if (is_write && ram && fault >= ram && fault - ram < bus_get_ram_size()) {
+    const u32 page = bus_get_ram_code_page_index((u32)(fault - ram));
+    if (bus_is_ram_code_page(page)) {
+      cpu_code_cache_invalidate_blocks_with_page_index(page);
+      return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
+    }
+  }
+
+  /* Mmap aliases have separate host addresses for the same RAM pages. */
+  if (g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP && cpu_code_cache_is_using_fastmem()) {
     u8* arena = (u8*)bus_get_fastmem_base(/*isc=*/false);
     u8* fa    = (u8*)fault_address;
     if (arena != NULL && fa >= arena &&
@@ -1971,7 +1978,10 @@ page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* except
     }
   }
 
-  /* MMIO-via-fastmem branch. */
+  /* Only a registered JIT site can be replaced with a bus-handler call. */
+  const uintptr_t code = (uintptr_t)s_code_buffer_ptr;
+  const uintptr_t pc   = (uintptr_t)exception_pc;
+  if (!code || pc < code || pc - code >= RECOMPILER_CODE_CACHE_SIZE) return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
   const cpu_code_cache_loadstore_backpatch_info_t* info =
     cpu_code_cache_find_backpatch_info(exception_pc);
   if (info == NULL) {

@@ -43,6 +43,15 @@ through Linux mapping permissions. It also checks configured 8 MB offsets and
 unmapped holes. See [memory mapping](../memory/mapping.md) for the access paths
 and qualification limits.
 
+The `NativeLut` filter executes byte, halfword and word accesses through all RAM
+aliases, unaligned merges and coprocessor transfers. It checks direct-access
+counts, recovery through bus handlers, code writes, isolation changes and
+configured 8 MB backing. The `_lut` filter also selects LUT variants of the
+exception, permission, branch, cache-control and retained-fetch regressions.
+Generated firmware compares linked and unlinked LUT runs across save/restore.
+These checks cover the generated programs; they do not establish complete CPU
+accuracy or qualify physical 8 MB hardware.
+
 For a bounded save/load smoke check with authorized local inputs, run:
 
 ```sh

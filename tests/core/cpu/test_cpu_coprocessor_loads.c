@@ -93,7 +93,7 @@ static void check_coprocessor_load(u32 cop, u32 fault, cpu_execution_mode_t mode
         EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
         EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
       }
-      if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+      if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
       dma_shutdown();
       finish_cpu();
     }
@@ -112,6 +112,10 @@ static void check_coprocessor_load(u32 cop, u32 fault, cpu_execution_mode_t mode
   TEST(CpuCoprocessorLoad, name##_native)                                                                       \
   {                                                                                                             \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
+  }                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_lut)                                                                          \
+  {                                                                                                             \
+    check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                                             \
   TEST(CpuCoprocessorLoad, name##_mmap)                                                                         \
   {                                                                                                             \

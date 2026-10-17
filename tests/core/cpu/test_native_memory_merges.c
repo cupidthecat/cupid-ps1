@@ -12,7 +12,7 @@ static void check_native_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t 
     EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
     EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
   }
-  if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+  if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
 static void check_merge_pairs(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
@@ -87,6 +87,10 @@ static void check_pending_base(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
   TEST(NativeMemoryMerge, name##_native)                                           \
   {                                                                                \
     check(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
+  }                                                                                \
+  TEST(NativeMemoryMerge, name##_lut)                                              \
+  {                                                                                \
+    check(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                \
   TEST(NativeMemoryMerge, name##_mmap)                                             \
   {                                                                                \

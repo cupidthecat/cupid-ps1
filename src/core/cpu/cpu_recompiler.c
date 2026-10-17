@@ -2582,7 +2582,7 @@ void cpu_recompiler_spec_exec_mtc0(cpu_recompiler_t* r)
   cpu_recomp_spec_value_t v = SR(r, MIT_R(r));
   if (v.has) {
     const u32 mask = CPU_COP0_SR_WRITE_MASK;
-    v.val = (r->spec_cop0_sr.val & mask) | (v.val & mask);
+    v.val          = (r->spec_cop0_sr.val & ~mask) | (v.val & mask);
   }
   r->spec_cop0_sr = v;
 }
@@ -2591,7 +2591,7 @@ void cpu_recompiler_spec_exec_rfe(cpu_recompiler_t* r)
 {
   if (!r->spec_cop0_sr.has) return;
   const u32 v = r->spec_cop0_sr.val;
-  r->spec_cop0_sr.val = (v & 0x30u) | ((v & 0x3Fu) >> 2);
+  r->spec_cop0_sr.val = (v & ~0xFu) | ((v >> 2) & 0xFu);
 }
 
 #undef SR

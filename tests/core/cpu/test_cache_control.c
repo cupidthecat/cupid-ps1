@@ -25,7 +25,7 @@ static void control_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastm
               (unsigned long long)before, (unsigned long long)cpu_execution_stats_get()->native_blocks_completed,
               (unsigned long long)cpu_execution_stats_get()->interpreted_instructions, g_cpu_state.cache_control.bits,
               g_cpu_state.pc);
-  if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+  if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
 static void control_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario)
@@ -139,6 +139,10 @@ static void cache_control_case(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
   TEST(CacheControl, name##_native)                                                                       \
   {                                                                                                       \
     cache_control_case(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, scenario);         \
+  }                                                                                                       \
+  TEST(CacheControl, name##_lut)                                                                          \
+  {                                                                                                       \
+    cache_control_case(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true, scenario);              \
   }                                                                                                       \
   TEST(CacheControl, name##_mmap)                                                                         \
   {                                                                                                       \

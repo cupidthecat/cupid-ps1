@@ -1486,7 +1486,7 @@ static u32 pad_to_min_size(x64_emit_t* e, void* start_cursor, u32 min_size)
   return (u32)((u8*)x64_emit_cursor(e) - (u8*)start_cursor);
 }
 
-/* Accesses may enter a bus handler after an mmap backpatch. Keep a complete
+/* Fastmem accesses may enter a bus handler after a fault. Keep a complete
  * architectural snapshot available before either path can raise an exception.
  * pc still carries the resolved target when this is a branch slot. */
 static void prepare_memory_access(cpu_recompiler_t* r, cpu_recomp_compile_flags_t* cf)
@@ -1527,8 +1527,76 @@ static void emit_memory_alignment_check(cpu_recompiler_t* r, x64_reg_t address, 
   switch_to_near_code(r, false, false, X64_CC_E);
 }
 
-/* Fastmem loads use [RBX + addr], padded to at least five bytes for
- * backpatching. Other accesses call the slow-path thunk. */
+static x64_mem_bis_t fastmem_operand(x64_emit_t* e, x64_reg_t address)
+{
+  if (g_settings.cpu_fastmem_mode != CPU_FASTMEM_MODE_LUT) return x64_msib(RMEMBASE, address, 1, 0);
+
+  /* Keep the original guest address available to a fault-recovery stub. */
+  DebugAssert(address != X64_RCX);
+  x64_mov_r_r(e, X64_SZ_32, X64_RCX, address);
+  x64_shift_r_imm(e, X64_SH_SHR, X64_SZ_32, X64_RCX, BUS_FASTMEM_LUT_PAGE_SHIFT);
+  x64_mov_r_msib(e, X64_SZ_64, X64_RCX, x64_msib(RMEMBASE, X64_RCX, 8, 0));
+  return x64_msib(X64_RCX, address, 1, 0);
+}
+
+static void emit_lut_access_count(x64_emit_t* e, bool store)
+{
+  if (g_settings.cpu_fastmem_mode != CPU_FASTMEM_MODE_LUT || !cpu_execution_stats_is_enabled()) return;
+  u64* counter = store ? &cpu_execution_stats_get()->native_lut_stores : &cpu_execution_stats_get()->native_lut_loads;
+  x64_mov_r_imm64(e, X64_RCX, (u64)(uintptr_t)counter);
+  x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(X64_RCX, 0), 1);
+}
+
+static void emit_fastmem_load(cpu_recompiler_t* r, x64_reg_t address, x64_reg_t destination, memory_access_size_t size,
+                              bool sign)
+{
+  x64_emit_t* e = current_emit(be_from(r));
+  DebugAssert(destination != X64_RCX);
+  x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pending_ticks)), BUS_RAM_READ_TICKS);
+  const x64_mem_bis_t memory = fastmem_operand(e, address);
+  void*               site   = x64_emit_cursor(e);
+  switch (size) {
+    case MEMORY_ACCESS_SIZE_BYTE:
+      if (sign)
+        x64_movsx_r_msib8(e, X64_SZ_32, destination, memory);
+      else
+        x64_movzx_r_msib8(e, X64_SZ_32, destination, memory);
+      break;
+    case MEMORY_ACCESS_SIZE_HALFWORD:
+      if (sign)
+        x64_movsx_r_msib16(e, X64_SZ_32, destination, memory);
+      else
+        x64_movzx_r_msib16(e, X64_SZ_32, destination, memory);
+      break;
+    case MEMORY_ACCESS_SIZE_WORD:
+      x64_mov_r_msib(e, X64_SZ_32, destination, memory);
+      break;
+  }
+  /* Recovery resumes after this counter, so only a successful direct load counts. */
+  emit_lut_access_count(e, false);
+  const u32 emitted = pad_to_min_size(e, site, 5u);
+  cpu_code_cache_add_load_store_info(site, emitted, r->current_instruction_pc, r->block->pc, r->cycles, 0u, (u8)address,
+                                     (u8)destination, size, sign, true);
+}
+
+static void emit_fastmem_store(cpu_recompiler_t* r, x64_reg_t address, x64_reg_t value, memory_access_size_t size)
+{
+  x64_emit_t* e = current_emit(be_from(r));
+  DebugAssert(value != X64_RCX);
+  const x64_mem_bis_t memory = fastmem_operand(e, address);
+  void*               site   = x64_emit_cursor(e);
+  x64_mov_msib_r(e,
+                 size == MEMORY_ACCESS_SIZE_WORD       ? X64_SZ_32
+                 : size == MEMORY_ACCESS_SIZE_HALFWORD ? X64_SZ_16
+                                                       : X64_SZ_8,
+                 memory, value);
+  emit_lut_access_count(e, true);
+  const u32 emitted = pad_to_min_size(e, site, 5u);
+  cpu_code_cache_add_load_store_info(site, emitted, r->current_instruction_pc, r->block->pc, r->cycles, 0u, (u8)address,
+                                     (u8)value, size, false, false);
+}
+
+/* Ordinary loads retain alignment checks and architectural load delays. */
 static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                              memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr)
@@ -1542,62 +1610,13 @@ static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   const cpu_reg_t mips_t = cpu_recomp_cf_mips_t(cf);
 
   if (use_fastmem) {
-    /* Commit the RAM read cost before a backpatch can replace it with the
-     * selected device's access cost. Alignment faults do not pay this cost. */
-    x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pending_ticks)), BUS_RAM_READ_TICKS);
-    /* Allocate the destination host reg first so we can emit straight into it. */
+    x64_reg_t destination = X64_RAX;
     if (mips_t != (cpu_reg_t)0) {
-      const u32 vreg = cpu_recompiler_allocate_host_reg(
-        r, cpu_recompiler_get_flags_for_new_load_delayed_reg(r),
-        CPU_RECOMP_EMULATE_LOAD_DELAYS ? CPU_RC_HRT_NEXT_LOAD_DELAY_VALUE : CPU_RC_HRT_CPU_REG, 
-        mips_t);
-      const x64_reg_t dst = (x64_reg_t)vreg;
-      const x64_mem_bis_t mem = x64_msib(X64_RBX, addr, 1, 0);
-      void* site = x64_emit_cursor(e);
-      switch (size) {
-        case MEMORY_ACCESS_SIZE_BYTE:
-          if (sign) x64_movsx_r_msib8 (e, X64_SZ_32, dst, mem);
-          else      x64_movzx_r_msib8 (e, X64_SZ_32, dst, mem);
-          break;
-        case MEMORY_ACCESS_SIZE_HALFWORD:
-          if (sign) x64_movsx_r_msib16(e, X64_SZ_32, dst, mem);
-          else      x64_movzx_r_msib16(e, X64_SZ_32, dst, mem);
-          break;
-        case MEMORY_ACCESS_SIZE_WORD:
-          x64_mov_r_msib(e, X64_SZ_32, dst, mem);
-          break;
-      }
-      const u32 emitted = pad_to_min_size(e, site, 5u);
-      cpu_code_cache_add_load_store_info(site, emitted,
-                                         r->current_instruction_pc, r->block->pc,
-                                         r->cycles, /*gpr_bitmask=*/0u,
-                                         (u8)addr, (u8)dst, size, sign, /*is_load=*/true);
-    } else {
-      /* lxx with rt=$zero in fastmem: side-effect-only.  No host writeback,
-       * but PSX still requires the load to fire (cache + MMIO).  Best to
-       * emit a synthetic dst-into-RAX read so the slow path on fault still
-       * has a place to put the value before discarding it. */
-      const x64_mem_bis_t mem = x64_msib(X64_RBX, addr, 1, 0);
-      void* site = x64_emit_cursor(e);
-      switch (size) {
-        case MEMORY_ACCESS_SIZE_BYTE:
-          if (sign) x64_movsx_r_msib8 (e, X64_SZ_32, X64_RAX, mem);
-          else      x64_movzx_r_msib8 (e, X64_SZ_32, X64_RAX, mem);
-          break;
-        case MEMORY_ACCESS_SIZE_HALFWORD:
-          if (sign) x64_movsx_r_msib16(e, X64_SZ_32, X64_RAX, mem);
-          else      x64_movzx_r_msib16(e, X64_SZ_32, X64_RAX, mem);
-          break;
-        case MEMORY_ACCESS_SIZE_WORD:
-          x64_mov_r_msib(e, X64_SZ_32, X64_RAX, mem);
-          break;
-      }
-      const u32 emitted = pad_to_min_size(e, site, 5u);
-      cpu_code_cache_add_load_store_info(site, emitted,
-                                         r->current_instruction_pc, r->block->pc,
-                                         r->cycles, /*gpr_bitmask=*/0u,
-                                         (u8)addr, (u8)X64_RAX, size, sign, /*is_load=*/true);
+      destination = (x64_reg_t)cpu_recompiler_allocate_host_reg(
+          r, cpu_recompiler_get_flags_for_new_load_delayed_reg(r),
+          CPU_RECOMP_EMULATE_LOAD_DELAYS ? CPU_RC_HRT_NEXT_LOAD_DELAY_VALUE : CPU_RC_HRT_CPU_REG, mips_t);
     }
+    emit_fastmem_load(r, addr, destination, size, sign);
     emit_memory_exception_exit(r);
     return;
   }
@@ -1633,9 +1652,7 @@ static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   }
 }
 
-/* Store compile path.  Fastmem path emits `mov [RBX+addr],
- * data` and registers the backpatch entry; slow path goes through the
- * existing thunk call. */
+/* Stores use the selected direct mapping or the bus handler. */
 static void hook_compile_sxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                              memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr)
@@ -1648,31 +1665,17 @@ static void hook_compile_sxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   emit_memory_alignment_check(r, addr, size, true);
 
   if (use_fastmem) {
-    /* Materialize value into a host reg.  If T is already in a host reg,
-     * use it directly.  Otherwise stage into RAX (caller-saved scratch).
-     * RAX is safe because fastmem path doesn't call C functions. */
-    x64_reg_t data_reg;
+    x64_reg_t value;
     if (cf.valid_host_t) {
-      data_reg = cf_get_reg_t(cf);
-    } else if (cf.const_t) {
-      x64_mov_r_imm32(e, X64_SZ_32, X64_RAX,
-                      (s32)cpu_recompiler_get_constant_reg_u32(r, cpu_recomp_cf_mips_t(cf)));
-      data_reg = X64_RAX;
+      value = cf_get_reg_t(cf);
     } else {
-      x64_mov_r_m(e, X64_SZ_32, X64_RAX, mips_ptr(cpu_recomp_cf_mips_t(cf)));
-      data_reg = X64_RAX;
+      value = X64_RAX;
+      if (cf.const_t)
+        x64_mov_r_imm32(e, X64_SZ_32, value, (s32)cpu_recompiler_get_constant_reg_u32(r, cpu_recomp_cf_mips_t(cf)));
+      else
+        x64_mov_r_m(e, X64_SZ_32, value, mips_ptr(cpu_recomp_cf_mips_t(cf)));
     }
-
-    const x64_mem_bis_t mem = x64_msib(X64_RBX, addr, 1, 0);
-    void* site = x64_emit_cursor(e);
-    x64_mov_msib_r(e, (size == MEMORY_ACCESS_SIZE_WORD) ? X64_SZ_32 :
-                       (size == MEMORY_ACCESS_SIZE_HALFWORD) ? X64_SZ_16 : X64_SZ_8,
-                   mem, data_reg);
-    const u32 emitted = pad_to_min_size(e, site, 5u);
-    cpu_code_cache_add_load_store_info(site, emitted,
-                                       r->current_instruction_pc, r->block->pc,
-                                       r->cycles, /*gpr_bitmask=*/0u,
-                                       (u8)addr, (u8)data_reg, size, /*sign=*/false, /*is_load=*/false);
+    emit_fastmem_store(r, addr, value, size);
     emit_memory_exception_exit(r);
     return;
   }
@@ -1744,7 +1747,8 @@ static void hook_compile_lwx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                              memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr)
 {
-  (void)size; (void)sign; (void)use_fastmem;
+  (void)size;
+  (void)sign;
   x64_emit_t* e = current_emit(be_from(r));
 
   /* Need addr after the read_memory_thunk C call (for the *8 shift + the
@@ -1761,7 +1765,10 @@ static void hook_compile_lwx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   /* Word-aligned load into RWRET. */
   x64_mov_r_r  (e, X64_SZ_32, RWARG1, addr);
   x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, RWARG1, (s32)~0x3u);
-  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
+  if (use_fastmem)
+    emit_fastmem_load(r, RWARG1, RWRET, MEMORY_ACCESS_SIZE_WORD, false);
+  else
+    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
   emit_memory_exception_exit(r);
 
   /* lwx with rt=$zero: still does the load (side-effect) but no merge. */
@@ -1848,7 +1855,8 @@ static void hook_compile_swx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                              memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr)
 {
-  (void)size; (void)sign; (void)use_fastmem;
+  (void)size;
+  (void)sign;
   x64_emit_t* e = current_emit(be_from(r));
 
   const u32 addr_idx = cpu_recompiler_allocate_temp_host_reg(r, CPU_RC_HR_CALLEE_SAVED);
@@ -1860,7 +1868,10 @@ static void hook_compile_swx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   /* Read existing word at aligned addr into RWRET. */
   x64_mov_r_r  (e, X64_SZ_32, RWARG1, addr);
   x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, RWARG1, (s32)~0x3u);
-  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
+  if (use_fastmem)
+    emit_fastmem_load(r, RWARG1, RWRET, MEMORY_ACCESS_SIZE_WORD, false);
+  else
+    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
   emit_memory_exception_exit(r);
 
   /* CL = (addr & 3) * 8;  align addr in place for the writeback. */
@@ -1896,9 +1907,12 @@ static void hook_compile_swx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
     x64_alu_r_r    (e, X64_ALU_OR,  X64_SZ_32, RWARG2, RWRET);
   }
 
-  /* Slow-path word write of merged value. */
+  /* Write the merged word through the selected memory path. */
   x64_mov_r_r  (e, X64_SZ_32, RWARG1, addr);
-  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_write_memory_word);
+  if (use_fastmem)
+    emit_fastmem_store(r, RWARG1, RWARG2, MEMORY_ACCESS_SIZE_WORD);
+  else
+    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_write_memory_word);
   emit_memory_exception_exit(r);
 
   cpu_recompiler_free_host_reg(r, addr_idx);
@@ -2127,12 +2141,15 @@ static void hook_compile_lwc_discard(cpu_recompiler_t* r, cpu_recomp_compile_fla
 {
   (void)size;
   (void)sign;
-  (void)use_fastmem;
   prepare_memory_access(r, &cf);
   x64_emit_t*     e       = current_emit(be_from(r));
   const x64_reg_t address = compute_loadstore_address(r, cf, known_addr);
+  emit_memory_alignment_check(r, address, MEMORY_ACCESS_SIZE_WORD, false);
   if (address != RWARG1) x64_mov_r_r(e, X64_SZ_32, RWARG1, address);
-  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
+  if (use_fastmem)
+    emit_fastmem_load(r, RWARG1, RWRET, MEMORY_ACCESS_SIZE_WORD, false);
+  else
+    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
 
   /* Discard the result and leave exceptions in the shared pipeline. */
   emit_memory_exception_exit(r);
@@ -2142,7 +2159,8 @@ static void hook_compile_lwc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
                               memory_access_size_t size, bool sign,
                               bool use_fastmem, const u32* known_addr)
 {
-  (void)size; (void)sign; (void)use_fastmem;
+  (void)size;
+  (void)sign;
   x64_emit_t* e = current_emit(be_from(r));
   const u32 index = (u32)r->inst->r.rt;
 
@@ -2151,10 +2169,14 @@ static void hook_compile_lwc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
   prepare_memory_access(r, &cf);
 
   const x64_reg_t addr = compute_loadstore_address(r, cf, known_addr);
+  emit_memory_alignment_check(r, addr, MEMORY_ACCESS_SIZE_WORD, false);
   if (addr != RWARG1)
     x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
 
-  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
+  if (use_fastmem)
+    emit_fastmem_load(r, RWARG1, RWRET, MEMORY_ACCESS_SIZE_WORD, false);
+  else
+    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
   emit_memory_exception_exit(r);
   /* Loaded value now sits in RWRET. */
 
@@ -2210,7 +2232,8 @@ static void hook_compile_swc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
                               memory_access_size_t size, bool sign,
                               bool use_fastmem, const u32* known_addr)
 {
-  (void)size; (void)sign; (void)use_fastmem;
+  (void)size;
+  (void)sign;
   x64_emit_t* e = current_emit(be_from(r));
   const u32 index = (u32)r->inst->r.rt;
 
@@ -2239,10 +2262,14 @@ static void hook_compile_swc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
   prepare_memory_access(r, &cf);
 
   const x64_reg_t addr = compute_loadstore_address(r, cf, known_addr);
+  emit_memory_alignment_check(r, addr, MEMORY_ACCESS_SIZE_WORD, true);
   if (addr != RWARG1)
     x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
   x64_mov_r_r  (e, X64_SZ_32, RWARG2, (x64_reg_t)data_idx);
-  x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_write_memory_word);
+  if (use_fastmem)
+    emit_fastmem_store(r, RWARG1, RWARG2, MEMORY_ACCESS_SIZE_WORD);
+  else
+    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_write_memory_word);
   emit_memory_exception_exit(r);
 
   cpu_recompiler_free_host_reg(r, data_idx);

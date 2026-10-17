@@ -171,7 +171,7 @@ static void check_memory_fault(u32 op, u32 fault, cpu_execution_mode_t mode, cpu
         if (fastmem == CPU_FASTMEM_MODE_MMAP && !constant && !alignment && !merge && !gte)
           EXPECT_TRUE(cpu_code_cache_has_previously_faulted_on_pc(entry + access_index * 4));
       }
-      if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+      if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
       dma_shutdown();
       finish_cpu();
     }
@@ -190,6 +190,10 @@ static void check_memory_fault(u32 op, u32 fault, cpu_execution_mode_t mode, cpu
   TEST(NativeMemoryFault, name##_native)                                                                   \
   {                                                                                                        \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
+  }                                                                                                        \
+  TEST(NativeMemoryFault, name##_lut)                                                                      \
+  {                                                                                                        \
+    check_memory_fault(op, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                                        \
   TEST(NativeMemoryFault, name##_mmap)                                                                     \
   {                                                                                                        \
@@ -263,7 +267,7 @@ static void check_fault_deadlines(cpu_execution_mode_t mode, cpu_fastmem_mode_t 
       EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
       EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
     }
-    if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
+    if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
     finish_cpu();
   }
 }
@@ -287,4 +291,9 @@ TEST(NativeMemoryFault, deadlines_mmap)
 TEST(NativeMemoryFault, deadlines_unlinked)
 {
   check_fault_deadlines(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);
+}
+
+TEST(NativeMemoryFault, deadlines_lut)
+{
+  check_fault_deadlines(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);
 }
