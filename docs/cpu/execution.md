@@ -178,6 +178,8 @@ bus helpers. Cache reset clears it; process shutdown releases its allocation.
 If the history cannot grow, the patched block stays valid and reuses its
 recovery stub. Generated tests observe host LUT and mmap faults in linked and
 unlinked load/store loops at PC zero, plus 5,000 distinct faulting instructions.
+Generated firmware also compares every saved byte across native save/restore
+continuations for these loops.
 
 These cases verify error propagation within the current bus model. Merge
 operations still use aligned word reads and read-modify-write stores; their

@@ -146,6 +146,55 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                 self.assertTrue(all(run['lut']['loads'] > 0 and run['lut']['stores'] > 0
                                     for run in result['runs']), result)
 
+    def test_native_zero_pc_device_accesses_survive_restore(self):
+        for store in (False, True):
+            words = []
+
+            def constant(reg, value):
+                words.extend((0x3C000000 | (reg << 16) | (value >> 16),
+                              0x34000000 | (reg << 21) | (reg << 16) | (value & 0xFFFF)))
+
+            constant(15, 0xFFFE0130)
+            constant(14, 0x1E988)
+            words.append(0xADEE0000)
+            constant(15, 0xA0000000)
+            program = (0xAD280000 if store else 0x8D280000, 0x26100001, 0x8D490000, 0, 0x08000000, 0)
+            for index, instruction in enumerate(program):
+                constant(14, instruction)
+                words.append(0xADEE0000 | (index * 4))
+            constant(15, 0xA0030010)
+            constant(14, 0x1F8010F0)
+            words.append(0xADEE0000)
+            constant(15, 0x1F8010F0)
+            constant(14, 0x01234567)
+            words.append(0xADEE0000)
+            constant(8, 0x01234567)
+            constant(9, 0xA0030000)
+            constant(10, 0xA0030010)
+            words.extend((0x00000008, 0))  # Jump to RAM address zero.
+            self.write_program(words)
+            for fastmem in ('mmap', 'lut'):
+                for linking in (True, False):
+                    with self.subTest(store=store, fastmem=fastmem, linking=linking):
+                        directory = self.root / f'zero-{store}-{fastmem}-{linking}'
+                        result = compare.run_comparison(
+                            self.binary, self.bios, self.media, directory, kind='state',
+                            modes=('recomp', 'recomp'), fastmem=fastmem, linking=linking,
+                            interval=2, checkpoints=2, min_blocks=10, restore_at=1, timeout=30)
+                        self.assertTrue(result['passed'], result)
+                        for side in ('left', 'right'):
+                            data = (directory / side / 'checkpoint-00000004.sav').read_bytes()
+                            self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 87))
+                            size, unpacked, start = struct.unpack_from('<III', data, 204)
+                            self.assertEqual(size, unpacked)
+                            self.assertEqual(start + size, len(data))
+                            cpu = start + 39
+                            self.assertEqual(data[cpu:cpu + 7], b'\x03\0\0\0CPU')
+                            regs = struct.unpack_from('<32I', data, cpu + 7 + 16)
+                            self.assertEqual(regs[8], 0x01234567)
+                            self.assertEqual(regs[9], 0x1F8010F0)
+                            self.assertGreater(regs[16], 100)
+
     def test_disabled_native_instruction_cache_cannot_qualify(self):
         directory = self.root / 'disabled-cache'
         directory.mkdir()
