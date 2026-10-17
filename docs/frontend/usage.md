@@ -26,6 +26,12 @@ cupid-ps1 [options] <game-path>
 
 CLI flags override settings INI for the current run.
 
+`-h` and `--help` print usage and exit successfully. They do not require BIOS or
+game files, read settings, or create runtime files. The defaults in help apply
+before `settings.ini` is loaded. Options are processed from left to right: help
+exits when encountered, while an earlier argument error still exits with status
+1. Other invalid invocations also exit with status 1.
+
 ## Hotkeys
 
 | Key | Action |

@@ -98,9 +98,8 @@ typedef struct {
   /* CLI inputs. */
   char* bios_path;
   char* game_path;
-  /* Renderer requested via --gpu-renderer (overrides INI/default).  When set
-   * to GPU_RENDERER_HARDWARE_OPENGL but the HW factory isn't compiled in
-   * yet, we log a warning and fall back to software. */
+  /* A CLI renderer request overrides settings.ini. Failed OpenGL setup
+   * falls back to software. */
   gpu_renderer_t requested_renderer;
   bool           renderer_requested;   /* explicit override vs. default */
 
@@ -199,27 +198,29 @@ static void quit_signal_handler(int sig)
 static void print_usage(FILE* fp, const char* argv0)
 {
   fprintf(fp,
-    "Usage: %s [--bios /path/to/SCPH1001.BIN] <game.cue>\n"
-    "\n"
-    "Options:\n"
-    "  --bios PATH         Override BIOS image path.  If omitted, falls back to\n"
-    "                      ./SCPH1001.BIN then ./SCPH7003.bin in the current dir.\n"
-    "  --gpu-renderer NAME Backend selection: software (default), opengl, automatic.\n"
-    "                      OpenGL falls back to software until the hardware\n"
-    "                      factory lands.\n"
-    "  --gpu-resolution-scale N\n"
-    "                      Internal resolution multiplier for the OpenGL backend.\n"
-    "                      1..16 (default 1).  Ignored for the software backend.\n"
-    "  --cdrom-precache    Decompress the whole disc image into RAM at boot.\n"
-    "                      Eliminates per-hunk decode cost for .chd images.\n"
-    "  --cpu-mode MODE     interp | cached | recomp (default: interp).\n"
-    "  --fastmem MODE      off | lut | mmap (recompiler load/store dispatch;\n"
-    "                      lut currently uses the slow path; mmap uses direct addressing).\n"
-    "  --pgxp on|off       Enable PGXP subpixel-precision tracking.\n"
-    "  --no-block-linking  Disable recompiler block linking (bisect knob).\n"
-    "  --no-icache         Disable recompiler icache emulation (bisect knob).\n"
-    "  -h, --help          Show this message.\n",
-    argv0 ? argv0 : "cupid-ps1");
+          "Usage: %s [--bios /path/to/SCPH1001.BIN] <game.cue>\n"
+          "\n"
+          "Defaults apply before settings.ini; command-line options override settings.\n"
+          "\n"
+          "Options:\n"
+          "  --bios PATH         Override BIOS image path.  If omitted, falls back to\n"
+          "                      ./SCPH1001.BIN then ./SCPH7003.bin in the current dir.\n"
+          "  --gpu-renderer NAME Backend selection: software (default), opengl, automatic.\n"
+          "                      Automatic selects software. OpenGL is experimental;\n"
+          "                      failed context/backend setup falls back to software.\n"
+          "  --gpu-resolution-scale N\n"
+          "                      Internal resolution multiplier for the OpenGL backend.\n"
+          "                      1..16 (default 1).  Ignored for the software backend.\n"
+          "  --cdrom-precache    Decompress the whole disc image into RAM at boot.\n"
+          "                      Eliminates per-hunk decode cost for .chd images.\n"
+          "  --cpu-mode MODE     interp | cached | recomp (default: recomp).\n"
+          "  --fastmem MODE      off | lut | mmap (recompiler load/store dispatch;\n"
+          "                      lut currently uses the slow path; mmap uses direct addressing).\n"
+          "  --pgxp on|off       Enable PGXP subpixel-precision tracking.\n"
+          "  --no-block-linking  Disable recompiler block linking (bisect knob).\n"
+          "  --no-icache         Disable recompiler icache emulation (bisect knob).\n"
+          "  -h, --help          Show this message.\n",
+          argv0 ? argv0 : "cupid-ps1");
 }
 
 static bool file_exists(const char* path)
@@ -241,18 +242,20 @@ static char* xstrdup(const char* s)
   return r;
 }
 
-static bool parse_args(int argc, char** argv)
+typedef enum { PARSE_ARGS_OK, PARSE_ARGS_HELP, PARSE_ARGS_ERROR } parse_args_result_t;
+
+static parse_args_result_t parse_args(int argc, char** argv)
 {
   for (int i = 1; i < argc; i++) {
     const char* a = argv[i];
     if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
       print_usage(stdout, argv[0]);
-      return false;
+      return PARSE_ARGS_HELP;
     }
     if (strcmp(a, "--bios") == 0) {
       if (i + 1 >= argc) {
         fprintf(stderr, "%s: --bios requires an argument.\n", argv[0]);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       free(s_fe.bios_path);
       s_fe.bios_path = xstrdup(argv[++i]);
@@ -262,7 +265,7 @@ static bool parse_args(int argc, char** argv)
       const char* val = (a[14] == '=') ? (a + 15) : (i + 1 < argc ? argv[++i] : NULL);
       if (!val) {
         fprintf(stderr, "%s: --gpu-renderer requires an argument.\n", argv[0]);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       gpu_renderer_t r;
       if      (strcasecmp(val, "automatic") == 0 || strcasecmp(val, "auto") == 0)
@@ -275,7 +278,7 @@ static bool parse_args(int argc, char** argv)
       else if (!settings_parse_renderer_name(val, &r)) {
         fprintf(stderr, "%s: unknown renderer '%s' (valid: automatic, software, opengl).\n",
                 argv[0], val);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       s_fe.requested_renderer = r;
       s_fe.renderer_requested = true;
@@ -286,14 +289,14 @@ static bool parse_args(int argc, char** argv)
       const char* val = (a[22] == '=') ? (a + 23) : (i + 1 < argc ? argv[++i] : NULL);
       if (!val) {
         fprintf(stderr, "%s: --gpu-resolution-scale requires an argument.\n", argv[0]);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       char* endp = NULL;
       const long n = strtol(val, &endp, 10);
       if (!endp || *endp != '\0' || n < 1 || n > 16) {
         fprintf(stderr, "%s: --gpu-resolution-scale must be an integer 1..16 (got '%s').\n",
                 argv[0], val);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       s_fe.requested_resolution_scale = (u8)n;
       s_fe.resolution_scale_requested = true;
@@ -307,7 +310,7 @@ static bool parse_args(int argc, char** argv)
       const char* val = (a[10] == '=') ? (a + 11) : (i + 1 < argc ? argv[++i] : NULL);
       if (!val) {
         fprintf(stderr, "%s: --cpu-mode requires an argument.\n", argv[0]);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       cpu_execution_mode_t m;
       if      (strcasecmp(val, "interp")   == 0 || strcasecmp(val, "interpreter") == 0)
@@ -319,7 +322,7 @@ static bool parse_args(int argc, char** argv)
       else {
         fprintf(stderr, "%s: unknown cpu mode '%s' (valid: interp, cached, recomp).\n",
                 argv[0], val);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       s_fe.requested_cpu_mode = m;
       s_fe.cpu_mode_requested = true;
@@ -329,7 +332,7 @@ static bool parse_args(int argc, char** argv)
       const char* val = (a[9] == '=') ? (a + 10) : (i + 1 < argc ? argv[++i] : NULL);
       if (!val) {
         fprintf(stderr, "%s: --fastmem requires an argument.\n", argv[0]);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       cpu_fastmem_mode_t fm;
       if      (strcasecmp(val, "off")      == 0 || strcasecmp(val, "disabled") == 0)
@@ -341,7 +344,7 @@ static bool parse_args(int argc, char** argv)
       else {
         fprintf(stderr, "%s: unknown fastmem mode '%s' (valid: off, lut, mmap).\n",
                 argv[0], val);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       s_fe.requested_fastmem_mode = fm;
       s_fe.fastmem_requested      = true;
@@ -351,7 +354,7 @@ static bool parse_args(int argc, char** argv)
       const char* val = (a[6] == '=') ? (a + 7) : (i + 1 < argc ? argv[++i] : NULL);
       if (!val) {
         fprintf(stderr, "%s: --pgxp requires an argument.\n", argv[0]);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       bool on;
       if      (strcasecmp(val, "on")  == 0 || strcasecmp(val, "true")  == 0 ||
@@ -362,7 +365,7 @@ static bool parse_args(int argc, char** argv)
         on = false;
       else {
         fprintf(stderr, "%s: --pgxp expects on|off (got '%s').\n", argv[0], val);
-        return false;
+        return PARSE_ARGS_ERROR;
       }
       s_fe.requested_pgxp_enable = on;
       s_fe.pgxp_requested        = true;
@@ -383,11 +386,11 @@ static bool parse_args(int argc, char** argv)
     if (a[0] == '-') {
       fprintf(stderr, "%s: unknown option '%s'.\n", argv[0], a);
       print_usage(stderr, argv[0]);
-      return false;
+      return PARSE_ARGS_ERROR;
     }
     if (s_fe.game_path) {
       fprintf(stderr, "%s: more than one game path specified.\n", argv[0]);
-      return false;
+      return PARSE_ARGS_ERROR;
     }
     s_fe.game_path = xstrdup(a);
   }
@@ -395,7 +398,7 @@ static bool parse_args(int argc, char** argv)
   if (!s_fe.game_path) {
     fprintf(stderr, "%s: no game image specified.\n", argv[0]);
     print_usage(stderr, argv[0]);
-    return false;
+    return PARSE_ARGS_ERROR;
   }
 
   if (!s_fe.bios_path) {
@@ -407,14 +410,14 @@ static bool parse_args(int argc, char** argv)
       fprintf(stderr,
               "%s: no BIOS specified and neither ./SCPH1001.BIN nor "
               "./SCPH7003.bin exists in the current directory.\n", argv[0]);
-      return false;
+      return PARSE_ARGS_ERROR;
     }
   } else if (!file_exists(s_fe.bios_path)) {
     fprintf(stderr, "%s: BIOS file '%s' not found.\n", argv[0], s_fe.bios_path);
-    return false;
+    return PARSE_ARGS_ERROR;
   }
 
-  return true;
+  return PARSE_ARGS_OK;
 }
 
  /* Splits "./dir/file.ext" -> dirname "./dir", filename "file.ext".  Both
@@ -546,12 +549,8 @@ static void apply_frontend_settings(void)
   if (s_fe.no_icache)
     g_settings.cpu_recompiler_icache = false;
 
-  /* GPU renderer selection.  Without a CLI override we keep the INI value
-   * (defaulting to SOFTWARE); collapse AUTOMATIC to SOFTWARE so sdl_setup()
-   * skips GL bring-up.  HW renderer stays in tree but is opt-in only via
-   * --gpu-renderer opengl or `Renderer = OpenGL` in settings.ini; the FS
-   * pipeline path has 28 documented hybrid/band-aid sites pending the GL
-   * takeover.  SW backend (with AVX2 dispatch) is the supported default. */
+  /* Keep the INI renderer unless the CLI overrides it. AUTOMATIC selects
+   * software. The experimental OpenGL backend must be selected explicitly. */
   if (s_fe.renderer_requested) {
     g_settings.gpu_renderer = (s_fe.requested_renderer == GPU_RENDERER_HARDWARE_OPENGL)
                                 ? GPU_RENDERER_HARDWARE_OPENGL
@@ -1726,6 +1725,13 @@ int main(int argc, char** argv)
   memset(&s_fe, 0, sizeof(s_fe));
   s_fe.current_save_slot = 1;
 
+  const parse_args_result_t args_result = parse_args(argc, argv);
+  if (args_result != PARSE_ARGS_OK) {
+    free(s_fe.bios_path);
+    free(s_fe.game_path);
+    return args_result == PARSE_ARGS_HELP ? 0 : 1;
+  }
+
   atexit(dump_debug_ringbuffers);
 
   {
@@ -1753,9 +1759,6 @@ int main(int argc, char** argv)
   /* Probe host CPU once so any subsystem (SW rasterizer dispatcher, future
    * SIMD audio paths) can read the cached results lock-free. */
   cpu_features_init();
-
-  if (!parse_args(argc, argv))
-    return 1;
 
   /* Split BIOS path into directory + filename for the core hooks. */
   char* bios_file = NULL;
