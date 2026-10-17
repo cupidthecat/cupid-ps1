@@ -2155,6 +2155,18 @@ static void hook_compile_lwc_discard(cpu_recompiler_t* r, cpu_recomp_compile_fla
   emit_memory_exception_exit(r);
 }
 
+static void hook_compile_swc013(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf, memory_access_size_t size,
+                                bool sign, bool use_fastmem, const u32* known_addr)
+{
+  (void)size;
+  (void)sign;
+  (void)use_fastmem;
+  prepare_memory_access(r, &cf);
+  const x64_reg_t address = compute_loadstore_address(r, cf, known_addr);
+  emit_memory_alignment_check(r, address, MEMORY_ACCESS_SIZE_WORD, true);
+  /* Aligned transfer data and bus effects remain unqualified. */
+}
+
 static void hook_compile_lwc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
                               memory_access_size_t size, bool sign,
                               bool use_fastmem, const u32* known_addr)
@@ -2463,6 +2475,7 @@ static const struct cpu_recompiler_vtable s_vtable = {
     .compile_lwc_discard = hook_compile_lwc_discard,
     .compile_lwc2        = hook_compile_lwc2,
     .compile_swc2        = hook_compile_swc2,
+    .compile_swc013      = hook_compile_swc013,
 
     /* Multi-cycle muldiv stall (partial: closes the steady-state
    * cached-block residual "un-modeled muldiv stall". Uncached

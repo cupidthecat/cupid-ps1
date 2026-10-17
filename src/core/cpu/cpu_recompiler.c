@@ -2232,7 +2232,10 @@ void cpu_recompiler_compile_instruction(cpu_recompiler_t* r)
 
     case CPU_OP_COP1:
     case CPU_OP_COP3:
+      break;
+
     case CPU_OP_SWC0: case CPU_OP_SWC1: case CPU_OP_SWC3:
+      LST(swc013, MEMORY_ACCESS_SIZE_WORD, true, false, CPU_RC_TF_READS_S);
       break;
 
     default:

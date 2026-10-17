@@ -392,6 +392,8 @@ struct cpu_recompiler_vtable {
   void (*compile_swc2)(cpu_recompiler_t*, cpu_recomp_compile_flags_t,
                        memory_access_size_t size, bool sign, bool use_fastmem,
                        const u32* known_addr);
+  void (*compile_swc013)(cpu_recompiler_t*, cpu_recomp_compile_flags_t, memory_access_size_t size, bool sign,
+                         bool use_fastmem, const u32* known_addr);
 
   void (*compile_mtc0)(cpu_recompiler_t*, cpu_recomp_compile_flags_t);
   void (*compile_rfe) (cpu_recompiler_t*, cpu_recomp_compile_flags_t);

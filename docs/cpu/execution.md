@@ -166,6 +166,12 @@ writes without relying on an accidental mmap fault to select isolated handlers.
 Successful merge cases check both instruction orders at every word offset,
 neighboring store bytes, and a pending load into the address register.
 
+SWC0, SWC1 and SWC3 check coprocessor permission before word alignment in all
+three execution modes. Generated cases cover every unaligned word offset in
+RAM and MMIO, both address forms, branch slots, pending loads and exception
+metadata. Aligned transfer data and bus effects remain unqualified: the
+interpreter writes zero, while native execution performs no data transfer.
+
 These cases verify error propagation within the current bus model. Merge
 operations still use aligned word reads and read-modify-write stores; their
 device access widths remain unqualified. GTE transfer timing and physical bus
