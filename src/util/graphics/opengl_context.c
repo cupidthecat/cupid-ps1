@@ -1,7 +1,5 @@
 /*
- *
-
- * Win32, macOS, Android, XCB factory branches dropped.
+ * Creates EGL/X11 OpenGL contexts and applies driver extension workarounds.
  */
 #include "opengl_context.h"
 #include "opengl_context_egl_xlib.h"

@@ -1,31 +1,15 @@
 /*
- * The C++ AudioStream class hierarchy is mapped to:
+ * Audio output backends embed audio_stream_t and supply a vtable. Callers use
+ * the inline audio_stream_* wrappers to start and stop playback.
  *
- *   typedef struct audio_stream audio_stream_t;
- *   struct audio_stream { const audio_stream_vtable_t* vtbl; ... };
+ * Producers supply a read_frames callback and a user pointer. Driver and
+ * device names are NUL-terminated strings; string results use small_string_t
+ * output parameters. Driver enumeration returns parallel name arrays, freed
+ * with audio_stream_free_string_list. Device enumeration returns an array
+ * freed with audio_stream_free_device_list.
  *
- * Concrete backends (SDL today) embed audio_stream_t as their first member and
- * supply a vtable.  Callers go through the inline wrappers (audio_stream_start,
- * audio_stream_stop) and never touch vtbl directly.
- *
- * AudioStreamSource (the abstract producer) is collapsed to an
- * audio_stream_source_t = (read_frames fn, user) pair.
- *
- * Type-mapping rules used here:
- *   std::string_view driver_name / device_name -> const char* (NUL-terminated)
- *   std::string                                 -> small_string_t* out-param
- *   std::vector<std::pair<std::string,std::string>>
- *                                               -> two parallel char** arrays
- *                                                  + count, freed with
- *                                                  audio_stream_free_string_list
- *   std::vector<DeviceInfo>                     -> heap audio_stream_device_info_t*
- *                                                  + count, freed with
- *                                                  audio_stream_free_device_list
- *
- * Cubeb / CoreAudio / Win32 / Android backends are dropped - SDL is the only
- * non-Null backend.  StretchMode is preserved as an enum but not consumed
- * here because SoundTouch is not (yet) ported; the SDL backend pass-through
- * resampling already happens inside SDL itself.
+ * SDL is the playback backend; Null disables output. core_audio_stream.c
+ * handles guest buffering, resampling and time stretching before SDL playback.
  */
 
 #ifndef CUPID_UTIL_AUDIO_STREAM_H

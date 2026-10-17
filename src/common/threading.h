@@ -1,11 +1,8 @@
 /*
- * APIs, mach semaphores, FreeBSD pthread_np and any per-thread priority knobs
- * that don't translate to POSIX have been dropped.
- *
- * C++ classes were collapsed into structs + module functions.  RAII
- * destructors became explicit threading_*_destroy().  std::function callbacks
- * are now plain (void(*)(void*), void*) pairs.  std::string thread names are
- * fixed 16-byte buffers because pthread_setname_np caps at 16 anyway.
+ * POSIX threading and synchronization helpers. Callers release objects with
+ * their threading_*_destroy() functions. Callbacks carry a function pointer
+ * and a context pointer. Thread names use 16-byte buffers, including the NUL
+ * terminator, for pthread_setname_np.
  */
 
 #ifndef CUPID_COMMON_THREADING_H
