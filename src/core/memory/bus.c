@@ -1165,6 +1165,11 @@ static u32 read_bios_bus_unit(u32 address, u32 unit_bytes)
   return s_bios[address & BUS_BIOS_MASK];
 }
 
+bool bus_bios_reads_repeat_byte(void)
+{
+  return !(byte_device_control(s_MEMCTRL.r.bios_delay_size.bits) & DEVICE_BUS_INCREMENT);
+}
+
 u32 bus_read_bios_data(u32 address, memory_access_size_t size)
 {
   const u32 control = byte_device_control(s_MEMCTRL.r.bios_delay_size.bits);
@@ -1316,100 +1321,132 @@ static void icache_write_byte(virtual_memory_address_t a, u32 v) { icache_write_
 static void icache_write_half(virtual_memory_address_t a, u32 v) { icache_write_common(a, v, 2); }
 static void icache_write_word(virtual_memory_address_t a, u32 v) { icache_write_common(a, v, 4); }
 
+static u32 read_exp1_bus_unit(u32 address, u32 unit_bytes)
+{
+  (void)unit_bytes;
+  return pio_device_read(address & BUS_EXP1_MASK);
+}
+
+static void write_exp1_bus_unit(u32 address, u32 value, u32 unit_bytes, u32 enabled_bytes)
+{
+  (void)unit_bytes;
+  (void)enabled_bytes;
+  pio_device_write(address & BUS_EXP1_MASK, (u8)value);
+}
+
 static u32 exp1_read_byte(virtual_memory_address_t address)
 {
   BUS_CYCLES(s_exp1_access_time[0]);
-  return (u32)pio_device_read(address & BUS_EXP1_MASK);
+  return device_bus_read(address, MEMORY_ACCESS_SIZE_BYTE, byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits),
+                         read_exp1_bus_unit);
 }
 static u32 exp1_read_half(virtual_memory_address_t address)
 {
   BUS_CYCLES(s_exp1_access_time[1]);
-  const u32 off = address & BUS_EXP1_MASK;
-  u32 v = pio_device_read(off);
-  v |= (u32)pio_device_read(off + 1u) << 8;
-  return v;
+  return device_bus_read(address, MEMORY_ACCESS_SIZE_HALFWORD, byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits),
+                         read_exp1_bus_unit);
 }
 static u32 exp1_read_word(virtual_memory_address_t address)
 {
   BUS_CYCLES(s_exp1_access_time[2]);
-  const u32 off = address & BUS_EXP1_MASK;
-  u32 v = pio_device_read(off);
-  v |= (u32)pio_device_read(off + 1u) << 8;
-  v |= (u32)pio_device_read(off + 2u) << 16;
-  v |= (u32)pio_device_read(off + 3u) << 24;
-  return v;
+  return device_bus_read(address, MEMORY_ACCESS_SIZE_WORD, byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits),
+                         read_exp1_bus_unit);
 }
 static void exp1_write_byte(virtual_memory_address_t address, u32 value)
 {
-  pio_device_write(address & BUS_EXP1_MASK, (u8)value);
+  device_bus_write(address, value, MEMORY_ACCESS_SIZE_BYTE, byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits),
+                   write_exp1_bus_unit);
 }
 static void exp1_write_half(virtual_memory_address_t address, u32 value)
 {
-  const u32 off = address & BUS_EXP1_MASK;
-  pio_device_write(off,        (u8)value);
-  pio_device_write(off + 1u,   (u8)(value >> 8));
+  device_bus_write(address, value, MEMORY_ACCESS_SIZE_HALFWORD, byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits),
+                   write_exp1_bus_unit);
 }
 static void exp1_write_word(virtual_memory_address_t address, u32 value)
 {
-  const u32 off = address & BUS_EXP1_MASK;
-  pio_device_write(off,        (u8)value);
-  pio_device_write(off + 1u,   (u8)(value >> 8));
-  pio_device_write(off + 2u,   (u8)(value >> 16));
-  pio_device_write(off + 3u,   (u8)(value >> 24));
+  device_bus_write(address, value, MEMORY_ACCESS_SIZE_WORD, byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits),
+                   write_exp1_bus_unit);
+}
+
+static u32 read_exp2_bus_unit(u32 address, u32 unit_bytes)
+{
+  (void)unit_bytes;
+  const u32 off = address & BUS_EXP2_MASK;
+  if (off == 0x21u) return 0x04u | 0x08u; /* rx/tx buffer empty */
+  if (off >= 0x60u && off <= 0x67u) return 0xFFFFFFFFu;
+  if (off == 0x80u) return 0xFFFFFFFFu;
+  WARNING_LOG("EXP2 read: 0x%08X", address);
+  return 0xFFFFFFFFu;
 }
 
 static u32 exp2_read_common(virtual_memory_address_t address, memory_access_size_t size)
 {
   BUS_CYCLES(s_exp2_access_time[(u32)size]);
-  const u32 off = address & BUS_EXP2_MASK;
-  if (off == 0x21u)
-    return 0x04u | 0x08u;                /* rx/tx buffer empty */
-  if (off >= 0x60u && off <= 0x67u)
-    return 0xFFFFFFFFu;                  /* nocash expansion area */
-  if (off == 0x80u)
-    return 0xFFFFFFFFu;                  /* pcsx_present() */
-  WARNING_LOG("EXP2 read: 0x%08X", address);
-  return 0xFFFFFFFFu;
+  if (s_MEMCTRL.r.exp2_delay_size.b.data_bus_16bit) return read_exp2_bus_unit(address, 1);
+  return device_bus_read(address, size, s_MEMCTRL.r.exp2_delay_size.bits, read_exp2_bus_unit);
 }
-static u32 exp2_read_byte(virtual_memory_address_t a) { return exp2_read_common(a, MEMORY_ACCESS_SIZE_BYTE); }
-static u32 exp2_read_half(virtual_memory_address_t a) { return exp2_read_common(a, MEMORY_ACCESS_SIZE_HALFWORD); }
-static u32 exp2_read_word(virtual_memory_address_t a) { return exp2_read_common(a, MEMORY_ACCESS_SIZE_WORD); }
+static u32 exp2_read_byte(virtual_memory_address_t a)
+{
+  return exp2_read_common(a, MEMORY_ACCESS_SIZE_BYTE);
+}
+static u32 exp2_read_half(virtual_memory_address_t a)
+{
+  return exp2_read_common(a, MEMORY_ACCESS_SIZE_HALFWORD);
+}
+static u32 exp2_read_word(virtual_memory_address_t a)
+{
+  return exp2_read_common(a, MEMORY_ACCESS_SIZE_WORD);
+}
 
 static void kernel_initialized_hook(void)
 {
-  if (s_kernel_initialize_hook_run)
-    return;
+  if (s_kernel_initialize_hook_run) return;
   INFO_LOG("Kernel initialized.");
   s_kernel_initialize_hook_run = true;
   system_handle_kernel_initialized();
 }
 
-static void exp2_write_common(virtual_memory_address_t address, u32 value)
+static void write_exp2_bus_unit(u32 address, u32 value, u32 unit_bytes, u32 enabled_bytes)
 {
+  (void)unit_bytes;
+  (void)enabled_bytes;
   const u32 off = address & BUS_EXP2_MASK;
-  if (off == 0x23u || off == 0x80u)
-  {
+  if (off == 0x23u || off == 0x80u) {
     bus_add_tty_character((char)value);
     return;
   }
-  if (off == 0x41u || off == 0x42u)
-  {
+  if (off == 0x41u || off == 0x42u) {
     const u32 post_code = value & 0x0Fu;
     DEV_LOG("BIOS POST status: %02X", post_code);
-    if (post_code == 0x07u)
-      kernel_initialized_hook();
+    if (post_code == 0x07u) kernel_initialized_hook();
     return;
   }
-  if (off == 0x70u)
-  {
+  if (off == 0x70u) {
     DEV_LOG("BIOS POST2 status: %02X", value & 0x0Fu);
     return;
   }
   WARNING_LOG("EXP2 write: 0x%08X <- 0x%08X", address, value);
 }
-static void exp2_write_byte(virtual_memory_address_t a, u32 v) { exp2_write_common(a, v); }
-static void exp2_write_half(virtual_memory_address_t a, u32 v) { exp2_write_common(a, v); }
-static void exp2_write_word(virtual_memory_address_t a, u32 v) { exp2_write_common(a, v); }
+static void exp2_write_common(virtual_memory_address_t address, u32 value, memory_access_size_t size)
+{
+  if (s_MEMCTRL.r.exp2_delay_size.b.data_bus_16bit) {
+    write_exp2_bus_unit(address, value, 1, 1);
+    return;
+  }
+  device_bus_write(address, value, size, s_MEMCTRL.r.exp2_delay_size.bits, write_exp2_bus_unit);
+}
+static void exp2_write_byte(virtual_memory_address_t a, u32 v)
+{
+  exp2_write_common(a, v, MEMORY_ACCESS_SIZE_BYTE);
+}
+static void exp2_write_half(virtual_memory_address_t a, u32 v)
+{
+  exp2_write_common(a, v, MEMORY_ACCESS_SIZE_HALFWORD);
+}
+static void exp2_write_word(virtual_memory_address_t a, u32 v)
+{
+  exp2_write_common(a, v, MEMORY_ACCESS_SIZE_WORD);
+}
 
 static u32 exp3_read_byte(virtual_memory_address_t address)
 {

@@ -82,6 +82,7 @@ typedef enum : u8 {
   CPU_CODE_CACHE_BF_BRANCH_DELAY_SPANS_PAGES= (1u << 2),
   CPU_CODE_CACHE_BF_IS_USING_ICACHE         = (1u << 3),
   CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS = (1u << 4),
+  CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE       = (1u << 5),
 } cpu_code_cache_block_flags_t;
 
 typedef enum : u8 {

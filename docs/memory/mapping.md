@@ -40,3 +40,5 @@ remaps, configured 8 MB backing offsets and unmapped holes. CPU tests also execu
 writes beneath cached and uncached code, including through mmap fastmem.
 The mapping checks establish agreement with the configured bus model. They do
 not qualify physical 8 MB hardware, complete memory-control behavior or bus timing.
+See [device bus accesses](device-bus.md) for transfer widths, address stepping
+and the remaining external-device limits.

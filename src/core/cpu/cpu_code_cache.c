@@ -997,9 +997,10 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
     Assert(block->next_block_in_page == NULL);
     recompile_frame = block->compile_frame;
     recompile_count = block->compile_count;
-    /* Changing the cache view selects different instruction storage; it is
-     * not repeated mutation of the same decoded view. */
-    if ((block->flags ^ metadata->flags) & CPU_CODE_CACHE_BF_IS_USING_ICACHE) {
+    /* Cache selection and ROM transfer controls select a different fetch view.
+     * Count repeated code mutations within that view. */
+    const u32 fetch_view_flags = CPU_CODE_CACHE_BF_IS_USING_ICACHE | CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE;
+    if ((block->flags ^ metadata->flags) & fetch_view_flags) {
       recompile_frame = frame;
       recompile_count = 0u;
     }
@@ -1087,13 +1088,16 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
   block_instructions_reset();
   metadata->icache_line_count = 0u;
   metadata->uncached_fetch_ticks = 0;
-   metadata->flags = use_icache ? CPU_CODE_CACHE_BF_IS_USING_ICACHE :
-                    (dynamic_fetch_ticks ? CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS : 
-                                           CPU_CODE_CACHE_BF_NONE);
+  metadata->flags                = use_icache
+                                       ? CPU_CODE_CACHE_BF_IS_USING_ICACHE
+                                       : (dynamic_fetch_ticks ? CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS : CPU_CODE_CACHE_BF_NONE);
+  const u32 physical_pc          = cpu_virtual_to_physical(start_pc);
+  if (physical_pc >= BUS_BIOS_BASE && physical_pc - BUS_BIOS_BASE < BUS_BIOS_MIRROR_SIZE &&
+      bus_bios_reads_repeat_byte())
+    metadata->flags = (cpu_code_cache_block_flags_t)(metadata->flags | CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE);
 
   u32 last_cache_line = (u32)-1;
-  u32 last_page = (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) ?
-                    bus_get_ram_code_page_index(start_pc) : 0u;
+  u32 last_page = (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) ? bus_get_ram_code_page_index(start_pc) : 0u;
 
   for (;;) {
     if (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) {

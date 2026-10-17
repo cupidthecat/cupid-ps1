@@ -43,6 +43,12 @@ through Linux mapping permissions. It also checks configured 8 MB offsets and
 unmapped holes. See [memory mapping](../memory/mapping.md) for the access paths
 and qualification limits.
 
+The `DeviceBus` filter checks transfer strobes, BIOS fetches, SPU registers and
+CD-ROM response and parameter FIFOs. Its guest programs change device controls
+under every CPU execution mode and continue after component-state restoration.
+See [device bus accesses](../memory/device-bus.md) for the implemented behavior
+and the configurations and timing that remain unqualified.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and
