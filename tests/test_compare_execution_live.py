@@ -59,7 +59,7 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                             for run in result['runs']), result)
         self.assertTrue(all(run.get('execution', {}).get('native_completed', 0) >= 10
                             for run in result['runs']), result)
-        self.assertTrue(all(run['observed_configuration'] == [('recomp', 'off', 'on', 'on')]
+        self.assertTrue(all(run['observed_configuration'] == [('recomp', 'off', 'on')]
                             for run in result['runs']), result)
         self.assertTrue(all(run['failures'] == ['missing, repeated or unexpected execution configuration']
                             for run in result['runs']), result)
