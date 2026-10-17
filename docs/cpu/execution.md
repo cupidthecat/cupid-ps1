@@ -77,6 +77,29 @@ With COP2 enabled, unsupported GTE command encodings are logged and execution
 continues without a CPU exception. Their arithmetic effects and exact timing
 [remain unqualified](https://github.com/cupidthecat/cupid-ps1/issues/18).
 
+## Instruction-cache tag accesses and refills
+
+With cache isolation and BIU tag mode selected, data accesses select the cache
+tag metadata. Word stores set the physical page from the address and the four
+valid bits from the low nibble of the value. They preserve the cached code.
+Reads report those valid bits in bits 0-3 and a page-match flag in bit 4.
+KUSEG and KSEG0 aliases share the same physical tag. Code-mode reads select the
+addressed byte, halfword or word within the cached code.
+
+A four-word refill starts at the requested word and continues to the end of
+the line. Two-word mode fills only words 0-1 on a miss at word 0; misses at
+other offsets still fill through word 3. A matching tag retains validity for
+words outside the refill. A different page invalidates unfetched words while
+retaining their code bytes. See the
+[hardware reference](https://psx-spx.consoledev.net/memorymap/).
+
+Generated tests cover tag writes, physical aliases, partial refills, access
+widths, CPU state restoration and guest mode changes across all three CPU
+execution paths. The published twelve-test cache program adds instruction-stream
+coverage. These checks do not qualify exact refill timing, eight- or sixteen-word
+BIU settings, tag subword stores, INV/LOCK modes or all isolated accesses with
+IS1 disabled. The larger refill settings currently use the four-word model.
+
 ## Coprocessor branches
 
 With the corresponding CU bit enabled, `BCnF` branches and `BCnT` falls through

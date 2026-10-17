@@ -1222,23 +1222,44 @@ static void cache_control_write_any(virtual_memory_address_t address, u32 value)
 static void icache_write_common(virtual_memory_address_t address, u32 value, size_t bytes)
 {
   const u32 line   = cpu_get_icache_line(address);
+  if (cpu_get_cache_control_bits() & (1u << 2)) {
+    /* Tag stores set the physical page and four valid bits, leaving code intact. */
+    const u32 valid             = (value << ((address & 3u) * 8u)) & CPU_ICACHE_INVALID_BITS;
+    cpu_get_icache_tags()[line] = cpu_get_icache_tag_for_address(address) | (valid ^ CPU_ICACHE_INVALID_BITS);
+    return;
+  }
   u32* line_data   = &cpu_get_icache_data()[line * CPU_ICACHE_WORDS_PER_LINE];
   const u32 offset = cpu_get_icache_line_offset(address);
   cpu_get_icache_tags()[line] = cpu_get_icache_tag_for_address(address) | CPU_ICACHE_INVALID_BITS;
   memcpy((u8*)line_data + offset, &value, bytes);
 }
-static u32 icache_read(virtual_memory_address_t address)
+static u32 icache_read(virtual_memory_address_t address, size_t bytes)
 {
   const u32 line   = cpu_get_icache_line(address);
   const u32* line_data = &cpu_get_icache_data()[line * CPU_ICACHE_WORDS_PER_LINE];
-  const u32 offset = cpu_get_icache_line_offset(address);
-  u32 result;
-  memcpy(&result, (const u8*)line_data + offset, sizeof(result));
-  return result;
+  u32        result    = line_data[cpu_get_icache_line_offset(address) >> 2];
+  if (cpu_get_cache_control_bits() & (1u << 2)) {
+    const u32  tag   = cpu_get_icache_tags()[line];
+    const u32  valid = (tag ^ CPU_ICACHE_INVALID_BITS) & CPU_ICACHE_INVALID_BITS;
+    const bool match = ((tag ^ cpu_get_icache_tag_for_address(address)) & 0xFFFFF000u) == 0;
+    /* Only the low five tag-read bits have defined metadata here. */
+    result = (result & ~0x1Fu) | valid | (match ? 0x10u : 0u);
+  }
+  result >>= (address & 3u) * 8u;
+  return result & (bytes == 1 ? 0xFFu : bytes == 2 ? 0xFFFFu : 0xFFFFFFFFu);
 }
-static u32  icache_read_byte(virtual_memory_address_t a) { return icache_read(a); }
-static u32  icache_read_half(virtual_memory_address_t a) { return icache_read(a); }
-static u32  icache_read_word(virtual_memory_address_t a) { return icache_read(a); }
+static u32 icache_read_byte(virtual_memory_address_t a)
+{
+  return icache_read(a, 1);
+}
+static u32 icache_read_half(virtual_memory_address_t a)
+{
+  return icache_read(a, 2);
+}
+static u32 icache_read_word(virtual_memory_address_t a)
+{
+  return icache_read(a, 4);
+}
 static void icache_write_byte(virtual_memory_address_t a, u32 v) { icache_write_common(a, v, 1); }
 static void icache_write_half(virtual_memory_address_t a, u32 v) { icache_write_common(a, v, 2); }
 static void icache_write_word(virtual_memory_address_t a, u32 v) { icache_write_common(a, v, 4); }

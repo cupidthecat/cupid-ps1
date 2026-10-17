@@ -25,6 +25,13 @@ behavior sanitizers. It checks test selection failures and the filtered
 runner. It does not boot private inputs, run an OpenGL context, or upload
 runtime files.
 
+The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
+partial refills and state restoration. Its guest program changes BIU modes
+under ordinary, cached and native execution, including mmap and unlinked native
+configurations. These generated cases complement the locally run published
+cache program. See [CPU execution](../cpu/execution.md#instruction-cache-tag-accesses-and-refills)
+for the behavior covered and the remaining limits.
+
 For a bounded save/load smoke check with authorized local inputs, run:
 
 ```sh

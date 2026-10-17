@@ -1537,14 +1537,20 @@ tick_count_t cpu_get_instruction_read_ticks(virtual_memory_address_t address)
   return 0;
 }
 
+static u32 cpu_icache_refill_word_count(virtual_memory_address_t address)
+{
+  const u32 offset = cpu_get_icache_line_word_offset(address);
+  /* Two-word mode shortens a miss at word zero; other offsets fill to the line end. */
+  return g_cpu_state.cache_control.icache_fill_size == 0 && offset == 0 ? 2u : CPU_ICACHE_WORDS_PER_LINE - offset;
+}
+
 tick_count_t cpu_get_icache_fill_ticks(virtual_memory_address_t address)
 {
   address &= CPU_KSEG_MASK;
-  if (address < BUS_RAM_MIRROR_END)
-    return (tick_count_t)((CPU_ICACHE_LINE_SIZE - (address & (CPU_ICACHE_LINE_SIZE - 1u))) / 4u);
+  if (address < BUS_RAM_MIRROR_END) return (tick_count_t)cpu_icache_refill_word_count(address);
   if (address >= BUS_BIOS_BASE && address < (BUS_BIOS_BASE + BUS_BIOS_MIRROR_SIZE))
     return (tick_count_t)(bus_get_bios_access_time()[MEMORY_ACCESS_SIZE_WORD] *
-                          (s32)((CPU_ICACHE_LINE_SIZE - (address & (CPU_ICACHE_LINE_SIZE - 1u))) / 4u));
+                          (s32)cpu_icache_refill_word_count(address));
   return 0;
 }
 
@@ -1568,14 +1574,19 @@ bool cpu_fill_icache(virtual_memory_address_t address, u32* value)
 {
   const u32 line = cpu_get_icache_line(address);
   const u32 line_word_offset = cpu_get_icache_line_word_offset(address);
+  const u32  word_count       = cpu_icache_refill_word_count(address);
   u32* const line_data = g_cpu_state.icache_data + (line * CPU_ICACHE_WORDS_PER_LINE);
   u32* const offset_line_data = line_data + line_word_offset;
-  if (!cpu_do_instruction_read(address, offset_line_data, true, true,
-                               CPU_ICACHE_WORDS_PER_LINE - line_word_offset, true)) {
+  if (!cpu_do_instruction_read(address, offset_line_data, true, true, word_count, true)) {
     g_cpu_state.icache_tags[line] = CPU_ICACHE_INVALID_BITS;
     return false;
   }
-  g_cpu_state.icache_tags[line] = cpu_get_icache_fill_tag_for_address(address);
+  const u32 tag     = cpu_get_icache_tag_for_address(address);
+  const u32 old_tag = g_cpu_state.icache_tags[line];
+  const u32 invalid =
+      (old_tag & CPU_ICACHE_TAG_ADDRESS_MASK) == tag ? old_tag & CPU_ICACHE_INVALID_BITS : CPU_ICACHE_INVALID_BITS;
+  const u32 filled              = ((1u << word_count) - 1u) << line_word_offset;
+  g_cpu_state.icache_tags[line] = tag | (invalid & ~filled);
   *value = offset_line_data[0];
   return true;
 }

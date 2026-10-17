@@ -96,13 +96,7 @@ ALWAYS_INLINE u32 cpu_get_icache_tag_for_address(virtual_memory_address_t addres
   return address & CPU_KSEG_MASK & CPU_ICACHE_TAG_ADDRESS_MASK;
 }
 
-/* Low tag bits mark invalid words. A partial fill leaves words before the
- * requested offset invalid. */
-ALWAYS_INLINE u32 cpu_get_icache_fill_tag_for_address(virtual_memory_address_t address)
-{
-  static const u32 invalid_bits[4] = {0u, 1u, 3u, 7u};
-  return cpu_get_icache_tag_for_address(address) | invalid_bits[(address >> 2) & 0x03u];
-}
+/* Low tag bits mark invalid words. */
 ALWAYS_INLINE u32 cpu_get_icache_tag_mask_for_address(virtual_memory_address_t address)
 {
   static const u32 mask[4] = {CPU_ICACHE_TAG_ADDRESS_MASK | 1u, CPU_ICACHE_TAG_ADDRESS_MASK | 2u,
