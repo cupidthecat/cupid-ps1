@@ -30,7 +30,16 @@ creation, reuse and execution counts when `--mode cached` is selected.
 All three execution modes share instruction prefetch. Switching modes retains
 the fetched word, pending loads, instruction-cache data and partial-line
 validity. Before native dispatch starts, pending branch-delay instructions
-finish through the shared executor.
+finish through the shared executor unless an event takes an exception first.
+
+Interrupt entry uses the retained instruction to decide whether to issue a GTE
+command, even when RAM now contains a different word. An IRQ before a branch
+slot retains the resolved successor in TAR and the branch address in EPC.
+The dispatcher rechecks the pending slot after running events because exception
+entry clears it. Generated cases cover both command replacements, unchanged
+words, taken and untaken branches, pending loads, cached and uncached addresses,
+and CPU state restoration in each execution path. They check the shared model;
+they are not a new physical hardware capture.
 
 Native instruction-cache emulation is enabled by default. Blocks decode the
 words the CPU cache serves, including stale instructions after a RAM write.

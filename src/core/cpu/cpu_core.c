@@ -1150,18 +1150,22 @@ u32 cpu_dbg_irq_dispatch_count(void) { return s_dbg_irq_dispatch_count; }
 void cpu_dispatch_interrupt(void)
 {
   s_dbg_irq_dispatch_count++;
-  cpu_safe_read_instruction(g_cpu_state.pc, &g_cpu_state.next_instruction.bits);
+  /* The interrupted word may differ from RAM after a cache hit or saved fetch. */
+  if (!cpu_get_prefetched_instruction(g_cpu_state.pc, &g_cpu_state.next_instruction.bits))
+    cpu_safe_read_instruction(g_cpu_state.pc, &g_cpu_state.next_instruction.bits);
   if ((cpu_instruction_op_t)g_cpu_state.next_instruction.any.op == CPU_OP_COP2 &&
       !cpu_cop_is_common_instruction(g_cpu_state.next_instruction)) {
     cpu_stall_until_gte_complete();
     gte_execute_instruction(g_cpu_state.next_instruction);
   }
 
-  cpu_raise_exception_bits(
-    cpu_cop0_cause_make(CPU_EXCEPTION_INT, g_cpu_state.next_instruction_is_branch_delay_slot,
-                        g_cpu_state.branch_was_taken,
-                        (u8)g_cpu_state.next_instruction.cop.cop_n), 
-    g_cpu_state.pc);
+  const bool delay_slot    = g_cpu_state.next_instruction_is_branch_delay_slot;
+  const u32  branch_target = g_cpu_state.npc;
+  cpu_raise_exception_bits(cpu_cop0_cause_make(CPU_EXCEPTION_INT, delay_slot, g_cpu_state.branch_was_taken,
+                                              (u8)g_cpu_state.next_instruction.cop.cop_n),
+                           g_cpu_state.pc);
+  /* IRQ entry precedes the slot's fetch, so its resolved successor is still in NPC. */
+  if (delay_slot) g_cpu_state.cop0_regs.TAR = branch_target;
 
   /* The pending interrupt zeroed downcount; restore it from the timing
    * scheduler now that the interrupt has been latched. */
@@ -1336,6 +1340,7 @@ static void cpu_check_for_execution_mode_change(void)
     while (g_cpu_state.next_instruction_is_branch_delay_slot) {
       if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
         timing_events_run_events();
+      if (!g_cpu_state.next_instruction_is_branch_delay_slot) break;
       cpu_finish_native_dispatch_delay_slot();
     }
     cpu_raise_pending_fetch_exception();
