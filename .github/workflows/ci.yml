@@ -2,7 +2,7 @@ name: Linux validation
 
 on:
   push:
-    branches: [main]
+    branches: [main, fix/native-cpu-state-and-timing]
   pull_request:
 
 permissions:
