@@ -182,6 +182,9 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                             modes=('recomp', 'recomp'), fastmem=fastmem, linking=linking,
                             interval=2, checkpoints=2, min_blocks=10, restore_at=1, timeout=30)
                         self.assertTrue(result['passed'], result)
+                        for run in result['runs']:
+                            self.assertEqual(run['execution']['interpreted'],
+                                             run['execution']['native_dispatch_delay_slots'], result)
                         for side in ('left', 'right'):
                             data = (directory / side / 'checkpoint-00000004.sav').read_bytes()
                             self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 87))

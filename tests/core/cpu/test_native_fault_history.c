@@ -133,9 +133,9 @@ TEST(NativeFaultHistory, unlinked_mmap_store_at_zero)
   check_zero_pc_fault(CPU_FASTMEM_MODE_MMAP, false, true);
 }
 
-static void check_many_fault_sites(cpu_fastmem_mode_t fastmem)
+static void check_many_fault_sites(cpu_fastmem_mode_t fastmem, u32 entry)
 {
-  const u32 sites = 5000, entry = 0x10000;
+  const u32 sites = 5000;
   const u32 count = sites * 4 + 3;
   u32*      words = malloc(count * sizeof(*words));
   EXPECT_NOT_NULL(words);
@@ -174,7 +174,7 @@ static void check_many_fault_sites(cpu_fastmem_mode_t fastmem)
   EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
   EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= sites);
   EXPECT_EQ(fault_guest_pc, entry + (sites - 1) * 16);
-  EXPECT_FALSE(cpu_code_cache_has_previously_faulted_on_pc(0));
+  EXPECT_EQ(cpu_code_cache_has_previously_faulted_on_pc(0), entry == 0);
   u32 remembered = 0;
   for (u32 i = 0; i < sites; i++) {
     remembered += cpu_code_cache_has_previously_faulted_on_pc(entry + i * 16);
@@ -189,10 +189,20 @@ static void check_many_fault_sites(cpu_fastmem_mode_t fastmem)
 
 TEST(NativeFaultHistory, lut_retains_thousands_of_fault_sites)
 {
-  check_many_fault_sites(CPU_FASTMEM_MODE_LUT);
+  check_many_fault_sites(CPU_FASTMEM_MODE_LUT, 0x10000);
 }
 
 TEST(NativeFaultHistory, mmap_retains_thousands_of_fault_sites)
 {
-  check_many_fault_sites(CPU_FASTMEM_MODE_MMAP);
+  check_many_fault_sites(CPU_FASTMEM_MODE_MMAP, 0x10000);
+}
+
+TEST(NativeFaultHistory, lut_retains_zero_across_growth)
+{
+  check_many_fault_sites(CPU_FASTMEM_MODE_LUT, 0);
+}
+
+TEST(NativeFaultHistory, mmap_retains_zero_across_growth)
+{
+  check_many_fault_sites(CPU_FASTMEM_MODE_MMAP, 0);
 }
