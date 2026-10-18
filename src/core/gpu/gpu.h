@@ -1,9 +1,6 @@
 /*
- * Central GPU register / command emulator.  The C++ class GPU folds into a
- * file-static gpu_state_t inside gpu.c; this header exposes the public
- * functions the rest of the system calls (bus MMIO, DMA channel 2, timing
- * events, save state).  Hardware-renderer paths, runahead, GPU dumps,
- * media-capture, debug imgui, screenshots and PGXP are all dropped.
+ * GPU registers, command processing, display timing and transfers.
+ * The module coordinates renderer backends, timers, DMA and save states.
  */
 
 #ifndef CUPID_CORE_GPU_H
@@ -79,6 +76,9 @@ bool gpu_is_command_completion_pending(void);
 
 /* Pulls the CRTC tick event forward, draining any pending raster updates. */
 void gpu_synchronize_crtc(void);
+
+/* Recalculate the next beam event after a timer configuration change. */
+void gpu_reschedule_crtc(void);
 
 /* Beam position helpers (used by Timer dot/hblank inputs). */
 void          gpu_get_beam_position(u32* out_ticks, u32* out_line);

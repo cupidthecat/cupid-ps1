@@ -62,6 +62,11 @@ compares complete counter and interrupt records after batched and individual
 ticks. See [root counters](../timers/root-counters.md) for the modeled behavior
 and the published timer-program result that still fails.
 
+The `GpuTimer` filter drives the GPU and counter event queue together. It
+checks IRQ deadlines, one-shot completion, Hblank gates and state continuation
+across display modes and counter clocks. The cases use generated state and
+need no private BIOS or disc.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and

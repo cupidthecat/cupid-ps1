@@ -19,6 +19,7 @@
 
 LOG_CHANNEL(Timers);
 
+extern void         gpu_reschedule_crtc(void) __attribute__((weak));
 extern void         gpu_synchronize_crtc(void) __attribute__((weak));
 extern bool         gpu_is_crtc_scanline_pending(void) __attribute__((weak));
 extern tick_count_t system_get_max_slice_ticks(void) __attribute__((weak));
@@ -348,7 +349,7 @@ u32 timers_read_register(u32 offset)
 
   switch (port_offset) {
     case 0x00: {
-      if (timer_index < 2 && cs->external_counting_enabled && gpu_synchronize_crtc) {
+      if (timer_index < 2 && (cs->external_counting_enabled || cs->mode.sync_enable) && gpu_synchronize_crtc) {
         /* T0/T1 depend on the GPU. */
         if (timer_index == 0 || (gpu_is_crtc_scanline_pending && gpu_is_crtc_scanline_pending()))
           gpu_synchronize_crtc();
@@ -359,7 +360,7 @@ u32 timers_read_register(u32 offset)
     }
 
     case 0x04: {
-      if (timer_index < 2 && cs->external_counting_enabled && gpu_synchronize_crtc) {
+      if (timer_index < 2 && (cs->external_counting_enabled || cs->mode.sync_enable) && gpu_synchronize_crtc) {
         if (timer_index == 0 || (gpu_is_crtc_scanline_pending && gpu_is_crtc_scanline_pending()))
           gpu_synchronize_crtc();
       }
@@ -392,9 +393,9 @@ void timers_write_register(u32 offset, u32 value)
 
   timer_counter_state_t* cs = &s_state.counters[timer_index];
 
-  if (timer_index < 2 && cs->external_counting_enabled && gpu_synchronize_crtc) {
-    if (timer_index == 0 || (gpu_is_crtc_scanline_pending && gpu_is_crtc_scanline_pending())) gpu_synchronize_crtc();
-  }
+  const bool update_gpu =
+      timer_index < 2 && (cs->external_counting_enabled || cs->mode.sync_enable || port_offset == 4);
+  if (update_gpu && gpu_synchronize_crtc) gpu_synchronize_crtc();
 
   timing_event_invoke_early(&s_state.sysclk_event, false);
 
@@ -440,6 +441,7 @@ void timers_write_register(u32 offset, u32 value)
       ERROR_LOG("Write unknown register in timer %u (offset 0x%02X, value 0x%X)", timer_index, offset, value);
       break;
   }
+  if (update_gpu && gpu_reschedule_crtc) gpu_reschedule_crtc();
 }
 
 static void timers_update_counting_enabled(u32 timer, timer_counter_state_t* cs)

@@ -39,6 +39,13 @@ requests and toggle parity when an update spans several counter periods.
 System-clock scheduling includes pending holds and the divided-clock remainder.
 Completed one-shot interrupts do not schedule another request.
 
+The GPU schedules both Hblank edges while Timer 0 uses synchronization. Timer
+register writes update that schedule, including changes from a stopped clock.
+Gated reads synchronize the beam before reading the counter or status flags.
+Timer 1 IRQ deadlines use the Hblank-entry edge that clocks the counter.
+The GPU handles a counter with no pending IRQ without overflowing its clock
+conversion or scheduling an immediate event.
+
 ## Save states
 
 Save-state version 88 adds one hold byte to each counter record. The timer
@@ -62,6 +69,13 @@ IRQ deadlines, GPU gates, reset state and legacy-state loading. The batching
 matrix compares the complete serialized counter and interrupt records and
 request counts at 720 checkpoints. A divided-clock case restores CPU, counter
 and scheduler state before checking the next interrupt deadline.
+
+The `GpuTimer` filter checks the shared GPU/counter event path. It covers all
+five horizontal resolutions, NTSC/PAL display modes, system and dot clocks,
+completed one-shot requests, rearming and interrupt delivery at the modeled
+clock edge. Gating cases check paused and running intervals before and after
+restoring CPU, interrupt, GPU, counter and scheduler state. These are generated
+software checks; they do not establish physical-console timing accuracy.
 
 The original published timer program still fails its target-readback verdict
 under both interpreter and native LUT execution. In the retained run, repeated

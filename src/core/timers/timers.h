@@ -1,7 +1,6 @@
 /*
- * namespace Timers -> timers_ prefix.  Three root counters live in a
- * file-static array; one TimingEvent (timing_event_t) ticks them via the
- * shared scheduler.  ImGui debug window dropped (no UI yet).
+ * Root counters, clock sources, gates and interrupt deadlines.
+ * Counter state and system-clock scheduling live in timers.c.
  */
 
 #ifndef CUPID_CORE_TIMERS_H
@@ -26,6 +25,8 @@ bool timers_is_sync_enabled        (u32 timer);
 /* GPU queries */
 bool timers_is_external_irq_enabled(u32 timer);
 
+/* Counter-source ticks until the next IRQ, or INT32_MAX when the current
+ * mode cannot issue another request. */
 tick_count_t timers_get_ticks_until_irq(u32 timer);
 
 void timers_add_ticks(u32 timer, tick_count_t ticks);

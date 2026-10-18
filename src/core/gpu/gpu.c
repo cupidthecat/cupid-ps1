@@ -673,7 +673,15 @@ void gpu_synchronize_crtc(void)
     timing_event_invoke_early(&g.crtc_tick_event, false);
 }
 
-bool gpu_is_in_pal_mode(void) { return gpustat_pal_mode(g.GPUSTAT); }
+void gpu_reschedule_crtc(void)
+{
+  if (g.events_initialized) gpu_update_crtc_tick_event();
+}
+
+bool gpu_is_in_pal_mode(void)
+{
+  return gpustat_pal_mode(g.GPUSTAT);
+}
 u16  gpu_get_horizontal_total(void) { return g.crtc_state.horizontal_total; }
 u16  gpu_get_vertical_total(void)   { return g.crtc_state.vertical_total; }
 
@@ -850,29 +858,44 @@ static void gpu_update_crtc_display_parameters(void)
 static void gpu_update_crtc_tick_event(void)
 {
   gpu_crtc_state_t* cs = &g.crtc_state;
-  tick_count_t lines_until_event;
+  tick_count_t      lines_until_event;
   /* Sync at vblank end (or vblank start if HBLANK timer sync is enabled). */
   const bool hblank_sync = timers_is_sync_enabled ? timers_is_sync_enabled(GPU_HBLANK_TIMER_INDEX) : false;
   if (hblank_sync) {
     lines_until_event = (cs->current_scanline >= cs->vertical_display_end)
-      ? (cs->vertical_total - cs->current_scanline + cs->vertical_display_start)
-      : (cs->vertical_display_end - cs->current_scanline);
+                            ? (cs->vertical_total - cs->current_scanline + cs->vertical_display_start)
+                            : (cs->vertical_display_end - cs->current_scanline);
   } else {
     lines_until_event = (cs->current_scanline >= cs->vertical_display_end)
-      ? (cs->vertical_total - cs->current_scanline + cs->vertical_display_end)
-      : (cs->vertical_display_end - cs->current_scanline);
+                            ? (cs->vertical_total - cs->current_scanline + cs->vertical_display_end)
+                            : (cs->vertical_display_end - cs->current_scanline);
   }
-  if (timers_is_external_irq_enabled && timers_is_external_irq_enabled(GPU_HBLANK_TIMER_INDEX)) {
-    const tick_count_t lim = timers_get_ticks_until_irq(GPU_HBLANK_TIMER_INDEX);
-    if (lim < lines_until_event) lines_until_event = lim;
-  }
-
   tick_count_t ticks_until_event = lines_until_event * cs->horizontal_total - cs->current_tick_in_scanline;
+  if (timers_is_external_irq_enabled && timers_is_external_irq_enabled(GPU_HBLANK_TIMER_INDEX)) {
+    /* Timer 1 clocks at Hblank entry, which can precede the line boundary. */
+    const tick_count_t clocks_until = timers_get_ticks_until_irq(GPU_HBLANK_TIMER_INDEX);
+    const s64          ticks_until  = ((s64)clocks_until - 1) * cs->horizontal_total + cs->horizontal_active_end -
+                            cs->current_tick_in_scanline +
+                            (cs->current_tick_in_scanline >= cs->horizontal_active_end ? cs->horizontal_total : 0);
+    if (ticks_until < ticks_until_event) ticks_until_event = ticks_until > 0 ? (tick_count_t)ticks_until : 0;
+  }
   if (timers_is_external_irq_enabled && timers_is_external_irq_enabled(GPU_DOT_TIMER_INDEX)) {
     const tick_count_t dots_until = timers_get_ticks_until_irq(GPU_DOT_TIMER_INDEX);
-    const tick_count_t ticks_until = (dots_until * cs->dot_clock_divider) - cs->fractional_dot_ticks;
-    const tick_count_t v = ticks_until > 0 ? ticks_until : 0;
-    if (v < ticks_until_event) ticks_until_event = v;
+    /* Keep the no-IRQ sentinel wider than any finite display deadline. */
+    const s64 ticks_until = (s64)dots_until * cs->dot_clock_divider - cs->fractional_dot_ticks;
+    if (ticks_until < ticks_until_event) ticks_until_event = ticks_until > 0 ? (tick_count_t)ticks_until : 0;
+  }
+
+  if (timers_is_sync_enabled && timers_is_sync_enabled(GPU_DOT_TIMER_INDEX)) {
+    /* Gate changes still matter when the counter cannot request an IRQ. */
+    tick_count_t until_gate;
+    if (cs->current_tick_in_scanline >= cs->horizontal_active_end)
+      until_gate = cs->horizontal_total - cs->current_tick_in_scanline + cs->horizontal_active_start;
+    else if (cs->current_tick_in_scanline < cs->horizontal_active_start)
+      until_gate = cs->horizontal_active_start - cs->current_tick_in_scanline;
+    else
+      until_gate = cs->horizontal_active_end - cs->current_tick_in_scanline;
+    if (until_gate < ticks_until_event) ticks_until_event = until_gate;
   }
 
   if (g.events_initialized)
