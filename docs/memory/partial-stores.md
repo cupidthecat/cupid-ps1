@@ -39,8 +39,9 @@ and after restoring CPU, bus, timer and scheduler state.
 
 The interpreter, cached interpreter and native helpers share the store
 dispatch. Native RAM stores retain their direct host merge and write-protection
-recovery. MMIO stores use the device helpers. The save-state layout remains
-version 87; the dispatch functions add no state.
+recovery. MMIO stores use the device helpers. The dispatch functions add no
+state. Timer phase state is described in
+[root counters](../timers/root-counters.md#save-states).
 
 Run the generated cases with:
 

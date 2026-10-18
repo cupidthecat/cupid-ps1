@@ -32,7 +32,7 @@ COVERAGE = {
         "excluded": ["CPU host-dispatch flags/pointers and PGXP CPU shadow arrays not written by cpu_do_state",
                      "host mappings, generated native code, external BIOS/disc contents",
                      "host audio/video/input queues and asynchronous host reader state"],
-        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87; see subsystem do_state functions",
+        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87/88; see subsystem do_state functions",
         "boundary": "frontend frame checkpoint; CPU event overshoot and engine flags remain compared",
         "limits": "A difference can reflect engine bookkeeping or timing. Equality covers serialized state only.",
     },
@@ -90,7 +90,7 @@ def validate_checkpoint(path):
     with path.open("rb") as stream:
         header = stream.read(216)
     if (len(header) != 216 or struct.unpack_from("<I", header)[0] != 0x43435544
-            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87)):
+            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87, 88)):
         raise ValueError("missing or unsupported checkpoint header")
     compression, size, unpacked, offset = struct.unpack_from("<4I", header, 200)
     if compression != 0 or size == 0 or size != unpacked or offset < 216 or offset + size != path.stat().st_size:

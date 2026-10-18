@@ -96,14 +96,14 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                 for side in ('left', 'right'):
                     for frame in (2, 4):
                         data = (directory / side / f'checkpoint-{frame:08d}.sav').read_bytes()
-                        self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 87))
+                        self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 88))
                         size, unpacked, start = struct.unpack_from('<III', data, 204)
                         self.assertEqual(size, unpacked)
                         self.assertEqual(start + size, len(data))
                         self.assertEqual(data[start:start + 10], b'\x06\0\0\0System')
                         cpu = start + 39
                         self.assertEqual(data[cpu:cpu + 7], b'\x03\0\0\0CPU')
-                        # Four cycle fields precede the GPRs in the version 87 CPU record.
+                        # Four cycle fields precede the GPRs in the CPU record.
                         regs = struct.unpack_from('<32I', data, cpu + 7 + 16)
                         self.assertEqual((regs[16] >> 2) & 31, 10)
                         self.assertEqual(regs[18], 0x80010028)
@@ -187,7 +187,7 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                                              run['execution']['native_dispatch_delay_slots'], result)
                         for side in ('left', 'right'):
                             data = (directory / side / 'checkpoint-00000004.sav').read_bytes()
-                            self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 87))
+                            self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 88))
                             size, unpacked, start = struct.unpack_from('<III', data, 204)
                             self.assertEqual(size, unpacked)
                             self.assertEqual(start + size, len(data))

@@ -56,6 +56,12 @@ cases cover all three counters, target values and read-to-clear flags, with
 component-state restoration. See
 [partial stores](../memory/partial-stores.md) for the remaining access paths.
 
+The `TimerCounter` filter checks 16-bit wrapping, target readback, reset holds,
+interrupt requests, clock selection, GPU gates and state restoration. It also
+compares complete counter and interrupt records after batched and individual
+ticks. See [root counters](../timers/root-counters.md) for the modeled behavior
+and the published timer-program result that still fails.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and

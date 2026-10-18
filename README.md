@@ -56,7 +56,8 @@ controller mappings and settings.
 - [Building](docs/development/building.md), [testing](docs/development/testing.md)
   and [formatting](docs/development/formatting.md)
 - [CPU execution](docs/cpu/execution.md), [memory mapping](docs/memory/mapping.md),
-  [device bus accesses](docs/memory/device-bus.md) and [rendering](docs/gpu/rendering.md)
+  [device bus accesses](docs/memory/device-bus.md),
+  [root counters](docs/timers/root-counters.md) and [rendering](docs/gpu/rendering.md)
 - [Audio output](docs/audio/output.md) and [BIOS boot](docs/bios/boot.md)
 - [Disc images and changing discs](docs/media/disc-images.md)
 - [Controllers and memory cards](docs/input/controllers-and-cards.md)

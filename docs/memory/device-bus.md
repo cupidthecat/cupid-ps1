@@ -38,7 +38,8 @@ System reset initializes the bus controls before the CPU fetches its first
 instruction from the reset vector.
 
 The serialized memory-control registers retain their 32-bit layout. The
-transfer helper has no state, and the save-state version remains 87.
+transfer helper adds no state. Timer phase state is described in
+[root counters](../timers/root-counters.md#save-states).
 
 ## Checks and limits
 
