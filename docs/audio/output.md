@@ -14,4 +14,9 @@ Stretch modes:
 - `Resample`: basic resample to host rate.
 - `TimeStretch`: pitch-preserving time-stretch via SoundTouch. Default.
 
-The SPU implementation lives in `src/core/spu/spu.c` (voices, ADSR, reverb, CD-DA mixing). The output ring is a soft-capped streaming buffer in `src/util/audio/audio_stream.c`.
+The SPU implementation is in `src/core/spu/spu.c`, including voices, ADSR,
+reverb and CD audio mixing. `src/util/audio/core_audio_stream.c` queues samples
+for the audio backend.
+
+For transfer FIFO behavior and covered DMA cases, see
+[SPU DMA reads](../spu/dma-reads.md).

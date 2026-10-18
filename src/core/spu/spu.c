@@ -1,16 +1,7 @@
 /*
  * See spu.h for the public API.
- *
- * spu_execute(cpu_ticks) is the drive-from-outside entry point: the system
- * tick loop calls it once per CPU slice and the SPU converts those ticks
- * into 44.1 kHz frames.  The transfer FIFO is drained inline.
- *
- * The internal SPSC ring buffer (`s_output_ring`) is the only state shared
- * with the audio thread.  Producer (spu_execute) only touches `head`;
- * consumer (spu_audio_read_frames) only touches `tail`; both load the
- * other end with C11 atomic acquire-release so the audio backend's
- * callback thread never tears.  Capacity is one power-of-two slot of
- * stereo s16 frames.
+ * spu_execute advances the transfer FIFO and generates 44.1 kHz stereo
+ * samples. core_audio_stream queues those samples for the audio backend.
  */
 
 #include "spu.h"
@@ -1271,7 +1262,7 @@ void spu_dma_read(u32* words, u32 word_count)
   u16* halfwords = (u16*)words;
   const u32 halfword_count = word_count * 2u;
   const u32 size = fifo_size(&s_state.transfer_fifo);
-  if (word_count > size) {
+  if (halfword_count > size) {
     u16 fill_value = 0;
     if (size > 0) {
       fifo_pop_range(&s_state.transfer_fifo, halfwords, size);
@@ -2025,8 +2016,7 @@ void spu_execute(tick_count_t cpu_ticks)
     s_state.ticks_carry = total % SYSCLK_TICKS_PER_SPU_TICK;
   }
 
-  /* Also advance any in-flight transfer (the C tree does not have a
-   * second timing event, so the transfer FIFO progresses inline). */
+  /* Advance the transfer FIFO using this CPU tick slice. */
   if (s_state.transfer_event_active) {
     s_state.transfer_ticks_carry += cpu_ticks;
     while (s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD &&

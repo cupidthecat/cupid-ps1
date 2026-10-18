@@ -89,6 +89,11 @@ The `MdecColorPacking` filter checks every output byte in generated 15- and
 24-bit color blocks, including signed components, manual and DMA interfaces,
 and restored copy-out deadlines. See [MDEC color packing](../mdec/color-packing.md).
 
+The `SpuDmaRead` filter checks every output halfword, FIFO bounds and DMA
+completion for exact and oversized reads, including restored components.
+Generated guest programs configure channel 4 across CPU execution modes and
+memory paths. See [SPU DMA reads](../spu/dma-reads.md) for coverage and limits.
+
 The `TimingEventEmpty` filter checks empty scheduler states, interrupt
 priority and callbacks that remove the last event. It includes current and
 legacy restoration and generated RAM programs. See
