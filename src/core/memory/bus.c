@@ -726,6 +726,7 @@ bool bus_is_word_latch_address(virtual_memory_address_t address)
   return (physical >= BUS_MEMCTRL_BASE && physical < BUS_MEMCTRL_BASE + BUS_MEMCTRL_SIZE) ||
          (physical >= BUS_MEMCTRL2_BASE && physical < BUS_MEMCTRL2_BASE + BUS_MEMCTRL2_SIZE) ||
          (physical >= BUS_INTC_BASE && physical < BUS_INTC_BASE + BUS_INTC_SIZE) ||
+         (physical >= BUS_TIMERS_BASE && physical < BUS_TIMERS_BASE + BUS_TIMERS_SIZE) ||
          (physical >= BUS_DMA_BASE && physical < BUS_DMA_BASE + BUS_DMA_SIZE) ||
          (physical >= BUS_GPU_BASE && physical < BUS_GPU_BASE + BUS_GPU_SIZE) ||
          (physical >= BUS_MDEC_BASE && physical < BUS_MDEC_BASE + BUS_MDEC_SIZE);

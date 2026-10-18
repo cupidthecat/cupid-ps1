@@ -23,6 +23,18 @@ This drops the extra bytes of a three-byte store. For example, with source
 neighbor unchanged. A full word writes `CCDD` followed by `AABB`. With address
 stepping disabled, both halves reach the starting register.
 
+## Timer registers
+
+Timer stores pass the shifted bus value directly to the register write handler.
+Target registers retain its low 16 bits. Reading a timer mode register clears
+the reached-target and overflow flags, so an implicit read before a store
+would consume status that the mode write preserves.
+
+The timer regressions cover all three counters. Guest programs load source and
+baseline patterns from RAM and read back each result once. Read-handler counts
+must equal those explicit readbacks. Separate cases check reached flags before
+and after restoring CPU, bus, timer and scheduler state.
+
 ## Execution and checks
 
 The interpreter, cached interpreter and native helpers share the store
@@ -45,8 +57,11 @@ check the other access paths.
 
 ## Remaining paths
 
-Partial stores to 8-bit external devices and the serial/timer paths still
+Partial stores to 8-bit external devices and serial registers still
 use a word read and merge. Their strobes and read side effects need further
 work. Isolated-cache partial stores and bus timing also remain unqualified.
-The published SPU measurements do not establish 8-bit device behavior or
-behavior on every console revision. No new physical capture was available.
+The published matrix directly measures IMASK, DPCR and SPU volume registers.
+The timer cases are software regressions; timer-specific partial-store hardware
+measurements remain missing. The SPU measurements do not establish 8-bit device
+behavior or behavior on every console revision. No new physical capture was
+available.

@@ -51,7 +51,9 @@ and the configurations and timing that remain unqualified.
 
 The `CpuPartial` filter checks shifted stores to internal word latches and
 16-bit SPU registers. It checks neighboring registers, address stepping,
-component-state continuation and the absence of extra device reads. See
+component-state continuation and the absence of extra device reads. Timer
+cases cover all three counters, target values and read-to-clear flags, with
+component-state restoration. See
 [partial stores](../memory/partial-stores.md) for the remaining access paths.
 
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
