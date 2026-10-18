@@ -2,6 +2,9 @@
 
 Two backends, picked by `--gpu-renderer` or settings INI. Backend abstraction: `src/core/gpu/gpu_backend.h`.
 
+GPU command resets and interrupt acknowledgement are described in
+[GPU reset and interrupts](reset-and-irqs.md).
+
 ## Software renderer (`gpu_sw`)
 
 Source: `src/core/gpu/software/gpu_sw.c`, `src/core/gpu/software/gpu_sw_rasterizer.c`. Default rendering path.

@@ -67,6 +67,12 @@ checks IRQ deadlines, one-shot completion, Hblank gates and state continuation
 across display modes and counter clocks. The cases use generated state and
 need no private BIOS or disc.
 
+The `GpuReset` filter checks GPU reset, interrupt acknowledgement and FIFO
+clearing. It verifies interrupt retriggering through device calls and generated
+guest programs, with component-state restoration and every CPU execution mode.
+See [GPU reset and interrupts](../gpu/reset-and-irqs.md) for the covered sequence
+and the reset behavior that remains unqualified.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and

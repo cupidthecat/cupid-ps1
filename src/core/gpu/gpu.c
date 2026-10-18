@@ -387,6 +387,9 @@ static void gpu_soft_reset(void)
   if (g.blitter_state == GPU_BLITTER_WRITING_VRAM)
     gpu_finish_vram_write();
 
+  g.GPUSTAT.bits &= ~(1u << 24);
+  interrupt_controller_set_line_state(INTERRUPT_CONTROLLER_IRQ_GPU, false);
+
   /* Reset GPUSTAT decoded fields back to power-on defaults. */
   u32 s = g.GPUSTAT.bits;
   s &= ~0x3FFu;                                    /* tex page x/y, transparency, tex mode, dither */
