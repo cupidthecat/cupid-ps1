@@ -1,26 +1,8 @@
 /*
- * Hardware MDEC.  Two MMIO registers exposed at 0x1F801820 (data/command)
- * and 0x1F801824 (status / control), plus DMA channels 0 (in) and 1 (out).
- *
- * Pipeline:
- *   DMA0 word stream -> 16-bit halfword input FIFO (1024 bytes / 512 hw)
- *     -> RLE-decode + dequantize using iq_y / iq_uv tables
- *     -> per-block IDCT (8x8) using the host-provided scale table
- *     -> for colour macroblocks, 4 Y blocks + Cb + Cr -> 16x16 RGB-888
- *     -> pack to 4/8/15/24-bit -> 768-byte output FIFO -> DMA1.
- *
- * Two YUV/IDCT paths: a scalar "old" path (toggled by
- * g_settings.mdec_use_old_routines) and a "new" path written in plain C
- * with no SIMD intrinsics; semantics are identical, performance is left
- * to the compiler's auto-vectoriser.
- *
- * Cross-module dependencies:
- *   cpu_core_add_pending_ticks ; stalls CPU when the host reads the data
- *                                  register before a block has finished.
- *   dma_set_request            ; raises DREQ on channel 0 / 1.
- *   cdrom_disable_read_speedup ; MDEC start-of-stream tells CDROM to
- *                                  stop running at max read rate so the
- *                                  FIFOs don't overrun.
+ * MDEC command decoding, quantization, IDCT, color conversion and DMA queues.
+ * MMIO registers at 0x1F801820 and 0x1F801824 connect to DMA channels 0 and 1.
+ * Input words become halfwords for RLE decoding; output is packed into
+ * 4-, 8-, 15- or 24-bit pixels. Settings select the IDCT and YUV routines.
  */
 
 #include "core/mdec/mdec.h"
@@ -173,11 +155,6 @@ static ALWAYS_INLINE void mdec_fifo_in_remove(mdec_fifo_in_t* f, u32 count)
   f->head = (f->head + count) & (MDEC_DATA_IN_FIFO_CAPACITY - 1u);
   f->size -= count;
 }
-static void mdec_fifo_in_push_range(mdec_fifo_in_t* f, const u16* values, u32 count)
-{
-  for (u32 i = 0; i < count; i++)
-    mdec_fifo_in_push(f, values[i]);
-}
 static void mdec_fifo_in_pop_range(mdec_fifo_in_t* f, u16* out, u32 count)
 {
   for (u32 i = 0; i < count; i++)
@@ -209,7 +186,7 @@ static void mdec_fifo_out_pop_range(mdec_fifo_out_t* f, u32* out, u32 count)
 
  /*
  * fixed-size POD; we mirror that on disk so loaders interoperate.  Layout:
- * head (u32), tail (u32), size (u32), capacity (u32), then the raw buffer.
+ * head (u32), tail (u32), size (u32), then the fixed buffer.
  *
  * NOTE: MDEC_DATA_IN_FIFO_CAPACITY is power-of-two so the ring indices fit
  * in u32 trivially. */
@@ -421,16 +398,18 @@ void mdec_dma_read(u32* words, u32 word_count)
 
 void mdec_dma_write(const u32* words, u32 word_count)
 {
-  if (mdec_fifo_in_space(&s_state.data_in_fifo) < (word_count * 2u))
-    WARNING_LOG("Input FIFO overflow (writing %u, space %u)",
-                word_count * 2u, mdec_fifo_in_space(&s_state.data_in_fifo));
+  const u32 available_words = mdec_fifo_in_space(&s_state.data_in_fifo) / 2u;
+  if (word_count > available_words)
+    WARNING_LOG("Input FIFO overflow (writing %u words, space %u words)", word_count, available_words);
 
-  /* Mask off bit 1 to keep the count even; pairs of halfwords were
-   * unpacked from a single u32, so we either accept both or drop both. */
-  const u32 halfwords_to_write = mdec_min_u32(word_count * 2u,
-                                              mdec_fifo_in_space(&s_state.data_in_fifo) & ~(u32)2u);
-  FMV_DUMP("T1", words, word_count * 4u, ((u64)halfwords_to_write << 32) | word_count);
-  mdec_fifo_in_push_range(&s_state.data_in_fifo, (const u16*)words, halfwords_to_write);
+  const u32 words_to_write = mdec_min_u32(word_count, available_words);
+  FMV_DUMP("T1", words, word_count * 4u, ((u64)(words_to_write * 2u) << 32) | word_count);
+  /* Accept complete words in low-halfword-first order. */
+  for (u32 i = 0; i < words_to_write; i++) {
+    const u32 value = words[i];
+    mdec_fifo_in_push(&s_state.data_in_fifo, Truncate16(value));
+    mdec_fifo_in_push(&s_state.data_in_fifo, Truncate16(value >> 16));
+  }
   mdec_execute();
 }
 
@@ -500,8 +479,7 @@ static void mdec_update_status(void)
 static u32 mdec_read_data_register(void)
 {
   if (mdec_fifo_out_empty(&s_state.data_out_fifo)) {
-    /* Stall the CPU until the in-flight block lands, mirroring real HW
-     * which simply doesn't ack the read until DMAout has drained. */
+    /* Charge the modeled copy-out delay when output is pending. */
     if (mdec_has_pending_block_copy_out()) {
       DEV_LOG("MDEC data out FIFO empty on read - stalling CPU");
       cpu_core_add_pending_ticks(timing_event_get_ticks_until_next_execution(&s_state.block_copy_out_event));
@@ -522,6 +500,10 @@ static u32 mdec_read_data_register(void)
 static void mdec_write_command_register(u32 value)
 {
   TRACE_LOG("MDEC command/data register <- 0x%08X", value);
+  if (mdec_fifo_in_space(&s_state.data_in_fifo) < 2u) {
+    WARNING_LOG("MDEC input FIFO has no complete-word space for 0x%08X", value);
+    return;
+  }
   mdec_fifo_in_push(&s_state.data_in_fifo, Truncate16(value));
   mdec_fifo_in_push(&s_state.data_in_fifo, Truncate16(value >> 16));
   mdec_execute();

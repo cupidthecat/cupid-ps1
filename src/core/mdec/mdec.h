@@ -1,12 +1,4 @@
-/*
- * MDEC; the PS1's hardware MPEG-1-style movie decoder.  Receives RLE/DCT
- * encoded macroblocks via DMA channel 0 (MDECin), runs them through an IDCT
- * + (optionally) YUV->RGB pipeline, and feeds the result back to RAM via DMA
- * channel 1 (MDECout).  All state is process-wide singleton -> file-static
- * globals in mdec.c.
- *
- * namespace MDEC -> mdec_ prefix.  imgui debug window dropped (no GUI here).
- */
+/* MDEC command registers, decode state and DMA input/output. */
 
 #ifndef CUPID_CORE_MDEC_H
 #define CUPID_CORE_MDEC_H
@@ -25,12 +17,12 @@ bool mdec_is_decoding_macroblock(void);
 void mdec_end_frame(void);
 
 /* MMIO at 0x1F801820 (data) and 0x1F801824 (status/control). */
-u32  mdec_read_register (u32 offset);
+u32  mdec_read_register(u32 offset);
 void mdec_write_register(u32 offset, u32 value);
 
 /* DMA channel 1 (MDECout): the decoder pulls up to `word_count` words out
- * of its 768-word output FIFO into `words`. */
-void mdec_dma_read (u32* words, u32 word_count);
+ * of its 768-byte output queue into `words`. */
+void mdec_dma_read(u32* words, u32 word_count);
 
 /* DMA channel 0 (MDECin): caller hands us `word_count` 32-bit words; we
  * unpack them as halfwords into the 1024-byte input FIFO and kick the

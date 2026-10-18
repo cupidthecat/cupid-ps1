@@ -74,6 +74,12 @@ component-state restoration and every CPU execution mode.
 See [GPU reset and interrupts](../gpu/reset-and-irqs.md) for the covered sequence
 and the reset behavior that remains unqualified.
 
+The `MdecInput` filter checks complete input words, capacity boundaries and
+queued data through both DMA and manual register writes. Guest programs
+configure DMA channel 0 or write the command port across CPU modes and memory
+paths. See [MDEC input words](../mdec/input-words.md) for the generated cases
+and the timing, capacity and decoder behavior that remain unqualified.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and
