@@ -412,6 +412,7 @@ static void gpu_soft_reset(void)
   g.drawing_area_changed = true;
   memset(&g.drawing_offset, 0, sizeof(g.drawing_offset));
 
+  g.crtc_state.display_address_start    = 0;
   g.crtc_state.horizontal_display_range = 0xC60260u;
   g.crtc_state.vertical_display_range   = 0x3FC10u;
 

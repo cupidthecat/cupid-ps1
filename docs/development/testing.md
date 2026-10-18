@@ -67,9 +67,10 @@ checks IRQ deadlines, one-shot completion, Hblank gates and state continuation
 across display modes and counter clocks. The cases use generated state and
 need no private BIOS or disc.
 
-The `GpuReset` filter checks GPU reset, interrupt acknowledgement and FIFO
-clearing. It verifies interrupt retriggering through device calls and generated
-guest programs, with component-state restoration and every CPU execution mode.
+The `GpuReset` filter checks GPU reset, display origins, interrupt
+acknowledgement and FIFO clearing. It verifies display-update parameters and
+interrupt retriggering through device calls and generated guest programs, with
+component-state restoration and every CPU execution mode.
 See [GPU reset and interrupts](../gpu/reset-and-irqs.md) for the covered sequence
 and the reset behavior that remains unqualified.
 
