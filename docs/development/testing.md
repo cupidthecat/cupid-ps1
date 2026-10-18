@@ -4,14 +4,18 @@ Run the automated suite from the repository root:
 
 ```sh
 make test
+make test TEST_JOBS=2
 bash scripts/run_tests.sh YamlParser
 bash scripts/run_tests.sh GameDatabase CC=clang BUILD=build/clang
 ```
 
-Each C test runs in a child process. A failed assertion or signal fails the
-suite. A filter that selects no tests also fails. The ISO9660 database
-lookup tests generate their own metadata-only discs in temporary
-directories. The suite requires no commercial disc or BIOS file.
+Each C test runs in a child process. `TEST_JOBS` sets how many cases can
+run concurrently; the default is one. Parallel workers use separate working
+directories and share the input resources under `data/`. Reports arrive as
+cases finish, with each case's output kept together. A failed assertion or
+signal fails the suite, and a filter that selects no tests also fails.
+The ISO9660 database lookup tests generate their own metadata-only discs in
+temporary directories. The suite requires no commercial disc or BIOS file.
 
 The suite covers utility code, image parsing, database loading and caching,
 software rasterizer operations, scalar/SIMD comparisons, and x86 emitter
@@ -21,9 +25,10 @@ are not test results for this emulator.
 
 Hosted CI builds the emulator, standalone headers and OpenGL smoke binary,
 then runs the suite using GCC, Clang, and Clang with address and undefined
-behavior sanitizers. It checks test selection failures and the filtered
-runner. It does not boot private inputs, run an OpenGL context, or upload
-runtime files.
+behavior sanitizers. Each toolchain uses two C-test workers. CI checks test
+selection failures, the filtered runner, concurrent execution, cache isolation,
+output capture and failure reporting. It does not boot private inputs, run an
+OpenGL context, or upload runtime files.
 
 The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
 partial refills and state restoration. Its guest program changes BIU modes

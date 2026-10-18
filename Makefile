@@ -100,8 +100,10 @@ all: dirs $(BUILD)/cupid-ps1
 
 hcheck: dirs $(HCHECK_OBJ)
 
+TEST_JOBS ?= 1
+
 test: dirs $(BUILD)/cupid-ps1-tests
-	@$(BUILD)/cupid-ps1-tests $(TEST_FILTER)
+	@$(BUILD)/cupid-ps1-tests --jobs $(TEST_JOBS) $(TEST_FILTER)
 
 # Independent comparisons require explicit local inputs. Evidence stays in a new
 # private directory; a timeout, missing progress or unequal state fails.

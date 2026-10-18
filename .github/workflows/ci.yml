@@ -56,7 +56,7 @@ jobs:
       - name: Build emulator, headers, graphics smoke binary and run tests
         run: |
           make -j2 CC=${{ matrix.cc }} BUILD=build/ci \
-            OPT="${{ matrix.opt }}" SANITIZERS="${{ matrix.sanitizers }}" all hcheck gl-smoke test
+            OPT="${{ matrix.opt }}" SANITIZERS="${{ matrix.sanitizers }}" TEST_JOBS=2 all hcheck gl-smoke test
       - name: Reject an empty test selection
         run: |
           if build/ci/cupid-ps1-tests NoSuchTestSelection; then
