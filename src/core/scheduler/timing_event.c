@@ -1,11 +1,6 @@
 /*
- * Doubly-linked list of active events kept sorted by next_run_time.  The
- * scheduler tail-walks the list, invoking each event whose next_run_time
- * has been reached, and re-sorts after every fired callback (the callback
- * may have re-scheduled itself or another event).
- *
- * Talks to cpu_core via cpu_get_pending_ticks / cpu_reset_pending_ticks /
- * cpu_add_pending_ticks (inline) and cpu_dispatch_interrupt + g_cpu_state.
+ * Dispatch callbacks in deadline order and serialize the scheduler clocks.
+ * Scheduling during CPU execution includes its pending ticks.
  */
 
 #include "core/scheduler/timing_event.h"
@@ -79,10 +74,14 @@ void timing_events_shutdown(void)
 
 void timing_events_update_cpu_downcount(void)
 {
+  /* An empty list has no device deadline. Interrupts still dispatch immediately. */
+  if (!s_state.active_events_head) {
+    g_cpu_state.downcount = cpu_has_pending_interrupt() ? 0u : UINT32_MAX;
+    return;
+  }
   DebugAssert(s_state.active_events_head->next_run_time >= s_state.global_tick_counter);
-  const u32 event_downcount =
-    (u32)(s_state.active_events_head->next_run_time - s_state.global_tick_counter);
-  g_cpu_state.downcount = cpu_has_pending_interrupt() ? 0u : event_downcount;
+  const u32 event_downcount = (u32)(s_state.active_events_head->next_run_time - s_state.global_tick_counter);
+  g_cpu_state.downcount     = cpu_has_pending_interrupt() ? 0u : event_downcount;
 }
 
 timing_event_t** timing_events_get_head_event_ptr(void)
@@ -251,15 +250,11 @@ static void timing_events_remove_active(timing_event_t* event)
   else
     s_state.active_events_tail = event->prev;
 
-  if (event->prev)
-  {
+  if (event->prev) {
     event->prev->next = event->next;
-  }
-  else
-  {
+  } else {
     s_state.active_events_head = event->next;
-    if (s_state.active_events_head && !s_state.current_event)
-      timing_events_update_cpu_downcount();
+    if (!s_state.current_event) timing_events_update_cpu_downcount();
   }
 
   event->prev = NULL;
@@ -337,18 +332,19 @@ ALWAYS_INLINE_RELEASE static void timing_events_commit_global_ticks(global_ticks
 {
   s_state.event_run_tick_counter = new_global_ticks;
 
-  do
-  {
+  do {
     timing_event_t* event = s_state.active_events_head;
-    s_state.global_tick_counter =
-      (new_global_ticks < event->next_run_time) ? new_global_ticks : event->next_run_time;
+    if (!event) {
+      s_state.global_tick_counter = new_global_ticks;
+      break;
+    }
+    s_state.global_tick_counter = (new_global_ticks < event->next_run_time) ? new_global_ticks : event->next_run_time;
 
     /* Run all callbacks whose next_run_time has been reached. */
-    while (s_state.global_tick_counter >= event->next_run_time)
-    {
+    while (event && s_state.global_tick_counter >= event->next_run_time) {
       s_state.current_event = event;
 
-      const tick_count_t ticks_late      = (tick_count_t)(s_state.global_tick_counter - event->next_run_time);
+      const tick_count_t ticks_late       = (tick_count_t)(s_state.global_tick_counter - event->next_run_time);
       const tick_count_t ticks_to_execute = (tick_count_t)(s_state.global_tick_counter - event->last_run_time);
 
       /* Why don't we modify event->downcount directly?  Because the active
@@ -357,12 +353,11 @@ ALWAYS_INLINE_RELEASE static void timing_events_commit_global_ticks(global_ticks
        * the callback could be inserted at the front despite having a
        * later run time too.  Stash the next time and sort once after. */
       s_state.current_event_next_run_time = event->next_run_time + (u32)event->interval;
-      event->last_run_time = s_state.global_tick_counter;
+      event->last_run_time                = s_state.global_tick_counter;
 
       /* ticks_late is informational; it doesn't subtract from ticks_to_execute. */
       event->callback(event->callback_param, ticks_to_execute, ticks_late);
-      if (event->active)
-      {
+      if (event->active) {
         event->next_run_time = s_state.current_event_next_run_time;
         timing_events_sort_event(event);
       }
@@ -377,18 +372,14 @@ void timing_events_run_events(void)
 {
   DebugAssert(!s_state.current_event);
 
-  do
-  {
-    const global_ticks_t new_global_ticks =
-      s_state.event_run_tick_counter + (global_ticks_t)cpu_get_pending_ticks();
-    if (new_global_ticks >= s_state.active_events_head->next_run_time)
-    {
+  do {
+    const global_ticks_t new_global_ticks = s_state.event_run_tick_counter + (global_ticks_t)cpu_get_pending_ticks();
+    if (!s_state.active_events_head || new_global_ticks >= s_state.active_events_head->next_run_time) {
       cpu_reset_pending_ticks();
       timing_events_commit_global_ticks(new_global_ticks);
     }
 
-    if (cpu_has_pending_interrupt())
-      cpu_dispatch_interrupt();
+    if (cpu_has_pending_interrupt()) cpu_dispatch_interrupt();
 
     timing_events_update_cpu_downcount();
   } while (cpu_get_pending_ticks() >= g_cpu_state.downcount);

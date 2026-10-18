@@ -954,8 +954,8 @@ static void mdec_idct_old(s16* blk)
 
 static void mdec_yuv_to_rgb_old(u32 xx, u32 yy, const s16* Crblk, const s16* Cbblk, const s16* Yblk)
 {
-  /* BT.601 floating-point reference.  Slow but used as a sanity check
-   * against the integer "new" path.  Coefficients straight from JPEG. */
+  /* Convert chroma with floating-point coefficients, then add luma
+   * and saturate each channel. */
   const s16 addval = s_state.status.bits.data_output_signed ? (s16)0 : (s16)0x80;
   for (u32 y = 0; y < 8; y++) {
     for (u32 x = 0; x < 8; x++) {
@@ -967,14 +967,13 @@ static void mdec_yuv_to_rgb_old(u32 xx, u32 yy, const s16* Crblk, const s16* Cbb
       B = (s16)(1.772f * (float)B);
 
       const s16 Y = Yblk[x + y * 8];
-      R = (s16)(mdec_clamp_s32((s32)Y + R, -128, 127)) + addval;
-      G = (s16)(mdec_clamp_s32((s32)Y + G, -128, 127)) + addval;
-      B = (s16)(mdec_clamp_s32((s32)Y + B, -128, 127)) + addval;
+      R           = (s16)(mdec_clamp_s32((s32)Y + R, -128, 127)) + addval;
+      G           = (s16)(mdec_clamp_s32((s32)Y + G, -128, 127)) + addval;
+      B           = (s16)(mdec_clamp_s32((s32)Y + B, -128, 127)) + addval;
 
+      /* Keep each signed component in its own byte. */
       s_state.block_rgb[(x + xx) + ((y + yy) * 16)] =
-        ZeroExtend32_u16((u16)R) |
-        (ZeroExtend32_u16((u16)G) << 8) |
-        (ZeroExtend32_u16((u16)B) << 16);
+          ZeroExtend32_u8((u8)R) | (ZeroExtend32_u8((u8)G) << 8) | (ZeroExtend32_u8((u8)B) << 16);
     }
   }
   FMV_DUMP("T3_old", s_state.block_rgb, sizeof(s_state.block_rgb), ((u64)yy << 16) | xx);
@@ -984,36 +983,30 @@ static bool mdec_decode_rle_new(s16* blk, const u8* qt)
 {
   /* Row-major zigzag (transposed vs the old path) so the IDCT below can
    * iterate row-major and naturally vectorise. */
-  static const u8 zigzag[64] = {
-     0,  8,  1,  2,  9, 16, 24, 17, 10,  3,  4, 11, 18, 25, 32, 40,
-    33, 26, 19, 12,  5,  6, 13, 20, 27, 34, 41, 48, 56, 49, 42, 35,
-    28, 21, 14,  7, 15, 22, 29, 36, 43, 50, 57, 58, 51, 44, 37, 30,
-    23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63 
-  };
+  static const u8 zigzag[64] = {0,  8,  1,  2,  9,  16, 24, 17, 10, 3,  4,  11, 18, 25, 32, 40, 33, 26, 19, 12, 5,  6,
+                                13, 20, 27, 34, 41, 48, 56, 49, 42, 35, 28, 21, 14, 7,  15, 22, 29, 36, 43, 50, 57, 58,
+                                51, 44, 37, 30, 23, 31, 38, 45, 52, 59, 60, 53, 46, 39, 47, 54, 61, 62, 55, 63};
 
   if (s_state.current_coefficient == 64) {
     memset(blk, 0, sizeof(s16) * 64);
 
     u16 n;
     for (;;) {
-      if (mdec_fifo_in_empty(&s_state.data_in_fifo) || s_state.remaining_halfwords == 0)
-        return false;
+      if (mdec_fifo_in_empty(&s_state.data_in_fifo) || s_state.remaining_halfwords == 0) return false;
       n = mdec_fifo_in_pop(&s_state.data_in_fifo);
       s_state.remaining_halfwords--;
-      if (n == 0xFE00)
-        continue;
+      if (n == 0xFE00) continue;
       break;
     }
 
     s_state.current_coefficient = 0;
-    s_state.current_q_scale = n >> 10;
+    s_state.current_q_scale     = n >> 10;
 
-    /* Store DCT blocks with four extra bits of precision and apply the
-     * sign-dependent +/-8 bias to nonzero coefficients. */
+    /* Keep four extra coefficient bits and the existing sign bias.
+     * Multiplication also handles negative coefficients in C11. */
     const s32 val = (s32)SignExtendN_u32((u32)n, 10);
     const s32 coeff =
-      (s_state.current_q_scale == 0) ? (val << 5)
-                                     : (((val * qt[0]) << 4) + (val ? ((val < 0) ? 8 : -8) : 0));
+        (s_state.current_q_scale == 0) ? (val * 32) : (((val * qt[0]) * 16) + (val ? ((val < 0) ? 8 : -8) : 0));
     blk[zigzag[0]] = (s16)mdec_clamp_s32(coeff, -0x4000, 0x3FFF);
   }
 
@@ -1023,10 +1016,9 @@ static bool mdec_decode_rle_new(s16* blk, const u8* qt)
 
     s_state.current_coefficient += ((n >> 10) + 1u);
     if (s_state.current_coefficient < 64) {
-      const s32 val = (s32)SignExtendN_u32((u32)n, 10);
-      const s32 scq = (s32)((u32)s_state.current_q_scale * (u32)qt[s_state.current_coefficient]);
-      const s32 coeff = (scq == 0) ? (val << 5)
-                                   : ((((val * scq) >> 3) << 4) + (val ? ((val < 0) ? 8 : -8) : 0));
+      const s32 val   = (s32)SignExtendN_u32((u32)n, 10);
+      const s32 scq   = (s32)((u32)s_state.current_q_scale * (u32)qt[s_state.current_coefficient]);
+      const s32 coeff = (scq == 0) ? (val * 32) : ((((val * scq) >> 3) * 16) + (val ? ((val < 0) ? 8 : -8) : 0));
       blk[zigzag[s_state.current_coefficient]] = (s16)mdec_clamp_s32(coeff, -0x4000, 0x3FFF);
     }
 
@@ -1042,10 +1034,8 @@ static bool mdec_decode_rle_new(s16* blk, const u8* qt)
 
 static ALWAYS_INLINE s16 mdec_idct_row(const s16* blk, const s16* idct_matrix)
 {
-  /* IDCT matrix is -32768..32767, block is -16384..16383.  All eight
-   * partial products fit in s32 without overflow; the scalar accumulator
-   * rounds-to-nearest by adding 0x20000 then arithmetic-shifting by 18,
-   * matching the C++ GSVector path's >>18 of (sum + 0x20000). */
+  /* Accumulate all eight products in 64 bits, add the rounding bias,
+   * then shift the result by 18. */
   s64 sum = 0;
   for (u32 i = 0; i < 8; i++)
     sum += (s64)((s32)blk[i] * (s32)idct_matrix[i]);

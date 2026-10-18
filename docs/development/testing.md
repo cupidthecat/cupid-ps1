@@ -80,6 +80,20 @@ configure DMA channel 0 or write the command port across CPU modes and memory
 paths. See [MDEC input words](../mdec/input-words.md) for the generated cases
 and the timing, capacity and decoder behavior that remain unqualified.
 
+The `MdecSigned` filter checks signed coefficient scaling, boundary values
+and component-state restoration through generated command streams. See
+[MDEC coefficient arithmetic](../mdec/coefficient-arithmetic.md) for the
+C11 arithmetic checks and their limits.
+
+The `MdecColorPacking` filter checks every output byte in generated 15- and
+24-bit color blocks, including signed components, manual and DMA interfaces,
+and restored copy-out deadlines. See [MDEC color packing](../mdec/color-packing.md).
+
+The `TimingEventEmpty` filter checks empty scheduler states, interrupt
+priority and callbacks that remove the last event. It includes current and
+legacy restoration and generated RAM programs. See
+[empty event lists](../scheduler/empty-events.md) for lifecycle behavior and limits.
+
 The `NativeLut` filter executes byte, halfword and word accesses through all RAM
 aliases, unaligned merges and coprocessor transfers. It checks direct-access
 counts, recovery through bus handlers, code writes, isolation changes and

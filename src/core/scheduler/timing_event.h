@@ -1,12 +1,6 @@
 /*
- * The C++ class TimingEvent (callback subclassed via a function pointer in
- * the original) folds into a plain struct: there are no virtuals, just a
- * fp + user pair.  The "subclass this" goes in user_param.
- *
- * Active events form a doubly-linked list sorted by next_run_time.  We don't
- * use a heap (yet); the active count is small (~20) so linear insert is fine.
- *
- * namespace TimingEvents -> timing_events_ prefix.
+ * Event callbacks, deadline ordering and scheduler state.
+ * Active events form a doubly-linked list sorted by next_run_time.
  */
 
 #ifndef CUPID_CORE_TIMING_EVENT_H
@@ -100,6 +94,7 @@ void timing_events_cancel_running_event(void);
 void timing_events_run_events(void);
 void timing_events_commit_leftover_ticks(void);
 
+/* Refresh the CPU deadline, including an empty list or pending interrupt. */
 void timing_events_update_cpu_downcount(void);
 
 /* Direct access to the head of the active-events list; used by save-state
