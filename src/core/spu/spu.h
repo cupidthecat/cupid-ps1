@@ -26,6 +26,7 @@ void spu_cpu_clock_changed(void);
 void spu_shutdown(void);
 void spu_reset(void);
 bool spu_do_state(state_wrapper_t* sw);
+void spu_post_load_state(u32 version);
 
 u16  spu_read_register (u32 offset);
 void spu_write_register(u32 offset, u16 value);
@@ -33,9 +34,7 @@ void spu_write_register(u32 offset, u16 value);
 void spu_dma_read (u32* words,       u32 word_count);
 void spu_dma_write(const u32* words, u32 word_count);
 
-/* Drives the SPU forward by `cpu_ticks` of master clock.  Generates
- * 44100Hz frames into the internal ring buffer; called by the timing
- * event in the system module. */
+/* Advance audio by cpu_ticks. RAM transfers have their own scheduler event. */
 void spu_execute(tick_count_t cpu_ticks);
 
 /* Force-flush any pending samples up to the current event time.  Used

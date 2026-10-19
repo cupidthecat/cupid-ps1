@@ -3,6 +3,7 @@
 #include "core/dma/dma.h"
 #include "core/interrupts/interrupt_controller.h"
 #include "core/spu/spu.h"
+#include "tests/core/spu/spu_clock_fixture.h"
 
 enum { TRANSFER_BASE = 0x10000, STATE_CAPACITY = SPU_RAM_SIZE + 65536 };
 
@@ -19,7 +20,9 @@ static bool load_sound(u8* bytes, size_t length, u32 version)
 {
   state_wrapper_t sw;
   state_wrapper_init_read(&sw, bytes, length, version);
-  return spu_do_state(&sw) && !state_wrapper_has_error(&sw) && state_wrapper_get_position(&sw) == length;
+  const bool valid = spu_do_state(&sw) && !state_wrapper_has_error(&sw) && state_wrapper_get_position(&sw) == length;
+  if (valid) spu_post_load_state(version);
+  return valid;
 }
 
 static void begin_budget(bool read)
@@ -85,19 +88,19 @@ static void expect_progress(u32 halfwords, bool read)
 static void check_budget(bool read)
 {
   begin_budget(read);
-  spu_execute(16);
+  advance_spu_clock(16);
   expect_progress(1, read);
-  spu_execute(0);
+  advance_spu_clock(0);
   expect_progress(1, read);
-  spu_execute(1);
+  advance_spu_clock(1);
   expect_progress(1, read);
-  spu_execute(14);
+  advance_spu_clock(14);
   expect_progress(1, read);
-  spu_execute(1);
+  advance_spu_clock(1);
   expect_progress(2, read);
-  spu_execute(17);
+  advance_spu_clock(17);
   expect_progress(3, read);
-  spu_execute(15);
+  advance_spu_clock(15);
   expect_progress(4, read);
   end_budget();
 }
@@ -114,11 +117,11 @@ TEST(SpuTransferBudget, batching_preserves_complete_state)
   for (u32 read = 0; read < 2; read++) {
     for (u32 ticks = 17; ticks <= 511; ticks += 19) {
       begin_budget(read != 0);
-      spu_execute((tick_count_t)ticks);
+      advance_spu_clock((tick_count_t)ticks);
       const size_t length = save_sound(batched, SAVE_STATE_VERSION);
       end_budget();
       begin_budget(read != 0);
-      for (u32 i = 0; i < ticks; i++) spu_execute(1);
+      for (u32 i = 0; i < ticks; i++) advance_spu_clock(1);
       EXPECT_EQ(save_sound(split, SAVE_STATE_VERSION), length);
       EXPECT_EQ(memcmp(batched, split, length), 0);
       end_budget();
@@ -139,13 +142,13 @@ TEST(SpuTransferBudget, restore_continues_fractional_ticks)
   for (u32 read = 0; read < 2; read++) {
     for (u32 phase = 1; phase < 16; phase++) {
       begin_budget(read != 0);
-      spu_execute((tick_count_t)(16 + phase));
+      advance_spu_clock((tick_count_t)(16 + phase));
       const size_t length = save_sound(saved, SAVE_STATE_VERSION);
-      spu_execute((tick_count_t)(16 - phase));
+      advance_spu_clock((tick_count_t)(16 - phase));
       EXPECT_EQ(save_sound(expected, SAVE_STATE_VERSION), length);
       spu_reset();
       EXPECT_TRUE(load_sound(saved, length, SAVE_STATE_VERSION));
-      spu_execute((tick_count_t)(16 - phase));
+      advance_spu_clock((tick_count_t)(16 - phase));
       EXPECT_EQ(save_sound(actual, SAVE_STATE_VERSION), length);
       EXPECT_EQ(memcmp(actual, expected, length), 0);
       expect_progress(2, read != 0);
@@ -161,9 +164,9 @@ TEST(SpuTransferBudget, completed_fifo_has_no_idle_credit)
 {
   for (u32 read = 0; read < 2; read++) {
     begin_budget(read != 0);
-    spu_execute(32 * 16 + 15);
+    advance_spu_clock(32 * 16 + 15);
     expect_progress(32, read != 0);
-    spu_execute(100);
+    advance_spu_clock(100);
     if (read) {
       u32 words[16];
       spu_dma_read(words, 16);
@@ -171,21 +174,21 @@ TEST(SpuTransferBudget, completed_fifo_has_no_idle_credit)
       const u32 word = 0x87654321;
       spu_dma_write(&word, 1);
     }
-    spu_execute(0);
-    spu_execute(1);
+    advance_spu_clock(0);
+    advance_spu_clock(1);
     u16 value = 0;
     if (read) {
       u32 word;
       spu_dma_read(&word, 1);
       EXPECT_EQ(word, 0);
-      spu_execute(15);
+      advance_spu_clock(15);
       spu_dma_read(&word, 1);
       const u16 expected = (u16)(0x1357 ^ (32 * 0x139));
       EXPECT_EQ(word, (u32)expected * 0x10001u);
     } else {
       memcpy(&value, spu_get_ram() + TRANSFER_BASE + 64, sizeof(value));
       EXPECT_EQ(value, 0);
-      spu_execute(15);
+      advance_spu_clock(15);
       memcpy(&value, spu_get_ram() + TRANSFER_BASE + 64, sizeof(value));
       EXPECT_EQ(value, 0x4321);
     }
@@ -198,13 +201,13 @@ TEST(SpuTransferBudget, legacy_state_drops_unrecorded_credit)
   u8* saved = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   begin_budget(false);
-  spu_execute(7);
+  advance_spu_clock(7);
   const size_t length = save_sound(saved, 88);
-  spu_execute(8);
+  advance_spu_clock(8);
   EXPECT_TRUE(load_sound(saved, length, 88));
-  spu_execute(1);
+  advance_spu_clock(1);
   expect_progress(0, false);
-  spu_execute(15);
+  advance_spu_clock(15);
   expect_progress(1, false);
   end_budget();
   free(saved);
@@ -259,12 +262,12 @@ TEST(SpuTransferBudget, transfer_irq_waits_for_its_address)
     begin_budget(read != 0);
     spu_write_register(0x1A4, (TRANSFER_BASE + 8) / 8);
     spu_write_register(0x1AA, read ? 0x70 : 0x60);
-    spu_execute(3 * 16 + 15);
+    advance_spu_clock(3 * 16 + 15);
     expect_progress(3, read != 0);
     EXPECT_EQ(irq_dbg_status_register() & (1u << INTERRUPT_CONTROLLER_IRQ_SPU), 0);
-    spu_execute(0);
+    advance_spu_clock(0);
     EXPECT_EQ(irq_dbg_status_register() & (1u << INTERRUPT_CONTROLLER_IRQ_SPU), 0);
-    spu_execute(1);
+    advance_spu_clock(1);
     expect_progress(4, read != 0);
     EXPECT_NE(irq_dbg_status_register() & (1u << INTERRUPT_CONTROLLER_IRQ_SPU), 0);
     end_budget();
@@ -278,10 +281,10 @@ TEST(SpuTransferBudget, nonpositive_slices_preserve_state)
   EXPECT_NOT_NULL(saved);
   EXPECT_NOT_NULL(actual);
   begin_budget(false);
-  spu_execute(7);
+  advance_spu_clock(7);
   const size_t length = save_sound(saved, SAVE_STATE_VERSION);
-  spu_execute(0);
-  spu_execute(-1);
+  advance_spu_clock(0);
+  advance_spu_clock(-1);
   EXPECT_EQ(save_sound(actual, SAVE_STATE_VERSION), length);
   EXPECT_EQ(memcmp(saved, actual, length), 0);
   end_budget();
@@ -301,15 +304,32 @@ TEST(SpuTransferBudget, dma_refill_shares_the_elapsed_budget)
   dma_write_register(0x70, 0x80000);
   dma_write_register(0x40, 0x40000);
   dma_write_register(0x44, 0x40010);
+  const tick_count_t pending_before_dma = cpu_get_pending_ticks();
   dma_write_register(0x48, 0x01000201);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 3);
-  spu_execute(31 * 16);
+  /* Initial DMA bus cycles are already pending on the CPU clock. */
+  const tick_count_t setup_ticks = cpu_get_pending_ticks() - pending_before_dma;
+  for (timing_event_t* event = *timing_events_get_head_event_ptr(); event; event = event->next)
+    if (event->name_len == 12 && memcmp(event->name_data, "SPU Transfer", 12) == 0)
+      printf("spu-refill-start dma_ticks=%d last=%llu next=%llu\n", setup_ticks,
+             (unsigned long long)event->last_run_time, (unsigned long long)event->next_run_time);
+  EXPECT_TRUE(setup_ticks >= 0 && setup_ticks < 31 * 16);
+  advance_spu_clock(31 * 16 - setup_ticks);
+  for (u32 i = 0; i < 31; i++) {
+    u16 actual;
+    memcpy(&actual, spu_get_ram() + TRANSFER_BASE + i * 2, sizeof(actual));
+    const u16 expected = (u16)(words[i / 2] >> (16 * (i & 1)));
+    if (actual != expected) printf("spu-refill-mismatch index=%u actual=%04X expected=%04X global=%llu pending=%d\n",
+                                  i, actual, expected, (unsigned long long)timing_events_get_global_tick_counter(),
+                                  cpu_get_pending_ticks());
+  }
+  fflush(stdout);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 3);
   EXPECT_EQ(memcmp(spu_get_ram() + TRANSFER_BASE, words, 31 * 2), 0);
-  spu_execute(16);
+  advance_spu_clock(16);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 2);
   EXPECT_EQ(memcmp(spu_get_ram() + TRANSFER_BASE, words, 32 * 2), 0);
-  spu_execute(3 * 32 * 16);
+  advance_spu_clock(3 * 32 * 16);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 0);
   EXPECT_EQ(dma_dbg_channel_control(4) & (1u << 24), 0);
   EXPECT_EQ(memcmp(spu_get_ram() + TRANSFER_BASE, words, sizeof(words)), 0);
@@ -324,11 +344,11 @@ TEST(SpuTransferBudget, dma_read_blocks_share_the_elapsed_budget)
   dma_write_register(0x40, 0x40000);
   dma_write_register(0x44, 0x40010);
   dma_write_register(0x48, 0x01000200);
-  spu_execute(31 * 16);
+  advance_spu_clock(31 * 16);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 4);
-  spu_execute(16);
+  advance_spu_clock(16);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 3);
-  spu_execute(3 * 32 * 16);
+  advance_spu_clock(3 * 32 * 16);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 0);
   EXPECT_EQ(dma_dbg_channel_control(4) & (1u << 24), 0);
   EXPECT_EQ(memcmp(bus_get_unprotected_ram_pointer() + 0x40000, spu_get_ram() + TRANSFER_BASE, 64 * sizeof(u32)), 0);

@@ -61,6 +61,11 @@ invalid state records, IRQ addresses and DMA refill. See
 [SPU transfer accounting](../spu/transfer-budget.md) for the scheduling model
 and its remaining hardware timing limits.
 
+`SpuTransferEvents` checks guest DMA-register polling without SPU status
+reads, plus complete component-state restoration during the transfer.
+`SpuTransferTimeline` checks sample/RAM ordering, address changes, reset,
+legacy deadlines and IRQ delivery without status polling.
+
 The `CpuPartial` filter checks shifted stores to internal word latches and
 16-bit SPU registers. It checks neighboring registers, address stepping,
 component-state continuation and the absence of extra device reads. Timer

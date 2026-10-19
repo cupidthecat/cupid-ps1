@@ -1396,6 +1396,8 @@ static bool system_do_state(state_wrapper_t* sw, bool update_display)
   if (!state_wrapper_do_marker(sw, "Events") || !timing_events_do_state(sw))
     return false;
 
+  if (state_wrapper_is_reading(sw)) spu_post_load_state(state_wrapper_get_version(sw));
+
   if (!state_wrapper_do_marker(sw, "Overclock")) return false;
 
   bool oc_active = g_settings.cpu_overclock_active;

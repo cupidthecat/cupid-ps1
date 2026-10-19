@@ -1,7 +1,7 @@
 /*
  * See spu.h for the public API.
- * spu_execute advances the transfer FIFO and generates 44.1 kHz stereo
- * samples. core_audio_stream queues those samples for the audio backend.
+ * Separate scheduler events advance RAM transfers and generate 44.1 kHz
+ * stereo samples. core_audio_stream queues samples for the audio backend.
  */
 
 #include "spu.h"
@@ -379,15 +379,14 @@ static void   fifo_pop_range (spu_fifo_t* f, u16* dst, u32 count)
 }
 
 typedef struct {
-  /* Timing state.  Driven by `tick_event`, a periodic timing_event registered
-   * with the global scheduler. Per-halfword transfer is still advanced inline
-   * inside spu_execute() via transfer_ticks_carry. */
+  /* Audio and transfer events keep independent elapsed-time cursors. */
   tick_count_t ticks_carry;
   tick_count_t cpu_ticks_per_spu_tick;
   tick_count_t cpu_tick_divider;
   tick_count_t transfer_ticks_carry;
   bool         transfer_event_active;
   timing_event_t tick_event;
+  timing_event_t transfer_event;
 
   spucnt_register_t  SPUCNT;
   spustat_register_t SPUSTAT;
@@ -518,6 +517,8 @@ void spu_dbg_dump_counters(FILE* fp)
 static void update_event_interval(void);
 static void update_dma_request(void);
 static void update_transfer_event(void);
+static void update_transfer_status(void);
+static void synchronize_transfer(void);
 static void execute_transfer(s64 ticks);
 static void manual_transfer_write(u16 value);
 
@@ -571,6 +572,28 @@ static void spu_tick_trampoline(void* user, tick_count_t ticks, tick_count_t tic
   spu_execute(ticks);
 }
 
+static bool s_transfer_callback_active;
+
+static void spu_transfer_trampoline(void* user, tick_count_t ticks, tick_count_t ticks_late)
+{
+  (void)user; (void)ticks_late;
+  if (ticks <= 0) return;
+  s_transfer_callback_active = true;
+  const s64 available = (s64)ticks + s_state.transfer_ticks_carry;
+  s_state.transfer_ticks_carry = (tick_count_t)(available % TRANSFER_TICKS_PER_HALFWORD);
+  const s64 budget = available - s_state.transfer_ticks_carry;
+  if (budget > 0) execute_transfer(budget);
+  if (s_state.transfer_event_active)
+    timing_event_schedule(&s_state.transfer_event, TRANSFER_TICKS_PER_HALFWORD - s_state.transfer_ticks_carry);
+  s_transfer_callback_active = false;
+}
+
+static void synchronize_transfer(void)
+{
+  if (!s_transfer_callback_active)
+    timing_event_invoke_early(&s_state.transfer_event, true);
+}
+
 void spu_initialize(void)
 {
 
@@ -583,16 +606,18 @@ void spu_initialize(void)
    * spu_initialize() runs as part of system_initialize() which happens
    * AFTER audio_setup(). */
 
-  /* Drive spu_execute() from the global timing-event scheduler. Period is one
-   * audio batch (256 samples ~= 5.8 ms); coarse enough that the event-rate
-   * stays low, fine enough for IRQ + SPU envelope cadence to land correctly.
-   * Period uses scaled cpu_ticks_per_spu_tick so the event fires at correct
-   * wall-clock cadence under overclock. */
+  /* Audio batches cover 256 samples. Register accesses and RAM transfers
+   * generate pending samples early. Transfers have their own deadlines.
+   * The audio period scales with the configured CPU clock. */
   static const char k_name[] = "SPU Sample";
   const tick_count_t period = s_state.cpu_ticks_per_spu_tick * 256;
   timing_event_init(&s_state.tick_event, k_name, sizeof(k_name) - 1,
                     period, period, spu_tick_trampoline, NULL);
   timing_event_activate(&s_state.tick_event);
+
+  static const char transfer_name[] = "SPU Transfer";
+  timing_event_init(&s_state.transfer_event, transfer_name, sizeof(transfer_name) - 1,
+                    TRANSFER_TICKS_PER_HALFWORD, TRANSFER_TICKS_PER_HALFWORD, spu_transfer_trampoline, NULL);
 
   spu_reset();
 }
@@ -609,6 +634,8 @@ void spu_cpu_clock_changed(void)
 
 void spu_shutdown(void)
 {
+  timing_event_deactivate(&s_state.transfer_event);
+  timing_event_destroy(&s_state.transfer_event);
   if (timing_event_is_active(&s_state.tick_event))
     timing_event_deactivate(&s_state.tick_event);
   timing_event_destroy(&s_state.tick_event);
@@ -617,6 +644,7 @@ void spu_shutdown(void)
 
 void spu_reset(void)
 {
+  timing_event_deactivate(&s_state.transfer_event);
   s_state.ticks_carry = 0;
   s_state.transfer_ticks_carry = 0;
   s_state.transfer_event_active = false;
@@ -773,10 +801,22 @@ bool spu_do_state(state_wrapper_t* sw)
 
   if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw)) {
     update_event_interval();
-    update_transfer_event();
+    if (state_wrapper_get_version(sw) >= 90)
+      update_transfer_event();
+    else {
+      update_transfer_status();
+      timing_event_deactivate(&s_state.transfer_event);
+    }
   }
 
   return !state_wrapper_has_error(sw);
+}
+
+void spu_post_load_state(u32 version)
+{
+  /* Legacy streams have no transfer-event record. Queue work only after the
+   * saved global clock and pending CPU ticks have been restored. */
+  if (version < 90) update_transfer_event();
 }
 
 u16 spu_read_register(u32 offset)
@@ -935,8 +975,7 @@ void spu_write_register(u32 offset, u16 value)
 
     case 0x1F801DA6u - SPU_BASE:
       s_spu_dbg.reg_writes_xfer_addr++;
-      /* Drain pending transfer ticks before resetting address. */
-      execute_transfer(INT32_MAX);
+      synchronize_transfer();
       s_state.transfer_address_reg = value;
       s_state.transfer_address     = ZeroExtend32(value) * 8u;
       if (is_ram_irq_triggerable() && check_ram_irq(s_state.transfer_address))
@@ -1221,6 +1260,7 @@ static void execute_transfer(s64 ticks)
 
 static void manual_transfer_write(u16 value)
 {
+  synchronize_transfer();
   s_spu_dbg.manual_xfer_writes++;
   if (!fifo_empty(&s_state.transfer_fifo) &&
       s_state.SPUCNT.b.ram_transfer_mode != RAM_TRANSFER_DMA_READ) {
@@ -1233,7 +1273,7 @@ static void manual_transfer_write(u16 value)
     trigger_ram_irq();
 }
 
-static void update_transfer_event(void)
+static void update_transfer_status(void)
 {
   const ram_transfer_mode_t mode = (ram_transfer_mode_t)s_state.SPUCNT.b.ram_transfer_mode;
   if (mode == RAM_TRANSFER_STOPPED) {
@@ -1244,8 +1284,17 @@ static void update_transfer_event(void)
     s_state.transfer_event_active = !fifo_empty(&s_state.transfer_fifo);
   }
   s_state.SPUSTAT.b.transfer_busy = s_state.transfer_event_active ? 1 : 0;
-  if (!s_state.transfer_event_active)
+  if (!s_state.transfer_event_active) {
     s_state.transfer_ticks_carry = 0;
+    timing_event_deactivate(&s_state.transfer_event);
+  }
+}
+
+static void update_transfer_event(void)
+{
+  update_transfer_status();
+  if (s_state.transfer_event_active && !timing_event_is_active(&s_state.transfer_event))
+    timing_event_schedule(&s_state.transfer_event, TRANSFER_TICKS_PER_HALFWORD - s_state.transfer_ticks_carry);
 }
 
 static void update_dma_request(void)
@@ -2032,17 +2081,6 @@ void spu_execute(tick_count_t cpu_ticks)
     s_state.ticks_carry = total % SYSCLK_TICKS_PER_SPU_TICK;
   }
 
-  /* Advance the transfer FIFO using this CPU tick slice. */
-  if (s_state.transfer_event_active) {
-    const s64 available = (s64)cpu_ticks + s_state.transfer_ticks_carry;
-    s_state.transfer_ticks_carry = (tick_count_t)(available % TRANSFER_TICKS_PER_HALFWORD);
-    const s64 budget = available - s_state.transfer_ticks_carry;
-    /* Spend complete halfword budgets once; keep only the fractional part.
-     * FIFO completion discards unused time instead of crediting the next DMA. */
-    if (budget > 0)
-      execute_transfer(budget);
-  }
-
   bool first = true;
   while (remaining_frames > 0) {
     generate_one_frame(first);
@@ -2053,27 +2091,15 @@ void spu_execute(tick_count_t cpu_ticks)
 
 void spu_generate_pending_samples(void)
 {
-  /* Force the SPU tick event to fire NOW, draining all CPU ticks elapsed
-   * GeneratePendingSamples -> tick_event.InvokeEarly().  Without this, the
-   * audio_fifo on the CDROM side accumulates faster than SPU drains it,
-   * triggering the LOW_WATERMARK skip in ProcessXAADPCMSector and
-   * dropping XA-ADPCM sectors mid-FMV (RE2 intro / hospital cutscene). */
+  synchronize_transfer();
+  /* Synchronize CD audio consumption and register-visible sample state. */
   timing_event_invoke_early(&s_state.tick_event, /*force=*/true);
 }
 
 static void internal_generate_pending_samples(void)
 {
-  /* Carry units differ between overclock-on (ticks*D, step = N*768) and
-   * overclock-off (raw ticks, step = 768).  Normally a no-op because
-   * spu_execute already drained carry to < step; safety net for forced
-   * drain paths (e.g. manual_transfer_write at line 1253 above). */
-  const tick_count_t step = g_settings.cpu_overclock_active
-                              ? s_state.cpu_tick_divider
-                              : (tick_count_t)SYSCLK_TICKS_PER_SPU_TICK;
-  while (s_state.ticks_carry >= step) {
-    generate_one_frame(false);
-    s_state.ticks_carry -= step;
-  }
+  /* Generate older samples before this transfer changes their RAM inputs. */
+  timing_event_invoke_early(&s_state.tick_event, true);
 }
 
 tick_count_t spu_get_cpu_ticks_until_next_event(void)

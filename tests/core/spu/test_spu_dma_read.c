@@ -3,6 +3,7 @@
 #include "core/dma/dma.h"
 #include "core/interrupts/interrupt_controller.h"
 #include "core/spu/spu.h"
+#include "tests/core/spu/spu_clock_fixture.h"
 
 enum { STATE_CAPACITY = SPU_RAM_SIZE + 65536, TRANSFER_START = 0x10000 };
 
@@ -10,6 +11,7 @@ typedef struct {
   u16 status;
   u32 address, head, tail, size;
   u16 halfwords[32];
+  bool request;
 } transfer_snapshot_t;
 
 static transfer_snapshot_t read_transfer(void)
@@ -35,6 +37,7 @@ static transfer_snapshot_t read_transfer(void)
   state_wrapper_do_u32(&state, &result.size);
   EXPECT_FALSE(state_wrapper_has_error(&state));
   EXPECT_TRUE(result.head < 32 && result.tail < 32);
+  result.request = dma_dbg_request(4) != 0;
   free(bytes);
   return result;
 }
@@ -90,13 +93,13 @@ static void begin_transfer(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem
   }
   spu_write_register(0x1A6, TRANSFER_START / 8);
   spu_write_register(0x1AA, 0x30);
-  spu_execute(32 * 16);
+  advance_spu_clock(32 * 16);
   EXPECT_EQ(read_transfer().size, 32);
   if (rotation) {
     u32 scratch[13];
     spu_dma_read(scratch, 13);
     EXPECT_EQ(read_transfer().size, 6);
-    spu_execute(32 * 16);
+    advance_spu_clock(32 * 16);
     EXPECT_EQ(read_transfer().size, 32);
   }
   if (available < 32) {
@@ -138,7 +141,7 @@ static bool check_read(const transfer_snapshot_t* before, const transfer_snapsho
     equal &= after->halfwords[i] == before->halfwords[i];
   const u16 expected_flags = (after->size == 32 ? 0x180 : 0) | (after->size < 32 ? 0x400 : 0);
   equal &= (after->status & 0x780) == expected_flags;
-  equal &= dma_dbg_request(4) == (after->size == 32);
+  equal &= after->request == (after->size == 32);
   return equal && *wrong == 0;
 }
 
@@ -191,6 +194,19 @@ TEST(SpuDmaRead, restored_boundaries)
   check_direct(true);
 }
 
+static bus_memory_write_handler_t original_dma_write;
+static transfer_snapshot_t guest_dma_after;
+static u32 guest_dma_snapshots;
+
+static void observe_dma_write(u32 address, u32 value)
+{
+  original_dma_write(address, value);
+  if (address == 0x1F8010C8 && (value & (1u << 24))) {
+    guest_dma_after = read_transfer();
+    guest_dma_snapshots++;
+  }
+}
+
 static void check_guest(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
 {
   const u32 requests[]   = {1, 16, 17, 32, 33};
@@ -205,12 +221,20 @@ static void check_guest(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, b
         g_settings.cpu_recompiler_block_linking = linking;
         if (restored) restore_transfer();
         const transfer_snapshot_t before    = read_transfer();
+        bus_memory_write_handler_t* handlers =
+            bus_offset_write_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
+        const u32 page = 0x1F8010C8 >> BUS_MEMORY_LUT_PAGE_SHIFT;
+        original_dma_write = handlers[page];
+        guest_dma_snapshots = 0;
+        handlers[page] = observe_dma_write;
         const u32                 requested = requests[request];
         const u32                 params[]  = {0x40004, 0x10000 | requested, 0x80000, 0x01000200};
         memcpy(bus_get_unprotected_ram_pointer() + 0x50000, params, sizeof(params));
         memset(bus_get_unprotected_ram_pointer() + 0x40000, 0xA5, 35 * sizeof(u32));
         memset(bus_get_unprotected_ram_pointer() + 0x30000, 0xCC, sizeof(u32));
         run_to_pc(0xA0010000 + (sizeof(program) / sizeof(program[0]) - 2) * 4);
+        handlers[page] = original_dma_write;
+        EXPECT_EQ(guest_dma_snapshots, 1);
         u32 completed, words[35];
         memcpy(&completed, bus_get_unprotected_ram_pointer() + 0x30000, sizeof(completed));
         memcpy(words, bus_get_unprotected_ram_pointer() + 0x40000, sizeof(words));
@@ -218,7 +242,10 @@ static void check_guest(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, b
         EXPECT_EQ(dma_dbg_base_address(4), 0x40004 + requested * 4);
         EXPECT_EQ(dma_dbg_block_control(4) >> 16, 0);
         EXPECT_EQ(dma_dbg_channel_control(4) & (1u << 24), 0);
-        const transfer_snapshot_t after = read_transfer();
+        const transfer_snapshot_t after = guest_dma_after;
+        const transfer_snapshot_t continued = read_transfer();
+        printf("spu-dma-read-continuation mode=%u requested=%u address=%08X fifo=%u/%u/%u\n",
+               mode, requested, continued.address, continued.head, continued.tail, continued.size);
         u32                       wrong;
         bool                      equal = check_read(&before, &after, words + 1, requested, &wrong);
         equal &= words[0] == 0xA5A5A5A5;

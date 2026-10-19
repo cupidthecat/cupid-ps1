@@ -96,7 +96,7 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                 for side in ('left', 'right'):
                     for frame in (2, 4):
                         data = (directory / side / f'checkpoint-{frame:08d}.sav').read_bytes()
-                        self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 89))
+                        self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 90))
                         size, unpacked, start = struct.unpack_from('<III', data, 204)
                         self.assertEqual(size, unpacked)
                         self.assertEqual(start + size, len(data))
@@ -187,7 +187,7 @@ class LiveExecutionComparisonTest(unittest.TestCase):
                                              run['execution']['native_dispatch_delay_slots'], result)
                         for side in ('left', 'right'):
                             data = (directory / side / 'checkpoint-00000004.sav').read_bytes()
-                            self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 89))
+                            self.assertEqual(struct.unpack_from('<II', data), (0x43435544, 90))
                             size, unpacked, start = struct.unpack_from('<III', data, 204)
                             self.assertEqual(size, unpacked)
                             self.assertEqual(start + size, len(data))
