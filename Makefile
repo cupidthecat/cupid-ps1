@@ -214,6 +214,8 @@ $(BUILD)/dep/lzma/%.o: dep/lzma/%.c
 	$(CC) $(LZMA_CFLAGS) -c $< -o $@
 
 # Compile each header alone via -include trick.
+$(BUILD)/hcheck/common/gsvector.o: CFLAGS += -msse4.1
+
 $(BUILD)/hcheck/%.o: $(SRCDIR)/%.h
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -x c -include $< /dev/null -c -o $@

@@ -518,7 +518,7 @@ void spu_dbg_dump_counters(FILE* fp)
 static void update_event_interval(void);
 static void update_dma_request(void);
 static void update_transfer_event(void);
-static void execute_transfer(tick_count_t ticks);
+static void execute_transfer(s64 ticks);
 static void manual_transfer_write(u16 value);
 
 static u16  read_voice_register (u32 offset);
@@ -750,6 +750,11 @@ bool spu_do_state(state_wrapper_t* sw)
     state_wrapper_do_bool(sw, &v->ignore_loop_address);
   }
 
+  if (state_wrapper_get_version(sw) >= 89)
+    state_wrapper_do_s32(sw, &s_state.transfer_ticks_carry);
+  else if (state_wrapper_is_reading(sw))
+    s_state.transfer_ticks_carry = 0;
+
   /* FIFO: serialize the contents and head/tail/size. */
   state_wrapper_do_array(sw, s_state.transfer_fifo.data, sizeof(u16), FIFO_SIZE_IN_HALFWORDS);
   state_wrapper_do_u32(sw, &s_state.transfer_fifo.head);
@@ -758,7 +763,15 @@ bool spu_do_state(state_wrapper_t* sw)
 
   state_wrapper_do_bytes(sw, s_ram, SPU_RAM_SIZE);
 
-  if (state_wrapper_is_reading(sw)) {
+  if (state_wrapper_is_reading(sw) &&
+      (s_state.transfer_ticks_carry < 0 || s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD ||
+       s_state.transfer_fifo.head >= FIFO_SIZE_IN_HALFWORDS ||
+       s_state.transfer_fifo.tail >= FIFO_SIZE_IN_HALFWORDS ||
+       s_state.transfer_fifo.size > FIFO_SIZE_IN_HALFWORDS ||
+       (s_state.transfer_fifo.head + s_state.transfer_fifo.size) % FIFO_SIZE_IN_HALFWORDS != s_state.transfer_fifo.tail))
+    sw->error = true;
+
+  if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw)) {
     update_event_interval();
     update_transfer_event();
   }
@@ -1155,7 +1168,7 @@ static void increment_capture_buffer_position(void)
     (s_state.capture_buffer_position >= (CAPTURE_BUFFER_SIZE_PER_CHANNEL / 2)) ? 1 : 0;
 }
 
-static void execute_fifo_read_from_ram(tick_count_t* ticks)
+static void execute_fifo_read_from_ram(s64* ticks)
 {
   while (*ticks > 0 && !fifo_full(&s_state.transfer_fifo)) {
     u16 value;
@@ -1168,7 +1181,7 @@ static void execute_fifo_read_from_ram(tick_count_t* ticks)
   }
 }
 
-static void execute_fifo_write_to_ram(tick_count_t* ticks)
+static void execute_fifo_write_to_ram(s64* ticks)
 {
   while (*ticks > 0 && !fifo_empty(&s_state.transfer_fifo)) {
     u16 value = fifo_pop(&s_state.transfer_fifo);
@@ -1182,7 +1195,7 @@ static void execute_fifo_write_to_ram(tick_count_t* ticks)
 
  /* Drains as many bytes as `ticks` allow (caller supplies INT32_MAX to
  * fully flush the FIFO). */
-static void execute_transfer(tick_count_t ticks)
+static void execute_transfer(s64 ticks)
 {
   const ram_transfer_mode_t mode = (ram_transfer_mode_t)s_state.SPUCNT.b.ram_transfer_mode;
   if (mode == RAM_TRANSFER_STOPPED) {
@@ -1231,6 +1244,8 @@ static void update_transfer_event(void)
     s_state.transfer_event_active = !fifo_empty(&s_state.transfer_fifo);
   }
   s_state.SPUSTAT.b.transfer_busy = s_state.transfer_event_active ? 1 : 0;
+  if (!s_state.transfer_event_active)
+    s_state.transfer_ticks_carry = 0;
 }
 
 static void update_dma_request(void)
@@ -2000,6 +2015,7 @@ static void generate_one_frame(bool first_in_batch)
 
 void spu_execute(tick_count_t cpu_ticks)
 {
+  if (cpu_ticks <= 0) return;
   s_spu_dbg.spu_execute_calls++;
   /* Convert the requested span of CPU ticks into 44.1kHz frames.
    * Overclock path counts in (ticks * D) units with divider = N * 768;
@@ -2018,16 +2034,13 @@ void spu_execute(tick_count_t cpu_ticks)
 
   /* Advance the transfer FIFO using this CPU tick slice. */
   if (s_state.transfer_event_active) {
-    s_state.transfer_ticks_carry += cpu_ticks;
-    while (s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD &&
-           s_state.transfer_event_active) {
-      tick_count_t budget = s_state.transfer_ticks_carry;
+    const s64 available = (s64)cpu_ticks + s_state.transfer_ticks_carry;
+    s_state.transfer_ticks_carry = (tick_count_t)(available % TRANSFER_TICKS_PER_HALFWORD);
+    const s64 budget = available - s_state.transfer_ticks_carry;
+    /* Spend complete halfword budgets once; keep only the fractional part.
+     * FIFO completion discards unused time instead of crediting the next DMA. */
+    if (budget > 0)
       execute_transfer(budget);
-      /* execute_transfer drains as much as it can; subtract what it ate. */
-      s_state.transfer_ticks_carry = budget;
-      if (!s_state.transfer_event_active)
-        break;
-    }
   }
 
   bool first = true;

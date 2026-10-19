@@ -95,7 +95,7 @@ static int vram_equals(void)
 TEST(GpuSwSimdParity, rect_untextured_opaque)
 {
   set_drawing_area_full(); ensure_init();
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.x = 100; cmd.y = 50; cmd.width = 32; cmd.height = 16;
   cmd.color = 0xFF80F0u;
   RUN_RECT_PARITY(cmd);
@@ -105,7 +105,7 @@ TEST(GpuSwSimdParity, rect_untextured_unaligned_width)
 {
   /* Width that isn't a multiple of 4 -- exercises the SIMD tail-mask. */
   set_drawing_area_full(); ensure_init();
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.x = 17; cmd.y = 23; cmd.width = 19; cmd.height = 7;
   cmd.color = 0x102030u;
   RUN_RECT_PARITY(cmd);
@@ -115,7 +115,7 @@ TEST(GpuSwSimdParity, rect_clipped_left)
 {
   set_drawing_area_full(); ensure_init();
   gpu_sw_drawing_area.left = 50;
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.x = 30; cmd.y = 10; cmd.width = 64; cmd.height = 4;  /* spills left clip */
   cmd.color = 0xAABBCCu;
   RUN_RECT_PARITY(cmd);
@@ -125,7 +125,7 @@ TEST(GpuSwSimdParity, rect_clipped_right)
 {
   set_drawing_area_full(); ensure_init();
   gpu_sw_drawing_area.right = 100;
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.x = 80; cmd.y = 10; cmd.width = 64; cmd.height = 4;  /* spills right clip */
   cmd.color = 0x123456u;
   RUN_RECT_PARITY(cmd);
@@ -134,7 +134,7 @@ TEST(GpuSwSimdParity, rect_clipped_right)
 TEST(GpuSwSimdParity, rect_with_set_mask)
 {
   set_drawing_area_full(); ensure_init();
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.base.set_mask_while_drawing = true;
   cmd.x = 200; cmd.y = 100; cmd.width = 16; cmd.height = 16;
   cmd.color = 0x7F7F7Fu;
@@ -144,7 +144,7 @@ TEST(GpuSwSimdParity, rect_with_set_mask)
 TEST(GpuSwSimdParity, rect_with_check_mask)
 {
   set_drawing_area_full(); ensure_init();
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.base.check_mask_before_draw = true;
   cmd.x = 300; cmd.y = 200; cmd.width = 16; cmd.height = 8;
   cmd.color = 0x010203u;
@@ -155,7 +155,7 @@ TEST(GpuSwSimdParity, rect_transparent_half_blend)
 {
   /* HALF_BG_PLUS_HALF_FG transparency. */
   set_drawing_area_full(); ensure_init();
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.base.transparency_enable = true;
   /* draw_mode bits: transparency_mode = 0 (HALF). texture_mode = 0. */
   cmd.base.draw_mode.bits = 0;
@@ -230,7 +230,7 @@ TEST(GpuSwSimdParity, fill_pattern_then_overdraw)
    * and mask-bit interaction. */
   set_drawing_area_full(); ensure_init();
   clear_vram(0x8421);  /* not-zero, mask bit not set */
-  gpu_backend_draw_rectangle_cmd_t cmd = {{{0}}};
+  gpu_backend_draw_rectangle_cmd_t cmd = {0};
   cmd.base.transparency_enable = true;
   cmd.base.draw_mode.bits = 1;  /* BG_PLUS_FG */
   cmd.x = 100; cmd.y = 100; cmd.width = 24; cmd.height = 16;

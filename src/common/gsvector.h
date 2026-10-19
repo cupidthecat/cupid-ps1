@@ -230,9 +230,9 @@ ALWAYS_INLINE GSVector8i gsv8i_setr32(s32 a, s32 b, s32 c, s32 d,
                                       s32 e, s32 f, s32 g, s32 h)
 { return _mm256_setr_epi32(a, b, c, d, e, f, g, h); }
 ALWAYS_INLINE GSVector8i gsv8i_setr16(s16 s0, s16 s1, s16 s2, s16 s3, s16 s4, s16 s5, s16 s6, s16 s7,
-                                      s16 s8, s16 s9, s16 s10, s16 s11, s16 s12, s16 s13, s16 s14, s16 s15)
+                                      s16 lane8, s16 s9, s16 s10, s16 s11, s16 s12, s16 s13, s16 s14, s16 s15)
 { return _mm256_setr_epi16(s0, s1, s2, s3, s4, s5, s6, s7,
-                            s8, s9, s10, s11, s12, s13, s14, s15); }
+                            lane8, s9, s10, s11, s12, s13, s14, s15); }
 ALWAYS_INLINE GSVector8i gsv8i_zext32(u32 a)
 { return _mm256_castsi128_si256(_mm_cvtsi32_si128((s32)a)); }
 

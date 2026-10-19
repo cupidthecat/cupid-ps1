@@ -25,8 +25,9 @@ are not test results for this emulator.
 
 Hosted CI builds the emulator, standalone headers and OpenGL smoke binary,
 then runs the suite using GCC, Clang, and Clang with address and undefined
-behavior sanitizers. Each toolchain uses two C-test workers. CI checks test
-selection failures, the filtered runner, concurrent execution, cache isolation,
+behavior sanitizers. Each toolchain uses two C-test workers. CI treats project
+compiler warnings as errors and checks empty selections, the filtered runner,
+concurrent execution, cache isolation,
 output capture and failure reporting. It does not boot private inputs, run an
 OpenGL context, or upload runtime files.
 
@@ -53,6 +54,12 @@ CD-ROM response and parameter FIFOs. Its guest programs change device controls
 under every CPU execution mode and continue after component-state restoration.
 See [device bus accesses](../memory/device-bus.md) for the implemented behavior
 and the configurations and timing that remain unqualified.
+
+The `SpuTransferBudget` filter checks tick consumption, read/write data,
+split/batched state equality, fractional save/load continuation, legacy and
+invalid state records, IRQ addresses and DMA refill. See
+[SPU transfer accounting](../spu/transfer-budget.md) for the scheduling model
+and its remaining hardware timing limits.
 
 The `CpuPartial` filter checks shifted stores to internal word latches and
 16-bit SPU registers. It checks neighboring registers, address stepping,

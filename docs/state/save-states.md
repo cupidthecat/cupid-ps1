@@ -13,6 +13,10 @@ Programmatic API: `system_save_state(path, error, backup_existing, ignore_memcar
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
+Version 89 preserves the SPU's fractional transfer tick balance. Earlier
+states load with zero transfer credit. Invalid transfer balances and FIFO
+ring records are rejected. See [SPU transfer accounting](../spu/transfer-budget.md).
+
 Version 88 preserves each root counter's pending reset phase. Earlier states
 load with no pending hold because they contain no phase field. See
 [root-counter state](../timers/root-counters.md#save-states) for the layout

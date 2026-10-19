@@ -24,15 +24,15 @@ jobs:
           - name: GCC
             cc: gcc
             sanitizers: ''
-            opt: -O2 -g
+            opt: -O2 -g -Werror
           - name: Clang
             cc: clang
             sanitizers: ''
-            opt: -O2 -g
+            opt: -O2 -g -Werror
           - name: Clang ASan UBSan
             cc: clang
             sanitizers: address,undefined
-            opt: -O1 -g
+            opt: -O1 -g -Werror
     env:
       SDL_VIDEODRIVER: dummy
       SDL_AUDIODRIVER: dummy

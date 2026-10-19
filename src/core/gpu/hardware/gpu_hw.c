@@ -639,24 +639,7 @@ static bool gpu_hw_compile_batch_pipelines(gpu_hw_t* hw, Error* err)
    * Unused per-filter rows stay NULL and the flush-time fallback path
    * picks `batch_pipelines[]` (NEAREST) if a row entry is NULL.  Live
    * filter toggle is deferred; a settings-change hook will rebuild this
-   * pool with the new filter set.  The full
-   * `kFilterPasses[GPU_TEXTURE_FILTER_COUNT]` table below documents which
-   * filter indices the per-filter row array supports (kept commented as
-   * a sanity reference for the rebuild path). */
-  static const gpu_texture_filter_t kFilterPasses[GPU_TEXTURE_FILTER_COUNT] = {
-    GPU_TEXTURE_FILTER_NEAREST,
-    GPU_TEXTURE_FILTER_BILINEAR,
-    GPU_TEXTURE_FILTER_BILINEAR_BIN_ALPHA,
-    GPU_TEXTURE_FILTER_JINC2,
-    GPU_TEXTURE_FILTER_JINC2_BIN_ALPHA,
-    GPU_TEXTURE_FILTER_XBR,
-    GPU_TEXTURE_FILTER_XBR_BIN_ALPHA,
-    GPU_TEXTURE_FILTER_SCALE2X,
-    GPU_TEXTURE_FILTER_SCALE3X,
-    GPU_TEXTURE_FILTER_MMPX,
-    GPU_TEXTURE_FILTER_MMPX_ENHANCED,
-    GPU_TEXTURE_FILTER_MMPX_QUALITY,
-  };
+   * pool with the new filter set. */
   gpu_texture_filter_t active_filters[3] = {
     GPU_TEXTURE_FILTER_NEAREST,
     g_settings.gpu_texture_filter,
