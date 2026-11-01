@@ -304,14 +304,18 @@ bool mdec_do_state(state_wrapper_t* sw)
   state_wrapper_do_array(sw, s_state.iq_uv, sizeof(u8), 64);
   state_wrapper_do_array(sw, s_state.iq_y,  sizeof(u8), 64);
 
-  /* Save-state version 66 widened the scale matrix from u16[64] (raw IDCT
-   * coefficients) to s16[64] (post-transpose into row-major).  Older blobs
-   * are upconverted here via the same SetScaleMatrix the SetScale command
-   * uses at runtime. */
+  /* Before version 66 the matrix used raw column-major u16 values.
+   * Newer records store the signed row-major table used by the decoder. */
   if (state_wrapper_get_version(sw) < 66) {
-    u16 old_scale_matrix[64];
+    u16 old_scale_matrix[64] = {0};
+    if (!state_wrapper_is_reading(sw)) {
+      for (u32 y = 0; y < 8; y++)
+        for (u32 x = 0; x < 8; x++)
+          old_scale_matrix[x * 8 + y] = (u16)s_state.scale_table[y * 8 + x];
+    }
     state_wrapper_do_array(sw, old_scale_matrix, sizeof(u16), 64);
-    mdec_set_scale_matrix(old_scale_matrix);
+    if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw))
+      mdec_set_scale_matrix(old_scale_matrix);
   } else {
     state_wrapper_do_array(sw, s_state.scale_table, sizeof(s16), 64);
   }
@@ -325,8 +329,26 @@ bool mdec_do_state(state_wrapper_t* sw)
   bool block_copy_out_pending = mdec_has_pending_block_copy_out();
   state_wrapper_do_bool(sw, &block_copy_out_pending);
   if (state_wrapper_is_reading(sw)) {
-    timing_event_set_state(&s_state.block_copy_out_event, block_copy_out_pending);
-    s_state.active_frame_count = 0;
+    if (!state_wrapper_has_error(sw)) {
+      const bool valid =
+          s_state.data_in_fifo.head < MDEC_DATA_IN_FIFO_CAPACITY &&
+          s_state.data_in_fifo.tail < MDEC_DATA_IN_FIFO_CAPACITY &&
+          s_state.data_in_fifo.size <= MDEC_DATA_IN_FIFO_CAPACITY &&
+          s_state.data_out_fifo.head < MDEC_DATA_OUT_FIFO_CAPACITY &&
+          s_state.data_out_fifo.tail < MDEC_DATA_OUT_FIFO_CAPACITY &&
+          s_state.data_out_fifo.size <= MDEC_DATA_OUT_FIFO_CAPACITY &&
+          s_state.state <= MDEC_STATE_NO_COMMAND && s_state.remaining_halfwords <= 0x20000u &&
+          s_state.current_block <= MDEC_NUM_BLOCKS && s_state.current_coefficient <= 64 &&
+          s_state.current_q_scale <= 63 &&
+          (!block_copy_out_pending || s_state.state == MDEC_STATE_WRITING_MACROBLOCK);
+      if (!valid) sw->error = true;
+    }
+    if (state_wrapper_has_error(sw)) {
+      timing_event_deactivate(&s_state.block_copy_out_event);
+    } else {
+      timing_event_set_state(&s_state.block_copy_out_event, block_copy_out_pending);
+      s_state.active_frame_count = 0;
+    }
   }
 
   return !state_wrapper_has_error(sw);
@@ -440,7 +462,9 @@ static void mdec_soft_reset(void)
   mdec_fifo_in_clear (&s_state.data_in_fifo);
   mdec_fifo_out_clear(&s_state.data_out_fifo);
   s_state.state = MDEC_STATE_IDLE;
-  s_state.remaining_halfwords = 0;
+  /* Idle status uses (remaining_halfwords / 2) - 1. Encode the reset
+   * counter value of zero independently of queued input. */
+  s_state.remaining_halfwords = 2;
   s_state.current_block = 0;
   s_state.current_coefficient = 64;
   s_state.current_q_scale = 0;

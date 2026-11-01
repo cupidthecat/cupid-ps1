@@ -15,7 +15,7 @@ compare = importlib.util.module_from_spec(spec); spec.loader.exec_module(compare
 
 @unittest.skipUnless(os.environ.get('CUPID_TEST_BINARY'), 'set CUPID_TEST_BINARY for generated guest boots')
 class MdecCommandsLiveTest(unittest.TestCase):
-    def test_no_function_status_command_boundaries_and_output(self):
+    def test_reset_status_command_boundaries_and_output(self):
         binary = Path(os.environ['CUPID_TEST_BINARY']).resolve(strict=True)
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

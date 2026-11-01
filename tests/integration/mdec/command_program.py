@@ -22,7 +22,8 @@ def build():
         program.constant(9, value); program.emit(0x8E080004, 0, 0x01095026)
         program.branch(5, 10, 0, 'failed')
 
-    write(0x80000000, 4); write(0x60000000, 4)
+    write(0x80000000, 4); expect_status(0x80040000)
+    write(0x60000000, 4); expect_status(0x90040000)
     for command in (0, 4, 5, 6, 7):
         for flags in (0, 15):
             for count in (0, 1, 0xFFFF):
