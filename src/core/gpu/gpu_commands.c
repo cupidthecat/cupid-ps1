@@ -814,13 +814,6 @@ static bool gpu_handle_copy_cpu_to_vram(void) {
   const u32 coords = fifo_pop(&g.fifo);
   const u32 size   = fifo_pop(&g.fifo);
 
-  /* Tenga Seiha sends nonsense writes on boot; ignore the obvious ones. */
-  if (size == 0xFFFFFFFFu) {
-    ERROR_LOG("Ignoring likely-invalid VRAM write to (%u,%u)", coords & VRAM_WIDTH_MASK,
-              (coords >> 16) & VRAM_HEIGHT_MASK);
-    return true;
-  }
-
   const u32 dst_x      = coords & VRAM_WIDTH_MASK;
   const u32 dst_y      = (coords >> 16) & VRAM_HEIGHT_MASK;
   const u32 cw         = replace_zero(size & VRAM_WIDTH_MASK, 0x400u);
