@@ -13,7 +13,7 @@ spec.loader.exec_module(compare)
 
 @unittest.skipUnless(os.name == "posix", "Linux process runner")
 class ExecutionComparisonTest(unittest.TestCase):
-    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0, fastmem='off', mdec_old_routines=False):
+    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0, fastmem='off', mdec_old_routines=False, restore_reset=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary, bios, media = (root / name for name in ("emulator", "bios", "media"))
@@ -38,6 +38,7 @@ state_version = 84
 restore = os.environ.get('CUPID_CHECKPOINT_RESTORE')
 restore_report = f'[execution-checkpoint] restored index={{restore}} frame=2 ticks=200' if restore else ''
 restore_after = False
+reset_report = ''
 icache = 'on'
 {change}
 if 'CUPID_DIFF_TRACE' in os.environ:
@@ -51,6 +52,7 @@ else:
         (directory / f'checkpoint-{{frame:08d}}.sav').write_bytes(state + state_payload)
         print(f'[execution-checkpoint] frame={{frame}} ticks={{frame * 100}}')
         if frame == 2 and restore_report and not restore_after:
+            if reset_report: print(reset_report)
             print(restore_report)
     if restore_report and restore_after:
         print(restore_report)
@@ -66,7 +68,7 @@ print(cached)
             return compare.run_comparison(binary, bios, media, root / "run", kind=kind,
                                           modes=modes, instructions=4, interval=2, checkpoints=2,
                                           min_blocks=1, timeout=timeout, restore_at=restore_at, fastmem=fastmem,
-                                          mdec_old_routines=mdec_old_routines)
+                                          mdec_old_routines=mdec_old_routines, restore_reset=restore_reset)
 
     def test_complete_trace(self):
         self.assertTrue(self.run_fake()["passed"])
@@ -127,18 +129,28 @@ print(cached)
                 compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
 
     def test_current_state_version(self):
-        self.assertTrue(self.run_fake("state_version = 93", kind="state")["passed"])
+        self.assertTrue(self.run_fake("state_version = 94", kind="state")["passed"])
+
+    def test_reset_before_restore_requires_observed_reset(self):
+        self.assertFalse(self.run_fake(kind='state', modes=('interp', 'interp'),
+                                       restore_at=1, restore_reset=True)['passed'])
+        result = self.run_fake("reset_report = '[execution-checkpoint] reset before restore index=1' if right else ''",
+                               kind='state', modes=('interp', 'interp'), restore_at=1, restore_reset=True)
+        self.assertTrue(result['passed'], result)
+
+    def test_reset_without_requested_restore_is_invalid(self):
+        with self.assertRaises(ValueError): self.run_fake(kind='state', restore_reset=True)
 
     def test_previous_state_version(self):
-        for version in (85, 86, 87, 88, 89, 90, 91, 92):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93):
             with self.subTest(version=version):
                 self.assertTrue(self.run_fake(f"state_version = {version}", kind="state")["passed"])
 
     def test_unsupported_state_version(self):
-        self.assertFalse(self.run_fake("state_version = 94", kind="state")["passed"])
+        self.assertFalse(self.run_fake("state_version = 95", kind="state")["passed"])
 
     def test_state_version_difference_is_not_normalized(self):
-        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93, 94):
             with self.subTest(version=version):
                 result = self.run_fake(f"if right: state_version = {version}", kind="state")
                 self.assertFalse(result["passed"])

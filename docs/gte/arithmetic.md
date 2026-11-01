@@ -13,7 +13,7 @@ inputs defined in C11. These products fit in their chosen intermediate
 types; the existing 44-bit chained-sum and 32-bit result rules still apply.
 Stored MAC values wrap to their low 32 bits rather than saturating.
 
-The save-state format remains version 93. Loading retains saved FIFO values
+The GTE record retains its layout. Loading retains saved FIFO values
 and pending deadlines; it does not reconstruct results produced by older
 emulation.
 

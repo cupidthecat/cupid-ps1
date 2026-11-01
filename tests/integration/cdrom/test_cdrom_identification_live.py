@@ -51,7 +51,7 @@ class CdIdentificationLiveTest(unittest.TestCase):
 
     def check_result(self, path, disc_type, flags):
         data = path.read_bytes()
-        self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 93))
+        self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 94))
         compression, size, unpacked, offset = struct.unpack_from('<4I', data, 200)
         self.assertEqual(compression, 0); self.assertEqual(size, unpacked)
         self.assertEqual(offset + size, len(data))

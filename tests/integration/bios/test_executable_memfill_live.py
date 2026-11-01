@@ -78,7 +78,7 @@ class ExecutableMemfillLiveTest(unittest.TestCase):
                                 path = output / side / f'checkpoint-{frame:08d}.sav'
                                 compare.validate_checkpoint(path)
                                 data = path.read_bytes()
-                                self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 93))
+                                self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 94))
                                 start = struct.unpack_from('<I', data, 212)[0]
                                 payload = data[start:]
                                 marker = b'\x03\0\0\0Bus'; self.assertEqual(payload.count(marker), 1)

@@ -151,6 +151,7 @@ typedef struct {
   u32 checkpoints_written;
   u32 checkpoint_restore_at;
   bool checkpoint_restored;
+  bool checkpoint_restore_reset;
   bool checkpoint_failed;
 
   /* Run-loop state. */
@@ -1427,6 +1428,12 @@ static bool configure_execution_diagnostics(void)
   cpu_execution_stats_initialize(getenv("CUPID_CPU_STATS") != NULL);
   s_fe.checkpoint_dir = getenv("CUPID_CHECKPOINT_DIR");
   const char* restore = getenv("CUPID_CHECKPOINT_RESTORE");
+  const char* reset = getenv("CUPID_CHECKPOINT_RESTORE_RESET");
+  if (reset && (!restore || strcmp(reset, "1") != 0)) {
+    fprintf(stderr, "[execution-checkpoint] reset-before-restore requires a restore index and value 1\n");
+    return false;
+  }
+  s_fe.checkpoint_restore_reset = reset != NULL;
   if (restore && !s_fe.checkpoint_dir) {
     fprintf(stderr, "[execution-checkpoint] restore requires checkpoint configuration\n");
     return false;
@@ -1493,6 +1500,10 @@ static void execution_checkpoint_tick(void)
           (unsigned long long)ticks);
   if (s_fe.checkpoints_written == s_fe.checkpoint_restore_at) {
     Error_init(&error);
+    if (s_fe.checkpoint_restore_reset) {
+      system_reset_system();
+      fprintf(stderr, "[execution-checkpoint] reset before restore index=%u\n", s_fe.checkpoints_written);
+    }
     const bool loaded = system_load_state(path, &error, false, false) != 0;
     if (!loaded || system_get_frame_number() != frame || timing_events_get_global_tick_counter() != ticks) {
       fprintf(stderr, "[execution-checkpoint] restore failed index=%u: %s\n",

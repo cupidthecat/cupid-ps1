@@ -33,7 +33,7 @@ COVERAGE = {
         "excluded": ["CPU host-dispatch flags/pointers and PGXP CPU shadow arrays not written by cpu_do_state",
                      "host mappings, generated native code, external BIOS/disc contents",
                      "host audio/video/input queues and asynchronous host reader state"],
-        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87/88/89/90/91/92/93; see subsystem do_state functions",
+        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87/88/89/90/91/92/93/94; see subsystem do_state functions",
         "boundary": "frontend frame checkpoint; CPU event overshoot and engine flags remain compared",
         "limits": "A difference can reflect engine bookkeeping or timing. Equality covers serialized state only.",
     },
@@ -93,7 +93,7 @@ def validate_checkpoint(path):
     with path.open("rb") as stream:
         header = stream.read(216)
     if (len(header) != 216 or struct.unpack_from("<I", header)[0] != 0x43435544
-            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87, 88, 89, 90, 91, 92, 93)):
+            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94)):
         raise ValueError("missing or unsupported checkpoint header")
     compression, size, unpacked, offset = struct.unpack_from("<4I", header, 200)
     if compression != 0 or size == 0 or size != unpacked or offset < 216 or offset + size != path.stat().st_size:
@@ -117,7 +117,7 @@ def first_difference(left, right):
 
 
 def inspect_run(directory, result, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking,
-                restore_at=0):
+                restore_at=0, restore_reset=False):
     log = (directory / "boot.log").read_text(encoding="utf-8", errors="replace")
     failures = []
     if result["timed_out"] or result["exit_code"] != 0:
@@ -184,6 +184,14 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
                         < restores[0].start()
                         < log.index(f"[execution-checkpoint] frame={after[0]} ticks={after[1]}")):
                     raise ValueError("restore did not precede its continuation checkpoints")
+            resets = list(re.finditer(r"^\[execution-checkpoint\] reset before restore index=(\d+)$", log, re.MULTILINE))
+            expected_resets = [str(restore_at)] if restore_reset else []
+            if ([m.group(1) for m in resets] != expected_resets or
+                    log.count('[execution-checkpoint] reset before restore') != len(resets)):
+                raise ValueError('missing, repeated or unexpected reset-before-restore report')
+            if restore_reset and not (log.index(f'[execution-checkpoint] frame={before[0]} ticks={before[1]}')
+                                      < resets[0].start() < restores[0].start()):
+                raise ValueError('reset did not precede the requested restore')
             for frame, _ in observed:
                 state = directory / f"checkpoint-{frame:08d}.sav"
                 validate_checkpoint(state)
@@ -199,7 +207,7 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
 def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp", "cached"),
                    instructions=50000, interval=60, checkpoints=5, min_blocks=100,
                    fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=(), restore_at=0,
-                   mdec_old_routines=False):
+                   mdec_old_routines=False, restore_reset=False):
     if (kind not in COVERAGE or len(modes) != 2 or any(mode not in ("interp", "cached", "recomp") for mode in modes)
             or (kind == "trace" and "recomp" in modes) or fastmem not in ("off", "lut", "mmap")
             or not isinstance(mdec_old_routines, bool)):
@@ -209,6 +217,8 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
         raise ValueError("counts and timeout must be positive and within supported bounds")
     if restore_at and (kind != "state" or modes[0] != modes[1] or not 1 <= restore_at < checkpoints):
         raise ValueError("restore requires matching modes and a state checkpoint before the final checkpoint")
+    if not isinstance(restore_reset, bool) or (restore_reset and not restore_at):
+        raise ValueError('reset-before-restore requires a valid restore checkpoint')
     paths = [Path(p).resolve(strict=True) for p in (binary, bios, media, *hash_inputs)]
     if not all(path.is_file() for path in paths):
         raise ValueError("binary and inputs must be regular files")
@@ -220,6 +230,7 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
               "configuration": {"modes": modes, "instructions": instructions, "interval": interval,
                                 "checkpoints": checkpoints, "minimum_blocks": min_blocks,
                                 "right_restore_at": restore_at,
+                                "right_reset_before_restore": restore_reset,
                                 "instruction_cache": True,
                                 "mdec_old_routines": mdec_old_routines,
                                 "fastmem": fastmem, "linking": linking, "timeout_seconds": timeout,
@@ -246,11 +257,13 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
             env.update(CUPID_CHECKPOINT_DIR=str(directory), CUPID_CHECKPOINT_SCHEDULE=f"{interval},{checkpoints}")
             if restore_at and label == "right":
                 env["CUPID_CHECKPOINT_RESTORE"] = str(restore_at)
+                if restore_reset: env['CUPID_CHECKPOINT_RESTORE_RESET'] = '1'
         observed = wait_child(command, directory, env, timeout)
         observed["environment"] = {key: env[key] for key in env if key.startswith(("CUPID_", "SDL_"))}
         observed["mode"] = mode
         artifacts.append(inspect_run(directory, observed, kind, mode, instructions, interval, checkpoints,
-                                     min_blocks, fastmem, linking, restore_at if label == "right" else 0))
+                                     min_blocks, fastmem, linking, restore_at if label == "right" else 0,
+                                     restore_reset if label == "right" else False))
         result["runs"].append(observed)
     if all(run["passed"] for run in result["runs"]):
         if kind == "state" and result["runs"][0]["checkpoints"] != result["runs"][1]["checkpoints"]:
@@ -279,6 +292,8 @@ def main():
     parser.add_argument("--checkpoints", type=int, default=5)
     parser.add_argument("--restore-at", type=int, default=0,
                         help="reload this checkpoint in the right process, then compare its continuation")
+    parser.add_argument('--restore-reset', action='store_true',
+                        help='reset the right process before reloading its checkpoint')
     parser.add_argument("--minimum-blocks", type=int, default=100)
     parser.add_argument("--fastmem", choices=("off", "lut", "mmap"), default="off")
     parser.add_argument("--no-linking", action="store_true")
@@ -294,7 +309,7 @@ def main():
                                 interval=args.interval, checkpoints=args.checkpoints,
                                 min_blocks=args.minimum_blocks, fastmem=args.fastmem, linking=not args.no_linking,
                                 timeout=args.timeout, revision=args.revision, hash_inputs=args.hash_input,
-                                restore_at=args.restore_at)
+                                restore_at=args.restore_at, restore_reset=args.restore_reset)
     except (OSError, ValueError) as error:
         parser.exit(2, f"comparison failed: {error}\n")
     print(f"{'PASS' if result['passed'] else 'FAIL'}: {output.resolve() / 'result.json'}")

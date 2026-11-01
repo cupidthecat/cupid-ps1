@@ -10,7 +10,7 @@ These bits apply to rectangle texture traversal. Untextured rectangles keep
 their flat color. Polygon texture coordinates come from their vertex packets.
 The draw mode register and queued rectangle words are included in save states;
 restoring an incomplete rectangle preserves its texture orientation.
-The format remains version 93. Older files retain their recorded draw mode;
+Rectangle fields retain their layout. Older files retain their recorded draw mode;
 a vertical-flip bit already discarded before saving cannot be recovered.
 
 The software scalar and SIMD paths have coordinate, window, clipping, blend,

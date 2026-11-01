@@ -16,10 +16,16 @@ device callbacks complete. This includes saves, loads and diagnostic
 checkpoints. A timer write can synchronize the GPU and finish a frame from
 inside the instruction; deferring the load preserves the completed instruction
 and callback state. Pending frame actions request CPU event service
-without adding emulated cycles. This host action flag is not save-state data;
-the format remains version 93.
+without adding emulated cycles. This host action flag is not save-state data.
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
+
+Version 94 records pending polyline vertices and their source addresses.
+Earlier idle GPU records remain readable. Earlier records saved during an
+incomplete polyline are rejected because they never contained those vertices.
+Queue bounds and inconsistent polyline records are rejected before resuming
+commands. A failed whole-system load is not transactional. See
+[polyline state and submission](../gpu/polylines.md).
 
 Version 93 records colored MDEC DMA placement and its partial-transfer cursor.
 Earlier queued pixels retain their saved order until drained. See

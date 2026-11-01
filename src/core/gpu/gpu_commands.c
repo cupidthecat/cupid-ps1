@@ -4,7 +4,7 @@
  * Dispatch is a plain static const u8[] mapping opcode -> handler enum,
  * driven by gpu_dispatch_gp0().  Keeps the dispatch trivially scrutable.
  *
- * The PGXP-precise polygon/line variants are dropped (not in cupid-ps1 scope).
+ * Integer and precise vertices share the command parser and packet state.
  */
 
 /* All these helpers see `g`, fifo_*, gpu_*  from gpu.c. */
@@ -50,6 +50,7 @@ static bool gpu_handle_render_polygon(void);
 static bool gpu_handle_render_rectangle(void);
 static bool gpu_handle_render_line(void);
 static bool gpu_handle_render_polyline(void);
+static void gpu_flush_polyline_prefix(void);
 static bool gpu_handle_fill_rectangle(void);
 static bool gpu_handle_copy_cpu_to_vram(void);
 static bool gpu_handle_copy_vram_to_cpu(void);
@@ -179,8 +180,11 @@ static void gpu_try_execute_commands(void)
         }
         const bool found_terminator = terminator_index < fifo_size(&g.fifo);
         const u32 words_to_copy = (terminator_index < fifo_size(&g.fifo)) ? terminator_index : fifo_size(&g.fifo);
-        for (u32 i = 0; i < words_to_copy && g.polyline_buffer.size < GPU_MAX_POLYLINE_WORDS; i++)
+        for (u32 i = 0; i < words_to_copy; i++) {
+          if (g.polyline_buffer.size == GPU_MAX_POLYLINE_WORDS)
+            gpu_flush_polyline_prefix();
           g.polyline_buffer.data[g.polyline_buffer.size++] = fifo_pop_u64(&g.fifo);
+        }
         if (found_terminator) {
           fifo_remove_one(&g.fifo);   /* drop terminator */
           gpu_finish_polyline();
@@ -621,7 +625,7 @@ static bool gpu_handle_render_line(void)
 static bool gpu_handle_render_polyline(void)
 {
   const gpu_render_command_t rc = { fifo_peek(&g.fifo, 0) };
-  const u32 min_words = gpu_render_command_shading_enable(rc) ? 3u : 4u;
+  const u32 min_words = gpu_render_command_shading_enable(rc) ? 4u : 3u;
   CHECK_COMMAND_SIZE(min_words);
 
   if (gpu_is_interlaced_rendering_enabled() && gpu_is_crtc_scanline_pending())
@@ -649,105 +653,131 @@ static void gpu_finish_polyline(void)
     ((u32)g.polyline_buffer.size + (shaded ? 1u : 0u)) >> (shaded ? 1u : 0u);
   if (num_vertices < 2) return;
 
-  enum { MAX_OUT = 1024 };
+  enum { MAX_SEGMENTS = 1024, MAX_OUT = MAX_SEGMENTS * 2 };
 
-  if (g_settings.gpu_pgxp_enable) {
+  for (u32 first = 0; first + 1 < num_vertices; first += MAX_SEGMENTS) {
+    const u32 remaining = num_vertices - first;
+    const u32 batch_vertices = remaining < MAX_SEGMENTS + 1 ? remaining : MAX_SEGMENTS + 1;
 
-    gpu_backend_precise_line_vertex_t out[MAX_OUT];
-    u32 out_count = 0;
-    u32 buffer_pos = 0;
-    bool valid_w = g_settings.gpu_pgxp_texture_correction;
-    gpu_backend_precise_line_vertex_t start, end;
-    memset(&start, 0, sizeof(start));
-    memset(&end,   0, sizeof(end));
+    if (g_settings.gpu_pgxp_enable) {
 
-    /* Read first vertex (color from render command, full u64 from buffer). */
-    {
-      const u64 maddr_and_pos = g.polyline_buffer.data[buffer_pos++];
-      const gpu_vertex_position_t vp = { (u32)maddr_and_pos };
-      start.color = gpu_render_command_color_for_first_vertex(g.render_command);
-      start.native_x = g.drawing_offset.x + gpu_vertex_position_x(vp);
-      start.native_y = g.drawing_offset.y + gpu_vertex_position_y(vp);
-      valid_w &= pgxp_get_precise_vertex((u32)(maddr_and_pos >> 32), vp.bits,
-                                          start.native_x, start.native_y,
-                                          g.drawing_offset.x, g.drawing_offset.y, 
-                                          &start.x, &start.y, &start.w);
+      gpu_backend_precise_line_vertex_t out[MAX_OUT];
+      u32 out_count = 0;
+      u32 buffer_pos = first << (shaded ? 1u : 0u);
+      bool valid_w = g_settings.gpu_pgxp_texture_correction;
+      gpu_backend_precise_line_vertex_t start, end;
+      memset(&start, 0, sizeof(start));
+      memset(&end,   0, sizeof(end));
+
+      /* Read the shared starting vertex, preserving its source address. */
+      {
+        const u64 maddr_and_pos = g.polyline_buffer.data[buffer_pos++];
+        const gpu_vertex_position_t vp = { (u32)maddr_and_pos };
+        start.color = shaded && first > 0 ? (u32)g.polyline_buffer.data[buffer_pos - 2] & 0x00FFFFFFu
+                                          : gpu_render_command_color_for_first_vertex(g.render_command);
+        start.native_x = g.drawing_offset.x + gpu_vertex_position_x(vp);
+        start.native_y = g.drawing_offset.y + gpu_vertex_position_y(vp);
+        valid_w &= pgxp_get_precise_vertex((u32)(maddr_and_pos >> 32), vp.bits,
+                                            start.native_x, start.native_y,
+                                            g.drawing_offset.x, g.drawing_offset.y,
+                                            &start.x, &start.y, &start.w);
+      }
+
+      for (u32 i = 1; i < batch_vertices; i++) {
+        const u32 color = shaded
+            ? ((u32)g.polyline_buffer.data[buffer_pos++] & 0x00FFFFFFu)
+            : (g.render_command.bits & 0x00FFFFFFu);
+        const u64 maddr_and_pos = g.polyline_buffer.data[buffer_pos++];
+        const gpu_vertex_position_t vp = { (u32)maddr_and_pos };
+        end.color = color;
+        end.native_x = g.drawing_offset.x + gpu_vertex_position_x(vp);
+        end.native_y = g.drawing_offset.y + gpu_vertex_position_y(vp);
+        valid_w &= pgxp_get_precise_vertex((u32)(maddr_and_pos >> 32), vp.bits,
+                                            end.native_x, end.native_y,
+                                            g.drawing_offset.x, g.drawing_offset.y,
+                                            &end.x, &end.y, &end.w);
+
+        const s32 minx = (start.native_x < end.native_x) ? start.native_x : end.native_x;
+        const s32 maxx = (start.native_x > end.native_x) ? start.native_x : end.native_x;
+        const s32 miny = (start.native_y < end.native_y) ? start.native_y : end.native_y;
+        const s32 maxy = (start.native_y > end.native_y) ? start.native_y : end.native_y;
+        const bool too_big = ((maxx + 1 - minx) > (s32)MAX_PRIMITIVE_WIDTH) ||
+                             ((maxy + 1 - miny) > (s32)MAX_PRIMITIVE_HEIGHT);
+        if (!too_big) {
+          out[out_count++] = start;
+          out[out_count++] = end;
+        }
+        start = end;
+      }
+
+      if (out_count > 0) {
+        if (!valid_w) {
+          for (u32 i = 0; i < out_count; i++) out[i].w = 1.0f;
+        }
+        gpu_backend_draw_precise_line_cmd_t pcmd;
+        memset(&pcmd, 0, sizeof(pcmd));
+        gpu_fill_draw_command(&pcmd.base, g.render_command);
+        pcmd.base.palette.bits = 0;
+        pcmd.base.num_vertices = (u16)out_count;
+        pcmd.base.valid_w = valid_w;
+        gpu_backend_draw_precise_line(&pcmd, out);
+      }
+      continue;
     }
 
-    for (u32 i = 1; i < num_vertices && out_count + 1 < MAX_OUT; i++) {
-      const u32 color = shaded
-          ? ((u32)g.polyline_buffer.data[buffer_pos++] & 0x00FFFFFFu)
-          : (g.render_command.bits & 0x00FFFFFFu);
-      const u64 maddr_and_pos = g.polyline_buffer.data[buffer_pos++];
-      const gpu_vertex_position_t vp = { (u32)maddr_and_pos };
-      end.color = color;
-      end.native_x = g.drawing_offset.x + gpu_vertex_position_x(vp);
-      end.native_y = g.drawing_offset.y + gpu_vertex_position_y(vp);
-      valid_w &= pgxp_get_precise_vertex((u32)(maddr_and_pos >> 32), vp.bits,
-                                          end.native_x, end.native_y,
-                                          g.drawing_offset.x, g.drawing_offset.y, 
-                                          &end.x, &end.y, &end.w);
+    gpu_backend_draw_line_cmd_t cmd;
+    memset(&cmd, 0, sizeof(cmd));
+    gpu_fill_draw_command(&cmd.base, g.render_command);
+    cmd.base.palette.bits = 0;
 
-      const s32 minx = (start.native_x < end.native_x) ? start.native_x : end.native_x;
-      const s32 maxx = (start.native_x > end.native_x) ? start.native_x : end.native_x;
-      const s32 miny = (start.native_y < end.native_y) ? start.native_y : end.native_y;
-      const s32 maxy = (start.native_y > end.native_y) ? start.native_y : end.native_y;
-      const bool too_big = ((maxx + 1 - minx) > (s32)MAX_PRIMITIVE_WIDTH) ||
-                           ((maxy + 1 - miny) > (s32)MAX_PRIMITIVE_HEIGHT);
-      if (!too_big) {
-        out[out_count++] = start;
-        out[out_count++] = end;
-      }
-      start = end;
+    u32 buffer_pos = first << (shaded ? 1u : 0u);
+    gpu_backend_line_vertex_t out[MAX_OUT];
+    u32 out_count = 0;
+
+    s32 cur_x, cur_y; u32 cur_color;
+    cur_color = shaded && first > 0 ? (u32)g.polyline_buffer.data[buffer_pos - 1] & 0x00FFFFFFu
+                                    : gpu_render_command_color_for_first_vertex(g.render_command);
+    const gpu_vertex_position_t vp0 = { (u32)g.polyline_buffer.data[buffer_pos++] };
+    cur_x = g.drawing_offset.x + gpu_vertex_position_x(vp0);
+    cur_y = g.drawing_offset.y + gpu_vertex_position_y(vp0);
+
+    for (u32 i = 1; i < batch_vertices; i++) {
+      u32 end_color = shaded ? ((u32)g.polyline_buffer.data[buffer_pos++] & 0x00FFFFFFu)
+                             : gpu_render_command_color_for_first_vertex(g.render_command);
+      const gpu_vertex_position_t vp = { (u32)g.polyline_buffer.data[buffer_pos++] };
+      const s32 ex = g.drawing_offset.x + gpu_vertex_position_x(vp);
+      const s32 ey = g.drawing_offset.y + gpu_vertex_position_y(vp);
+
+      out[out_count].x = cur_x; out[out_count].y = cur_y; out[out_count].color = cur_color; out_count++;
+      out[out_count].x = ex;    out[out_count].y = ey;    out[out_count].color = end_color; out_count++;
+
+      cur_x = ex; cur_y = ey; cur_color = end_color;
     }
 
     if (out_count > 0) {
-      if (!valid_w) {
-        for (u32 i = 0; i < out_count; i++) out[i].w = 1.0f;
-      }
-      gpu_backend_draw_precise_line_cmd_t pcmd;
-      memset(&pcmd, 0, sizeof(pcmd));
-      gpu_fill_draw_command(&pcmd.base, g.render_command);
-      pcmd.base.palette.bits = 0;
-      pcmd.base.num_vertices = (u16)out_count;
-      pcmd.base.valid_w = valid_w;
-      gpu_backend_draw_precise_line(&pcmd, out);
+      cmd.base.num_vertices = (u16)out_count;
+      gpu_backend_draw_line(&cmd, out);
     }
-    return;
   }
+}
 
-  gpu_backend_draw_line_cmd_t cmd;
-  memset(&cmd, 0, sizeof(cmd));
-  gpu_fill_draw_command(&cmd.base, g.render_command);
-  cmd.base.palette.bits = 0;
+static void gpu_flush_polyline_prefix(void)
+{
+  const bool shaded = gpu_render_command_shading_enable(g.render_command);
+  const u32 count = g.polyline_buffer.size;
+  const u32 last_position = shaded ? ((count - 1u) & ~1u) : count - 1u;
+  const u64 position = g.polyline_buffer.data[last_position];
+  const u32 color = shaded ? (u32)g.polyline_buffer.data[last_position - 1u] & 0x00FFFFFFu
+                            : gpu_render_command_color_for_first_vertex(g.render_command);
+  const bool pending_color = shaded && last_position + 1u < count;
+  const u64 next_color = pending_color ? g.polyline_buffer.data[last_position + 1u] : 0;
 
-  u32 buffer_pos = 0;
-  gpu_backend_line_vertex_t out[MAX_OUT];
-  u32 out_count = 0;
-
-  s32 cur_x, cur_y; u32 cur_color;
-  cur_color = gpu_render_command_color_for_first_vertex(g.render_command);
-  const gpu_vertex_position_t vp0 = { (u32)g.polyline_buffer.data[buffer_pos++] };
-  cur_x = g.drawing_offset.x + gpu_vertex_position_x(vp0);
-  cur_y = g.drawing_offset.y + gpu_vertex_position_y(vp0);
-
-  for (u32 i = 1; i < num_vertices && out_count + 1 < MAX_OUT; i++) {
-    u32 end_color = shaded ? ((u32)g.polyline_buffer.data[buffer_pos++] & 0x00FFFFFFu)
-                           : gpu_render_command_color_for_first_vertex(g.render_command);
-    const gpu_vertex_position_t vp = { (u32)g.polyline_buffer.data[buffer_pos++] };
-    const s32 ex = g.drawing_offset.x + gpu_vertex_position_x(vp);
-    const s32 ey = g.drawing_offset.y + gpu_vertex_position_y(vp);
-
-    out[out_count].x = cur_x; out[out_count].y = cur_y; out[out_count].color = cur_color; out_count++;
-    out[out_count].x = ex;    out[out_count].y = ey;    out[out_count].color = end_color; out_count++;
-
-    cur_x = ex; cur_y = ey; cur_color = end_color;
-  }
-
-  if (out_count > 0) {
-    cmd.base.num_vertices = (u16)out_count;
-    gpu_backend_draw_line(&cmd, out);
-  }
+  gpu_finish_polyline();
+  /* Retain the shared endpoint and any color whose position has not arrived. */
+  g.polyline_buffer.data[0] = position;
+  g.polyline_buffer.size = 1;
+  if (pending_color) g.polyline_buffer.data[g.polyline_buffer.size++] = next_color;
+  g.render_command.bits = (g.render_command.bits & 0xFF000000u) | color;
 }
 
 static bool gpu_handle_fill_rectangle(void)
@@ -1070,6 +1100,7 @@ static void gpu_write_gp1(u32 value)
       memset(&g.vram_transfer, 0, sizeof(g.vram_transfer));
       fifo_clear(&g.fifo);
       g.blit_buffer.size = 0;
+      g.polyline_buffer.size = 0;
       g.blit_remaining_words = 0;
       g.pending_command_ticks = 0;
       timing_event_deactivate(&g.command_tick_event);

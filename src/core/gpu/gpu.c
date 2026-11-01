@@ -131,7 +131,7 @@ typedef struct {
   u32  size;
 } gpu_blit_buf_t;
 
-/* Polyline buffer: terminator-driven, can grow large.  Cap at FIFO size. */
+/* Bounded polyline staging; full prefixes are rendered before accepting more. */
 #define GPU_MAX_POLYLINE_WORDS 4096u
 typedef struct {
   u64  data[GPU_MAX_POLYLINE_WORDS];
@@ -422,6 +422,7 @@ static void gpu_soft_reset(void)
   memset(&g.vram_transfer, 0, sizeof(g.vram_transfer));
   fifo_clear(&g.fifo);
   g.blit_buffer.size = 0;
+  g.polyline_buffer.size = 0;
   g.blit_remaining_words = 0;
   g.draw_mode.texture_window_value = 0xFFFFFFFFu;
   gpu_set_draw_mode(0);
@@ -436,8 +437,24 @@ static void gpu_soft_reset(void)
 
 void gpu_cpu_clock_changed(void) { gpu_update_crtc_config(); }
 
+static bool gpu_state_error(state_wrapper_t* sw)
+{
+  sw->error = true;
+  if (state_wrapper_is_reading(sw)) {
+    fifo_clear(&g.fifo);
+    g.blit_buffer.size = 0;
+    g.polyline_buffer.size = 0;
+    g.blit_remaining_words = 0;
+    g.blitter_state = GPU_BLITTER_IDLE;
+    g.pending_command_ticks = 0;
+    timing_event_deactivate(&g.command_tick_event);
+  }
+  return false;
+}
+
 bool gpu_do_state(state_wrapper_t* sw)
 {
+  if (state_wrapper_is_reading(sw)) g.polyline_buffer.size = 0;
   if (state_wrapper_is_writing(sw)) {
     gpu_read_vram(0, 0, VRAM_WIDTH, VRAM_HEIGHT);
   }
@@ -470,6 +487,8 @@ bool gpu_do_state(state_wrapper_t* sw)
 
   u8 blitter = (u8)g.blitter_state;
   state_wrapper_do_u8(sw, &blitter);
+  if (state_wrapper_has_error(sw) || blitter > GPU_BLITTER_DRAWING_POLYLINE)
+    return gpu_state_error(sw);
   g.blitter_state = (gpu_blitter_state_t)blitter;
   state_wrapper_do_s32(sw, &g.pending_command_ticks);
   state_wrapper_do_u32(sw, &g.command_total_words);
@@ -484,9 +503,10 @@ bool gpu_do_state(state_wrapper_t* sw)
   /* FIFO: u32 count + raw bytes. */
   u32 fifo_count = g.fifo.size;
   state_wrapper_do_u32(sw, &fifo_count);
+  if (state_wrapper_has_error(sw) || fifo_count > GPU_MAX_FIFO_SIZE)
+    return gpu_state_error(sw);
   if (state_wrapper_is_reading(sw)) {
     fifo_clear(&g.fifo);
-    if (fifo_count > GPU_MAX_FIFO_SIZE) fifo_count = GPU_MAX_FIFO_SIZE;
     for (u32 i = 0; i < fifo_count; i++) {
       u64 v = 0;
       state_wrapper_do_u64(sw, &v);
@@ -502,6 +522,8 @@ bool gpu_do_state(state_wrapper_t* sw)
   /* Blit buffer + remaining. */
   u32 blit_size = g.blit_buffer.size;
   state_wrapper_do_u32(sw, &blit_size);
+  if (state_wrapper_has_error(sw) || blit_size > (VRAM_WIDTH * VRAM_HEIGHT + 1u) / 2u)
+    return gpu_state_error(sw);
   if (state_wrapper_is_reading(sw)) {
     gpu_grow_blit_buf(blit_size);
     g.blit_buffer.size = blit_size;
@@ -510,8 +532,27 @@ bool gpu_do_state(state_wrapper_t* sw)
   state_wrapper_do_u32(sw, &g.blit_remaining_words);
   state_wrapper_do_u32(sw, &g.render_command.bits);
 
+  if (state_wrapper_get_version(sw) >= 94u) {
+    u32 polyline_size = g.polyline_buffer.size;
+    state_wrapper_do_u32(sw, &polyline_size);
+    if (state_wrapper_has_error(sw) || polyline_size > GPU_MAX_POLYLINE_WORDS)
+      return gpu_state_error(sw);
+    if (state_wrapper_is_reading(sw) &&
+        ((g.blitter_state != GPU_BLITTER_DRAWING_POLYLINE && polyline_size != 0) ||
+         (g.blitter_state == GPU_BLITTER_DRAWING_POLYLINE &&
+          (polyline_size == 0 || (g.render_command.bits & 0xE8000000u) != 0x48000000u))))
+      return gpu_state_error(sw);
+    if (state_wrapper_is_reading(sw)) g.polyline_buffer.size = polyline_size;
+    state_wrapper_do_array(sw, g.polyline_buffer.data, sizeof(u64), polyline_size);
+  } else if (g.blitter_state == GPU_BLITTER_DRAWING_POLYLINE) {
+    /* Earlier records never stored these vertices; they cannot be recovered. */
+    return gpu_state_error(sw);
+  }
+  if (state_wrapper_has_error(sw)) return gpu_state_error(sw);
+
   /* VRAM is a flat blob. */
   state_wrapper_do_bytes(sw, g_vram, sizeof(g_vram));
+  if (state_wrapper_has_error(sw)) return gpu_state_error(sw);
 
   if (state_wrapper_is_reading(sw)) {
     g.drawing_area_changed = true;
