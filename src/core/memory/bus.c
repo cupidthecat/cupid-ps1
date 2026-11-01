@@ -485,6 +485,11 @@ bool bus_do_state(state_wrapper_t* sw)
 
   state_wrapper_do_bool(sw, &s_kernel_initialize_hook_run);
 
+  /* Access delays are derived from the restored control registers. Older
+   * records can contain an uninitialized expansion timing table. */
+  if (state_wrapper_is_reading(sw))
+    recalculate_memory_timings();
+
   return true;
 }
 
@@ -538,6 +543,8 @@ static void recalculate_memory_timings(void)
                           &s_spu_access_time[0], &s_spu_access_time[1], &s_spu_access_time[2]);
   calculate_memory_timing(s_MEMCTRL.r.exp1_delay_size, s_MEMCTRL.r.common_delay,
                           &s_exp1_access_time[0], &s_exp1_access_time[1], &s_exp1_access_time[2]);
+  calculate_memory_timing(s_MEMCTRL.r.exp2_delay_size, s_MEMCTRL.r.common_delay,
+                          &s_exp2_access_time[0], &s_exp2_access_time[1], &s_exp2_access_time[2]);
 
   TRACE_LOG("BIOS Memory Timing: %u bit bus, byte=%d, halfword=%d, word=%d",
             s_MEMCTRL.r.bios_delay_size.b.data_bus_16bit ? 16u : 8u,

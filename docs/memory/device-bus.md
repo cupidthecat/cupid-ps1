@@ -65,8 +65,29 @@ partial-word write enables also need further work.
 See [partial stores](partial-stores.md) for the supported internal register
 latches and 16-bit SPU dispatch.
 
-Access-time calculations and scheduler charging are unchanged. The tests
-above do not qualify strobe timing or data loss caused by insufficient
-recovery time. Published timing observations and hardware measurements must
-be assessed separately from data results. No new physical-console capture
-was available for these changes.
+## Expansion read delays
+
+EXP2 reads use the read-delay field of `1F80101Ch` and the shared periods in
+`1F801020h`. The bus timing calculation sums the first access and the
+sequential accesses required by the configured bus width. Address stepping
+changes the selected registers without changing the number of strobes.
+The CPU charges its instruction cycle separately from the bus delay.
+Writes retain their existing posted behavior.
+
+Changing either timing register recalculates the delays. Reset initializes
+them from the reset controls. Loading a state rebuilds derived access delays
+from its saved controls, including older records with zero EXP2 delays.
+The serialized layout and state version are unchanged.
+
+`make test TEST_FILTER=ExpansionTiming` checks all three CPU address aliases,
+byte/halfword/word reads, bus widths, read versus write delay fields, common
+period changes, reset and restoration of an older timing table. Generated
+guest programs check delay changes across ordinary, cached and native
+execution, with slow memory, mmap, LUT and disabled linking. Native cases
+require execution progress through the selected backend.
+
+These checks establish control-dependent charging in the current timing
+model. The original access-time program still differs from supplied console
+observations, including EXP2. Its loop overhead, CPU stalls and physical
+strobe timing remain unresolved. Data loss caused by insufficient recovery
+time is also unqualified. No new physical-console capture was available.

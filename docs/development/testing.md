@@ -55,6 +55,13 @@ under every CPU execution mode and continue after component-state restoration.
 See [device bus accesses](../memory/device-bus.md) for the implemented behavior
 and the configurations and timing that remain unqualified.
 
+The `ExpansionTiming` filter checks EXP2 read delays, control changes,
+address aliases, bus widths, reset and reconstruction of derived delays
+from saved controls. Its generated guest programs cover every CPU mode,
+native memory path and linking setting, with component restoration.
+See [expansion read delays](../memory/device-bus.md#expansion-read-delays)
+for the timing model and the hardware observations that still differ.
+
 The `SpuTransferBudget` filter checks tick consumption, read/write data,
 split/batched state equality, fractional save/load continuation, legacy and
 invalid state records, IRQ addresses and DMA refill. See
