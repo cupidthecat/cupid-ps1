@@ -1225,13 +1225,25 @@ static void gpu_write_gp1(u32 value) {
 }
 
 static void gpu_handle_get_gpu_info_command(u32 value) {
-  const u8 sub = (u8)(value & 0x07u);
+  const u8 sub = (u8)(value & 0x0Fu);
   switch (sub) {
     case 0x00:
     case 0x01:
     case 0x06:
-    case 0x07:
+    case 0x09:
+    case 0x0A:
+    case 0x0B:
+    case 0x0C:
+    case 0x0D:
+    case 0x0E:
+    case 0x0F:
       break; /* leave latch */
+    case 0x07:
+      g.GPUREAD_latch = 2;
+      break;
+    case 0x08:
+      g.GPUREAD_latch = 0;
+      break;
     case 0x02:
       g.GPUREAD_latch = g.draw_mode.texture_window_value;
       break;

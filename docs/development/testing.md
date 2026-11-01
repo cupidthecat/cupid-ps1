@@ -122,6 +122,12 @@ component-state restoration and every CPU execution mode.
 See [GPU reset and interrupts](../gpu/reset-and-irqs.md) for the covered sequence
 and the reset behavior that remains unqualified.
 
+The `GpuInformation` filter checks the four-bit information index, GP1 command
+mirrors and read-latch ownership. A generated guest checks the same 512 query
+combinations across all CPU modes, including a reset before state restoration.
+See [GPU information queries](../gpu/information-queries.md) for exact readback
+coverage and the remaining hardware qualification limits.
+
 The `MdecInput` filter checks complete input words, capacity boundaries and
 queued data through both DMA and manual register writes. Guest programs
 configure DMA channel 0 or write the command port across CPU modes and memory
