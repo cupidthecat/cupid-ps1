@@ -67,4 +67,5 @@ jobs:
           python -m unittest discover -s tests -p test_gpu_rectangle_live.py
           python -m unittest discover -s tests -p test_gpu_polyline_live.py
           python -m unittest discover -s tests -p test_gpu_upload_live.py
+          python -m unittest discover -s tests -p test_dma_otc_live.py
           python -m unittest discover -s tests -p test_gpu_legacy_fixtures.py

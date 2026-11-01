@@ -62,6 +62,11 @@ native memory path and linking setting, with component restoration.
 See [expansion read delays](../memory/device-bus.md#expansion-read-delays)
 for the timing model and the hardware observations that still differ.
 
+The `DmaOtc` filter checks ordering-table control bits, transfer gating, counts,
+RAM mirrors, IRQs and restored requests. Its generated guest covers all CPU
+execution modes and native memory paths, including reset before restoration.
+See [ordering-table DMA](../dma/ordering-tables.md) for the model and its limits.
+
 The `SpuTransferBudget` filter checks tick consumption, read/write data,
 split/batched state equality, fractional save/load continuation, legacy and
 invalid state records, IRQ addresses and DMA refill. See

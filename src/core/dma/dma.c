@@ -78,6 +78,8 @@ typedef union {
 } dma_block_control_t;
 
 #define CHANNEL_CONTROL_WRITE_MASK UINT32_C(0x71770703)
+#define OTC_CONTROL_WRITE_MASK     UINT32_C(0x51000000)
+#define OTC_CONTROL_FIXED_BITS     UINT32_C(0x00000002)
 
 typedef union {
   u32 bits;
@@ -248,7 +250,7 @@ static void dma_clear_state(void) {
     dma_channel_state_t* cs  = &s_state.channels[i];
     cs->base_address         = 0;
     cs->block_control.bits   = 0;
-    cs->channel_control.bits = 0;
+    cs->channel_control.bits = i == DMA_CHANNEL_OTC ? OTC_CONTROL_FIXED_BITS : 0;
     cs->request              = false;
   }
 
@@ -272,6 +274,11 @@ bool dma_do_state(state_wrapper_t* sw) {
   state_wrapper_do_u32(sw, &s_state.DICR.bits);
 
   if (state_wrapper_is_reading(sw)) {
+    if (state_wrapper_has_error(sw)) return false;
+    /* Older records may contain writable direction/sync fields on channel 6. */
+    dma_channel_state_t* otc  = &s_state.channels[DMA_CHANNEL_OTC];
+    otc->channel_control.bits = (otc->channel_control.bits & OTC_CONTROL_WRITE_MASK) | OTC_CONTROL_FIXED_BITS;
+    otc->request              = otc->channel_control.start_trigger != 0;
     if (s_state.halt_ticks_remaining > 0)
       timing_event_set_interval_and_schedule(&s_state.unhalt_event, s_state.halt_ticks_remaining);
     else
@@ -338,8 +345,11 @@ void dma_write_register(u32 offset, u32 value) {
          * waits for the GPU unhalt to complete, the SPU IRQ is missed. */
         const bool ignore_halt = !state->channel_control.enable_busy && (value & (1u << 24));
 
-        state->channel_control.bits =
-            (state->channel_control.bits & ~CHANNEL_CONTROL_WRITE_MASK) | (value & CHANNEL_CONTROL_WRITE_MASK);
+        if (channel_index == DMA_CHANNEL_OTC)
+          state->channel_control.bits = (value & OTC_CONTROL_WRITE_MASK) | OTC_CONTROL_FIXED_BITS;
+        else
+          state->channel_control.bits =
+              (state->channel_control.bits & ~CHANNEL_CONTROL_WRITE_MASK) | (value & CHANNEL_CONTROL_WRITE_MASK);
         TRACE_LOG("DMA channel %u channel control <- 0x%08X", channel_index, state->channel_control.bits);
 
         /* OTC needs the start_trigger bit to actually request a transfer. */
@@ -512,6 +522,7 @@ static bool dma_transfer_channel(dma_channel_t channel) {
 
   const bool copy_to_device         = cs->channel_control.copy_to_device;
   cs->channel_control.start_trigger = 0;
+  if (channel == DMA_CHANNEL_OTC) cs->request = false;
 
   u32       current_address = cs->base_address;
   const u32 increment       = cs->channel_control.address_step_reverse ? (u32)(-4) : 4u;
