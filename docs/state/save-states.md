@@ -20,6 +20,11 @@ without adding emulated cycles. This host action flag is not save-state data.
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
+Version 96 records the start cause of forced manual DMA transfers, including
+paused transfers whose trigger has cleared and whose device request is absent.
+Earlier records default to request-driven continuation. See
+[forced manual DMA](../dma/forced-transfers.md).
+
 Version 95 records each DMA channel's remaining chopped-transfer pause.
 Earlier records retain their saved registers without inventing a missing
 pause phase. See [chopped DMA](../dma/chopping.md) for continuation and limits.

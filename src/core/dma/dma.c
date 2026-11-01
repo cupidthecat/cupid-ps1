@@ -97,7 +97,8 @@ typedef union {
     u32 enable_busy : 1; /* bit 24 */
     u32 _pad4 : 3;
     u32 start_trigger : 1; /* bit 28 */
-    u32 _pad5 : 3;
+    u32 force_pause : 1;   /* bit 29 */
+    u32 _pad5 : 2;
   };
 } dma_channel_control_t;
 
@@ -107,6 +108,7 @@ typedef struct {
   dma_channel_control_t channel_control;
   bool                  request;
   bool                  transferring;
+  bool                  forced_transfer;
   timing_event_t        chopping_event;
 } dma_channel_state_t;
 
@@ -267,6 +269,7 @@ static void dma_clear_state(void) {
     cs->channel_control.bits = i == DMA_CHANNEL_OTC ? OTC_CONTROL_FIXED_BITS : 0;
     cs->request              = false;
     cs->transferring         = false;
+    cs->forced_transfer      = false;
     timing_event_deactivate(&cs->chopping_event);
   }
 
@@ -290,6 +293,8 @@ bool dma_do_state(state_wrapper_t* sw) {
   state_wrapper_do_u32(sw, &s_state.DPCR.bits);
   state_wrapper_do_u32(sw, &s_state.DICR.bits);
 
+  u8 forced_mask = 0;
+
   for (u32 i = 0; i < DMA_NUM_CHANNELS; i++) {
     dma_channel_state_t* cs        = &s_state.channels[i];
     tick_count_t         remaining = 0;
@@ -303,7 +308,8 @@ bool dma_do_state(state_wrapper_t* sw) {
           (remaining && (i == DMA_CHANNEL_OTC || !cs->channel_control.enable_busy ||
                          cs->channel_control.sync_mode != SYNC_MODE_MANUAL || !cs->channel_control.chopping_enable)))
         return false;
-      cs->transferring = false;
+      cs->transferring    = false;
+      cs->forced_transfer = false;
       if (remaining)
         timing_event_set_interval_and_schedule(&cs->chopping_event, remaining);
       else
@@ -311,7 +317,20 @@ bool dma_do_state(state_wrapper_t* sw) {
     }
   }
 
+  if (state_wrapper_is_writing(sw)) {
+    for (u32 i = 0; i < DMA_NUM_CHANNELS; i++)
+      if (s_state.channels[i].forced_transfer) forced_mask |= (u8)(1u << i);
+  }
+  if (state_wrapper_get_version(sw) >= 96) state_wrapper_do_u8(sw, &forced_mask);
   if (state_wrapper_is_reading(sw)) {
+    if (forced_mask & 0xC0u) return false;
+    for (u32 i = 0; i < DMA_NUM_CHANNELS; i++) {
+      dma_channel_state_t* cs = &s_state.channels[i];
+      cs->forced_transfer     = (forced_mask & (1u << i)) != 0;
+      if (cs->forced_transfer &&
+          (!cs->channel_control.enable_busy || cs->channel_control.sync_mode != SYNC_MODE_MANUAL))
+        return false;
+    }
     if (state_wrapper_has_error(sw)) return false;
     s_state.dispatching = false;
     /* Older records may contain writable direction/sync fields on channel 6. */
@@ -390,6 +409,8 @@ void dma_write_register(u32 offset, u32 value) {
           state->channel_control.bits =
               (state->channel_control.bits & ~CHANNEL_CONTROL_WRITE_MASK) | (value & CHANNEL_CONTROL_WRITE_MASK);
         TRACE_LOG("DMA channel %u channel control <- 0x%08X", channel_index, state->channel_control.bits);
+        if (!state->channel_control.enable_busy || state->channel_control.sync_mode != SYNC_MODE_MANUAL)
+          state->forced_transfer = false;
         if (!state->channel_control.enable_busy || state->channel_control.sync_mode != SYNC_MODE_MANUAL ||
             !state->channel_control.chopping_enable)
           timing_event_deactivate(&state->chopping_event);
@@ -468,6 +489,11 @@ static bool dma_can_transfer_channel(dma_channel_t channel, bool ignore_halt) {
 
   if (cs->channel_control.sync_mode != SYNC_MODE_MANUAL && (dma_is_transfer_halted() && !ignore_halt)) return false;
 
+  if (cs->channel_control.sync_mode == SYNC_MODE_MANUAL) {
+    const bool forced = cs->forced_transfer || (!cs->request && cs->channel_control.start_trigger);
+    if (forced && cs->channel_control.force_pause) return false;
+    return cs->request || forced;
+  }
   return cs->request;
 }
 
@@ -529,6 +555,7 @@ static bool dma_check_for_bus_error(dma_channel_t channel, dma_channel_state_t* 
   if (address >= bus_get_ram_mapped_size()) {
     DEBUG_LOG("DMA bus error on channel %u at address 0x%08X", (u32)channel, address);
     cs->channel_control.enable_busy = 0;
+    cs->forced_transfer             = false;
     s_state.DICR.bus_error          = 1;
     dma_update_irq();
     return true;
@@ -570,6 +597,7 @@ static void dma_complete_transfer(dma_channel_t channel, dma_channel_state_t* cs
   s_dbg_transfer_counts[(u32)channel]++;
   DEBUG_LOG("DMA transfer for channel %u complete", (u32)channel);
   cs->channel_control.enable_busy = 0;
+  cs->forced_transfer             = false;
   if (dicr_should_set_irq_flag(s_state.DICR, channel)) {
     DEBUG_LOG("Setting DMA interrupt for channel %u", (u32)channel);
     dicr_set_irq_flag(&s_state.DICR, channel);
@@ -598,7 +626,9 @@ static tick_count_t dma_get_max_slice_ticks(dma_channel_t channel, tick_count_t 
 static bool dma_transfer_channel(dma_channel_t channel, global_ticks_t burst_start) {
   dma_channel_state_t* cs = &s_state.channels[(u32)channel];
 
-  const bool copy_to_device         = cs->channel_control.copy_to_device;
+  const bool copy_to_device = cs->channel_control.copy_to_device;
+  if (cs->channel_control.sync_mode == SYNC_MODE_MANUAL && !cs->request && cs->channel_control.start_trigger)
+    cs->forced_transfer = true;
   cs->channel_control.start_trigger = 0;
   if (channel == DMA_CHANNEL_OTC) cs->request = false;
 

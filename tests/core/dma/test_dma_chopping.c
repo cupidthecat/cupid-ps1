@@ -114,7 +114,7 @@ TEST(DmaChopping, rejects_invalid_pause_records_and_truncation) {
   state_wrapper_init_write(&state, saved, sizeof(saved), SAVE_STATE_VERSION);
   EXPECT_TRUE(dma_do_state(&state));
   const size_t size = state_wrapper_get_position(&state);
-  EXPECT_EQ(size, 131);
+  EXPECT_EQ(size, 132);
   const s32 invalid[] = {-1, 129};
   for (u32 i = 0; i < countof(invalid); i++) {
     dma_reset();

@@ -75,7 +75,7 @@ class ExecutableStackLiveTest(unittest.TestCase):
                             elif mode == 'cached': self.assertEqual(run['cached']['fallback'], 0)
                             for frame, _ in run['checkpoints']:
                                 data = (output / side / f'checkpoint-{frame:08d}.sav').read_bytes()
-                                self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 95))
+                                self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 96))
                                 compression, size, unpacked, start = struct.unpack_from('<4I', data, 200)
                                 self.assertEqual(compression, 0); self.assertEqual(size, unpacked)
                                 self.assertEqual(start + size, len(data))

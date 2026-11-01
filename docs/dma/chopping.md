@@ -19,6 +19,8 @@ the device stops requesting; a later request can resume the remaining data.
 Stopping the channel or resetting DMA cancels that channel's pending burst.
 Device callbacks defer further dispatch while the current burst is delivering
 its words. Simultaneous expired pauses use [channel priority](priority.md).
+Forced manual bursts retain their start cause across these pauses; see
+[forced transfers](forced-transfers.md) for DREQ and CHCR bit 29 behavior.
 Resumed bursts schedule from their event deadlines, including only the new
 burst's bus cost. Queued stall ticks from earlier bursts do not extend later
 pauses when the CPU services several expired events together.

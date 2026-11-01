@@ -28,8 +28,13 @@ then runs the suite using GCC, Clang, and Clang with address and undefined
 behavior sanitizers. Each toolchain uses four C-test workers. CI treats project
 compiler warnings as errors and checks empty selections, the filtered runner,
 concurrent execution, cache isolation,
-output capture and failure reporting. It does not boot private inputs, run an
-OpenGL context, or upload runtime files.
+output capture and failure reporting. Separate runtime jobs use the executable
+produced by each compiler job, checking its revision and hashes before running
+the complete Python suite. Both stages keep the 20-minute job limit. The short
+lived artifact contains the executable, revision/hash receipts and license
+notices; the runtime library comes from the matching checkout. CI does not boot
+private inputs or run an OpenGL context. BIOS, discs, saved checkpoints and
+runtime logs are not uploaded.
 
 The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
 partial refills and state restoration. Its guest program changes BIU modes
@@ -76,6 +81,10 @@ channel pauses and exact continuation across saved frame boundaries. See
 matrices, completion IRQs and exact restoration of armed channels. Component
 cases also check shared-halt and coincident GPU/SPU chopped resumes. See
 [DMA priority](../dma/priority.md) for dispatch boundaries and remaining limits.
+`DmaForced` and the generated force-start guest check manual trigger/pause
+behavior, start-cause persistence and reset-before-restore with no DREQ. See
+[forced manual transfers](../dma/forced-transfers.md) for state compatibility
+and the remaining modes and timing limits.
 
 The `SpuTransferBudget` filter checks tick consumption, read/write data,
 split/batched state equality, fractional save/load continuation, legacy and

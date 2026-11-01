@@ -71,4 +71,5 @@ jobs:
           python -m unittest discover -s tests -p test_dma_bus_errors_live.py
           python -m unittest discover -s tests -p test_dma_chopping_live.py
           python -m unittest discover -s tests -p test_dma_priority_live.py
+          python -m unittest discover -s tests -p test_dma_forced_live.py
           python -m unittest discover -s tests -p test_gpu_legacy_fixtures.py
