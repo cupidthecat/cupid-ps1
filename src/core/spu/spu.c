@@ -5,6 +5,7 @@
  */
 
 #include "spu.h"
+#include "core/spu/noise_clock.h"
 
 #include "common/assert.h"
 #include "common/bitutils.h"
@@ -415,8 +416,10 @@ typedef struct {
   u32 pitch_modulation_enable_register;
 
   u32 noise_mode_register;
-  u32 noise_count;
+  /* Retain the old record slot when loading or re-emitting legacy states. */
+  u32 legacy_noise_count;
   u32 noise_level;
+  spu_noise_clock_t noise_clock;
 
   u32 reverb_on_register;
   u32 reverb_base_address;
@@ -669,8 +672,9 @@ void spu_reset(void)
   s_state.pitch_modulation_enable_register = 0;
 
   s_state.noise_mode_register = 0;
-  s_state.noise_count = 0;
+  s_state.legacy_noise_count = 0;
   s_state.noise_level = 1;
+  s_state.noise_clock = (spu_noise_clock_t){0};
 
   s_state.reverb_on_register = 0;
   memset(&s_state.reverb_registers, 0, sizeof(s_state.reverb_registers));
@@ -737,7 +741,7 @@ bool spu_do_state(state_wrapper_t* sw)
   state_wrapper_do_u32(sw, &s_state.endx_register);
   state_wrapper_do_u32(sw, &s_state.pitch_modulation_enable_register);
   state_wrapper_do_u32(sw, &s_state.noise_mode_register);
-  state_wrapper_do_u32(sw, &s_state.noise_count);
+  state_wrapper_do_u32(sw, &s_state.legacy_noise_count);
   state_wrapper_do_u32(sw, &s_state.noise_level);
   state_wrapper_do_u32(sw, &s_state.reverb_on_register);
   state_wrapper_do_u32(sw, &s_state.reverb_base_address);
@@ -778,6 +782,15 @@ bool spu_do_state(state_wrapper_t* sw)
     state_wrapper_do_bool(sw, &v->ignore_loop_address);
   }
 
+  if (state_wrapper_get_version(sw) >= 92) {
+    state_wrapper_do_u16(sw, &s_state.noise_clock.divider);
+    state_wrapper_do_u8(sw, &s_state.noise_clock.counter);
+  } else if (state_wrapper_is_reading(sw)) {
+    /* The old rate accumulator does not contain this divider/step phase.
+     * Keep its LFSR value and restart the missing phase deterministically. */
+    s_state.noise_clock = (spu_noise_clock_t){0};
+  }
+
   if (state_wrapper_get_version(sw) >= 89)
     state_wrapper_do_s32(sw, &s_state.transfer_ticks_carry);
   else if (state_wrapper_is_reading(sw))
@@ -792,7 +805,8 @@ bool spu_do_state(state_wrapper_t* sw)
   state_wrapper_do_bytes(sw, s_ram, SPU_RAM_SIZE);
 
   if (state_wrapper_is_reading(sw) &&
-      (s_state.transfer_ticks_carry < 0 || s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD ||
+      (s_state.noise_clock.divider >= 0x8000 || s_state.noise_clock.counter >= 8 ||
+       s_state.transfer_ticks_carry < 0 || s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD ||
        s_state.transfer_fifo.head >= FIFO_SIZE_IN_HALFWORDS ||
        s_state.transfer_fifo.tail >= FIFO_SIZE_IN_HALFWORDS ||
        s_state.transfer_fifo.size > FIFO_SIZE_IN_HALFWORDS ||
@@ -1764,27 +1778,12 @@ static void sample_voice(u32 voice_index, s32* out_left, s32* out_right)
 
 static void update_noise(void)
 {
-  /* Noise waveform from Dr Hell via pcsx-r; matches PS1 hardware. */
-  static const u8 noise_wave_add[64] = {
-    1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0,
-    1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0,
-    0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1,
-    0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 
-  };
-  static const u8 noise_freq_add[5] = {0, 84, 140, 180, 210};
-
-  const u32 noise_clock = s_state.SPUCNT.b.noise_clock;
-  const u32 level = (0x8000u >> (noise_clock >> 2)) << 16;
-
-  s_state.noise_count += 0x10000u + noise_freq_add[noise_clock & 3u];
-  if ((s_state.noise_count & 0xFFFFu) >= noise_freq_add[4]) {
-    s_state.noise_count += 0x10000u;
-    s_state.noise_count -= noise_freq_add[noise_clock & 3u];
-  }
-  if (s_state.noise_count < level)
+  if (!spu_noise_clock_tick(&s_state.noise_clock, (u8)s_state.SPUCNT.b.noise_clock))
     return;
-  s_state.noise_count %= level;
-  s_state.noise_level = (s_state.noise_level << 1) | noise_wave_add[(s_state.noise_level >> 10) & 63u];
+
+  const u32 level = s_state.noise_level;
+  const u32 feedback = ((level >> 15) ^ (level >> 12) ^ (level >> 11) ^ (level >> 10) ^ 1u) & 1u;
+  s_state.noise_level = (level << 1) | feedback;
 }
 
 static u32 reverb_memory_address(u32 address)

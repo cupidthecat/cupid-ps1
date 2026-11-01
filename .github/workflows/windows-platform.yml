@@ -55,3 +55,4 @@ jobs:
           python -m unittest discover -s tests -p test_frontend_cli.py
           python -m unittest discover -s tests -p test_compare_execution_live.py
           python -m unittest discover -s tests -p test_memory_card_live.py
+          python -m unittest discover -s tests -p test_spu_noise_live.py

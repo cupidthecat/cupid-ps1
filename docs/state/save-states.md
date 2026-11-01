@@ -13,6 +13,10 @@ Programmatic API: `system_save_state(path, error, backup_existing, ignore_memcar
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
+Version 92 records the SPU noise divider and step-counter phase. Earlier
+records retain their saved noise level and restart that missing phase at zero.
+See [shared noise](../spu/noise.md) for rates, continuation and qualification.
+
 Version 91 adds the memory card's pending 128-byte write sector and SIO0's
 selected device and in-flight byte, separately from its queued transmit byte. Interrupted
 or rejected card writes no longer alter committed data. Earlier states retain
