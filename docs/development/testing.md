@@ -23,6 +23,10 @@ checks. It does not establish complete CPU, GPU, audio, timing or gameplay
 accuracy. Database compatibility ratings describe the bundled data and
 are not test results for this emulator.
 
+The `BiosPageBoundary` filter checks load delays, taken/untaken branches and
+delay-slot faults across cached and uncached ROM translation pages in all CPU
+configurations. See [CPU translation pages](../cpu/translation-pages.md).
+
 Hosted CI builds the emulator, standalone headers and OpenGL smoke binary,
 then runs the suite using GCC, Clang, and Clang with address and undefined
 behavior sanitizers. Each toolchain uses four C-test workers. CI treats project

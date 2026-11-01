@@ -1033,8 +1033,14 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
 
   u32 last_cache_line = (u32)-1;
   u32 last_page = (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) ? bus_get_ram_code_page_index(start_pc) : 0u;
+  const u32 start_page = start_pc >> HOST_PAGE_SHIFT;
 
   for (;;) {
+    /* Bound translation work for ROM and manually checked mappings as well
+     * as protected RAM. A branch still owns its delay slot across the edge. */
+    if (protection != CPU_CODE_CACHE_PROT_WRITE_PROTECTED && (pc >> HOST_PAGE_SHIFT) != start_page &&
+        !is_branch_delay_slot)
+      break;
     if (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) {
       const u32 this_page = bus_get_ram_code_page_index(pc);
       if (this_page != last_page) {
