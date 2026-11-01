@@ -25,6 +25,7 @@ boundaries, completion IRQs and state restoration. A generated guest checks
 64 control combinations and exact continuation after resetting away a transfer
 waiting for DPCR enable, across all CPU modes and native memory paths.
 
-These tests do not qualify physical bus timing, bit-30 cache snooping or DMA
-arbitration. Transfers crossing the physical RAM window, including address
-underflow, still use the existing bus-error model and need further work.
+Transfers crossing the physical RAM window retain their valid prefix without
+adding an early terminator. See [DMA bus errors](bus-errors.md) for address and
+IRQ handling. These tests do not qualify physical bus timing, bit-30 cache
+snooping or DMA arbitration.

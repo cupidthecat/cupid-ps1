@@ -66,6 +66,9 @@ The `DmaOtc` filter checks ordering-table control bits, transfer gating, counts,
 RAM mirrors, IRQs and restored requests. Its generated guest covers all CPU
 execution modes and native memory paths, including reset before restoration.
 See [ordering-table DMA](../dma/ordering-tables.md) for the model and its limits.
+The `DmaBusError` filter and generated DMA guest check physical-window prefixes,
+device side effects, IRQ flags and exact restoration of faulted transfers.
+See [DMA bus errors](../dma/bus-errors.md) for coverage and remaining limits.
 
 The `SpuTransferBudget` filter checks tick consumption, read/write data,
 split/batched state equality, fractional save/load continuation, legacy and

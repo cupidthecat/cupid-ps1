@@ -209,12 +209,13 @@ static void dma_update_irq(void);
 static void dma_halt_transfer(tick_count_t duration);
 static void dma_unhalt_transfer(void* user, tick_count_t ticks, tick_count_t ticks_late);
 static bool dma_is_linked_list_terminator(u32 address);
-static bool dma_check_for_bus_error(dma_channel_t channel, dma_channel_state_t* cs, u32 address, u32 size);
+static bool dma_check_for_bus_error(dma_channel_t channel, dma_channel_state_t* cs, u32 address);
 static void dma_complete_transfer(dma_channel_t channel, dma_channel_state_t* cs);
 
 static bool         dma_transfer_channel(dma_channel_t channel);
 static tick_count_t dma_transfer_memory_to_device(dma_channel_t channel, u32 address, u32 increment, u32 word_count);
-static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 address, u32 increment, u32 word_count);
+static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 address, u32 increment, u32 word_count,
+                                                  bool complete_block);
 static tick_count_t dma_get_max_slice_ticks(dma_channel_t channel, tick_count_t max_slice_size);
 
 static tick_count_t dma_settings_halt_ticks(void) {
@@ -473,18 +474,41 @@ static bool dma_is_linked_list_terminator(u32 address) {
   return ((address & LINKED_LIST_TERMINATOR) == LINKED_LIST_TERMINATOR);
 }
 
-static bool dma_check_for_bus_error(dma_channel_t channel, dma_channel_state_t* cs, u32 address, u32 size) {
-  /* Relying on a transfer partially happening at the end of RAM, then
-   * hitting a bus error, would be silly. */
-  if ((address + size) >= bus_get_ram_mapped_size()) {
-    DEBUG_LOG("DMA bus error on channel %u at address 0x%08X size %u", (u32)channel, address, size);
+static bool dma_check_for_bus_error(dma_channel_t channel, dma_channel_state_t* cs, u32 address) {
+  if (address >= bus_get_ram_mapped_size()) {
+    DEBUG_LOG("DMA bus error on channel %u at address 0x%08X", (u32)channel, address);
     cs->channel_control.enable_busy = 0;
     s_state.DICR.bus_error          = 1;
-    dicr_set_irq_flag(&s_state.DICR, channel);
     dma_update_irq();
     return true;
   }
   return false;
+}
+
+typedef struct {
+  tick_count_t ticks;
+  bool         error;
+} dma_block_result_t;
+
+static dma_block_result_t dma_transfer_block(dma_channel_t channel, bool copy_to_device, u32 address, u32 increment,
+                                             u32 word_count) {
+  /* Check the physical window before folding addresses onto mirrored RAM.
+   * A fault stops at the first invalid word, retaining earlier device effects. */
+  const u32 mapped_size = bus_get_ram_mapped_size();
+  const u32 available   = address >= mapped_size ? 0 : (increment == 4 ? (mapped_size - address) / 4 : address / 4 + 1);
+  const u32 valid_words = word_count < available ? word_count : available;
+  dma_block_result_t result = {0, valid_words < word_count};
+  if (valid_words != 0) {
+    result.ticks = copy_to_device
+                       ? dma_transfer_memory_to_device(channel, address, increment, valid_words)
+                       : dma_transfer_device_to_memory(channel, address, increment, valid_words, !result.error);
+    cpu_add_pending_ticks(result.ticks);
+  }
+  if (result.error) {
+    const u32 fault_address = (address + valid_words * increment) & TRANSFER_ADDRESS_MASK;
+    dma_check_for_bus_error(channel, &s_state.channels[(u32)channel], fault_address);
+  }
+  return result;
 }
 
 static void dma_complete_transfer(dma_channel_t channel, dma_channel_state_t* cs) {
@@ -534,13 +558,7 @@ static bool dma_transfer_channel(dma_channel_t channel) {
                 current_address);
 
       const u32 transfer_addr = current_address & TRANSFER_ADDRESS_MASK;
-      if (dma_check_for_bus_error(channel, cs, transfer_addr, (word_count - 1) * increment)) return true;
-
-      tick_count_t used_ticks = copy_to_device
-                                    ? dma_transfer_memory_to_device(channel, transfer_addr, increment, word_count)
-                                    : dma_transfer_device_to_memory(channel, transfer_addr, increment, word_count);
-
-      cpu_add_pending_ticks(used_ticks);
+      if (dma_transfer_block(channel, copy_to_device, transfer_addr, increment, word_count).error) return true;
       dma_complete_transfer(channel, cs);
       return true;
     }
@@ -561,7 +579,7 @@ static bool dma_transfer_channel(dma_channel_t channel) {
       while (cs->request && remaining_ticks > 0) {
         u32       header;
         const u32 transfer_addr = current_address & TRANSFER_ADDRESS_MASK;
-        if (dma_check_for_bus_error(channel, cs, transfer_addr, sizeof(header))) {
+        if (dma_check_for_bus_error(channel, cs, transfer_addr)) {
           cs->base_address = current_address;
           return true;
         }
@@ -569,6 +587,7 @@ static bool dma_transfer_channel(dma_channel_t channel) {
         memcpy(&header, &ram_ptr[transfer_addr & mask], sizeof(header));
         const u32 word_count   = header >> 24;
         const u32 next_address = header & 0x00FFFFFFu;
+        cs->base_address       = next_address;
         TRACE_LOG(" .. linked list entry at 0x%08X size=%u(%u words) next=0x%08X", current_address, word_count * 4u,
                   word_count, next_address);
 
@@ -579,15 +598,10 @@ static bool dma_transfer_channel(dma_channel_t channel) {
         remaining_ticks -= setup_ticks;
 
         if (word_count > 0) {
-          if (dma_check_for_bus_error(channel, cs, transfer_addr, (word_count - 1) * increment)) {
-            cs->base_address = current_address;
-            return true;
-          }
-
-          const tick_count_t block_ticks =
-              dma_transfer_memory_to_device(channel, transfer_addr + sizeof(header), 4u, word_count);
-          cpu_add_pending_ticks(block_ticks);
-          remaining_ticks -= block_ticks;
+          const dma_block_result_t result =
+              dma_transfer_block(channel, true, transfer_addr + sizeof(header), 4u, word_count);
+          remaining_ticks -= result.ticks;
+          if (result.error) return true;
         }
 
         current_address = next_address;
@@ -619,37 +633,16 @@ static bool dma_transfer_channel(dma_channel_t channel) {
       DEBUG_LOG("DMA[%u]: Copying %u blocks of size %u (%u total words) %s 0x%08X", (u32)channel, blocks_remaining,
                 block_size, blocks_remaining * block_size, copy_to_device ? "from" : "to", current_address);
 
-      if (copy_to_device) {
-        do {
-          const u32 transfer_addr = current_address & TRANSFER_ADDRESS_MASK;
-          if (dma_check_for_bus_error(channel, cs, transfer_addr, (block_size - 1) * increment)) {
-            cs->base_address                      = current_address;
-            cs->block_control.request.block_count = blocks_remaining;
-            return true;
-          }
-
-          const tick_count_t ticks = dma_transfer_memory_to_device(channel, transfer_addr, increment, block_size);
-          cpu_add_pending_ticks(ticks);
-          ticks_remaining -= ticks;
-          blocks_remaining--;
-          current_address = (transfer_addr + (increment * block_size));
-        } while (cs->request && blocks_remaining > 0 && ticks_remaining > 0);
-      } else {
-        do {
-          const u32 transfer_addr = current_address & TRANSFER_ADDRESS_MASK;
-          if (dma_check_for_bus_error(channel, cs, transfer_addr, (block_size - 1) * increment)) {
-            cs->base_address                      = current_address;
-            cs->block_control.request.block_count = blocks_remaining;
-            return true;
-          }
-
-          const tick_count_t ticks = dma_transfer_device_to_memory(channel, transfer_addr, increment, block_size);
-          cpu_add_pending_ticks(ticks);
-          ticks_remaining -= ticks;
-          blocks_remaining--;
-          current_address = (transfer_addr + (increment * block_size));
-        } while (cs->request && blocks_remaining > 0 && ticks_remaining > 0);
-      }
+      do {
+        const u32 transfer_addr               = current_address & TRANSFER_ADDRESS_MASK;
+        cs->base_address                      = current_address;
+        cs->block_control.request.block_count = --blocks_remaining;
+        const dma_block_result_t result =
+            dma_transfer_block(channel, copy_to_device, transfer_addr, increment, block_size);
+        ticks_remaining -= result.ticks;
+        if (result.error) return true;
+        current_address = (transfer_addr + increment * block_size) & BASE_ADDRESS_MASK;
+      } while (cs->request && blocks_remaining > 0 && ticks_remaining > 0);
 
       cs->base_address                      = current_address;
       cs->block_control.request.block_count = blocks_remaining;
@@ -763,9 +756,9 @@ static tick_count_t dma_transfer_memory_to_device(dma_channel_t channel, u32 add
   return bus_get_dma_ram_tick_count(word_count);
 }
 
-static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 address, u32 increment, u32 word_count) {
+static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 address, u32 increment, u32 word_count,
+                                                  bool complete_block) {
   const u32 mask = bus_get_ram_mask();
-  /* TODO-style note: may not be quite right for OTC. */
   address &= mask;
 
   if (channel == DMA_CHANNEL_MDECOUT) {
@@ -785,18 +778,20 @@ static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 add
   }
 
   if (channel == DMA_CHANNEL_OTC) {
-    /* Build the ordering table: each word points to the previous, except
-     * the last which holds the terminator. */
+    /* Only a completed table ends in a terminator. A faulted prefix retains
+     * the previous-address link in its final valid word. */
     u8*       ram_pointer       = bus_get_ram_pointer();
-    const u32 word_count_less_1 = word_count - 1u;
+    const u32 word_count_less_1 = word_count - (complete_block ? 1u : 0u);
     u32       a                 = address;
     for (u32 i = 0; i < word_count_less_1; i++) {
       u32 next = ((a - 4u) & mask);
       memcpy(&ram_pointer[a], &next, sizeof(next));
       a = next;
     }
-    const u32 terminator = UINT32_C(0xFFFFFF);
-    memcpy(&ram_pointer[a], &terminator, sizeof(terminator));
+    if (complete_block) {
+      const u32 terminator = UINT32_C(0xFFFFFF);
+      memcpy(&ram_pointer[a], &terminator, sizeof(terminator));
+    }
     return bus_get_dma_ram_tick_count(word_count);
   }
 
