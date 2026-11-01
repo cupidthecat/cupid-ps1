@@ -421,14 +421,16 @@ bool fs_rename_path(const char* old_path, const char* new_path, Error* error) {
   DWORD  code   = GetLastError();
   if (handle != INVALID_HANDLE_VALUE) {
     const size_t      name_bytes = wcslen(destination) * sizeof(*destination);
-    const size_t      size       = offsetof(FILE_RENAME_INFO, FileName) + name_bytes;
+    const size_t      size       = offsetof(FILE_RENAME_INFO, FileName) + name_bytes + sizeof(*destination);
     FILE_RENAME_INFO* rename     = calloc(1, size);
     if (!rename)
       code = ERROR_NOT_ENOUGH_MEMORY;
     else {
       rename->Flags          = FILE_RENAME_FLAG_REPLACE_IF_EXISTS | FILE_RENAME_FLAG_POSIX_SEMANTICS;
       rename->FileNameLength = (DWORD)name_bytes;
-      memcpy(rename->FileName, destination, name_bytes);
+      /* The Win32 path converter needs the terminator even though the byte
+       * count passed to the filesystem excludes it. */
+      memcpy(rename->FileName, destination, name_bytes + sizeof(*destination));
       /* FileRenameInfoEx is class 22; older SDK enums omit the Win10 entries. */
       ok   = SetFileInformationByHandle(handle, (FILE_INFO_BY_HANDLE_CLASS)22, rename, (DWORD)size) != 0;
       code = GetLastError();

@@ -20,7 +20,12 @@ set(PLATFORM_SOURCES
   "${ROOT}/src/common/path.c"
   "${ROOT}/src/common/string_util.c")
 foreach(component memory runtime library filesystem path crash)
-  add_executable(cupid-windows-${component}-tests test_${component}.c ${PLATFORM_SOURCES})
+  set(COMPONENT_SOURCES ${PLATFORM_SOURCES})
+  if(component STREQUAL "filesystem")
+    list(REMOVE_ITEM COMPONENT_SOURCES "${ROOT}/src/common/windows/file_system.c")
+    list(APPEND COMPONENT_SOURCES filesystem_allocations.c)
+  endif()
+  add_executable(cupid-windows-${component}-tests test_${component}.c ${COMPONENT_SOURCES})
   target_include_directories(cupid-windows-${component}-tests PRIVATE "${ROOT}/src")
   target_compile_definitions(cupid-windows-${component}-tests PRIVATE _WIN32_WINNT=0x0A00 WINVER=0x0A00)
   set_target_properties(cupid-windows-${component}-tests PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED YES C_EXTENSIONS NO)

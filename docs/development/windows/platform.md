@@ -79,7 +79,11 @@ ownership transfer and symbol lookup.
 
 The filesystem executable checks binary bytes, Unicode and long names,
 sparse offsets beyond 4 GB, mandatory sharing, replacement over an open target,
-temporary cleanup and junction traversal/deletion boundaries. The path
+temporary cleanup and junction traversal/deletion boundaries.
+Filename buffers retain their terminating wide character when passed through
+the [native rename interface](https://learn.microsoft.com/en-us/windows/win32/api/winbase/ns-winbase-file_rename_info).
+The filesystem check fills allocation padding with nonzero bytes to expose
+native path conversion reading beyond the supplied buffer. The path
 executable checks drive/UNC roots, parent components, mixed separators and
 aligned allocation. An isolated crash child checks exception reporting,
 one cleanup invocation, repeated installation and previous-filter chaining.
