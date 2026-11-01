@@ -10,6 +10,25 @@ The bus identifies internal word latches through the active write handler
 and register region. Isolated cache mappings therefore keep their own path.
 These stores reach the write handler without an initial MMIO read.
 
+## Byte devices and serial registers
+
+The external byte path sends the enabled source bytes in lane order. With
+address stepping disabled, those writes repeat the address of the first
+enabled byte. A three-byte mask therefore supplies three byte strobes on
+this path. The separate 16-bit dispatch below retains its measured
+halfword rules.
+
+Serial writes select the halfword containing the first enabled byte and
+use that halfword of the shifted source. For example, `SWR +2` at the mode
+register reaches the control register at `+2`; it does not read and rewrite
+the mode register. A store to the data register does not perform an
+implicit receive-data read.
+
+One-byte partial stores to the CD registers retain a queued response, as
+equivalent byte stores do. Generated cases check both stepping settings and restored
+responses across the execution paths. A held-bus two-byte store also supplies
+both Setfilter parameters, checked through the five-byte Getparam response.
+
 ## SPU with a 16-bit bus
 
 A full four-byte store issues two halfword writes. Other partial stores
@@ -56,11 +75,23 @@ component-state restoration. Read-handler counters check that the stores add
 no device word reads. The existing RAM merge, LUT and fault-recovery tests
 check the other access paths.
 
+Additional cases check all serial store offsets, register baselines, pending
+loads and restored state. RAM, scratchpad and isolated instruction-cache data
+mappings retain disabled bytes. The isolated cases access a hardware virtual address
+through the active cache mapping, so device dispatch must not override it.
+These storage cases protect the existing software byte-merge model; they
+are not a physical cache-write measurement.
+The generated live guest checks 96 serial captures and CD protocol effects
+on Linux and native Windows, with complete restored-state comparisons.
+
 ## Remaining paths
 
-Partial stores to 8-bit external devices and serial registers still
-use a word read and merge. Their strobes and read side effects need further
-work. Isolated-cache partial stores and bus timing also remain unqualified.
+The eight-bit multi-strobe model has component and protocol coverage; its
+physical waveforms have not been captured. Byte-only device models retain
+their existing mapping when configured for a 16-bit bus. Those configurations,
+serial data-register aliases, isolated-cache partial stores, cache-control
+partial writes and physical bus timing remain unqualified. The separate
+cache-control mapping keeps its previous merge path.
 The published matrix directly measures IMASK, DPCR and SPU volume registers.
 The timer cases are software regressions; timer-specific partial-store hardware
 measurements remain missing. The SPU measurements do not establish 8-bit device

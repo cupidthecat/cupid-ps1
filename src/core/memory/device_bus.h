@@ -16,5 +16,8 @@ typedef void (*device_bus_write_unit_t)(u32 address, u32 value, u32 unit_bytes, 
 u32  device_bus_read(u32 address, memory_access_size_t size, u32 control, device_bus_read_unit_t read_unit);
 void device_bus_write(u32 address, u32 value, memory_access_size_t size, u32 control,
                       device_bus_write_unit_t write_unit);
+/* An aligned CPU word and its write enables; value is already lane-shifted. */
+void device_bus_write_masked(u32 address, u32 value, u32 enabled_bytes, u32 control,
+                             device_bus_write_unit_t write_unit);
 
 #endif

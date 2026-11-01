@@ -18,6 +18,9 @@
 
 LOG_CHANNEL(TimingEvents);
 
+extern void system_process_frame_actions(void) __attribute__((weak));
+extern bool system_has_pending_frame_actions(void) __attribute__((weak));
+
 typedef struct {
   timing_event_t* active_events_head;
   timing_event_t* active_events_tail;
@@ -74,6 +77,10 @@ void timing_events_shutdown(void)
 
 void timing_events_update_cpu_downcount(void)
 {
+  if (system_has_pending_frame_actions && system_has_pending_frame_actions()) {
+    g_cpu_state.downcount = 0;
+    return;
+  }
   /* An empty list has no device deadline. Interrupts still dispatch immediately. */
   if (!s_state.active_events_head) {
     g_cpu_state.downcount = cpu_has_pending_interrupt() ? 0u : UINT32_MAX;
@@ -374,7 +381,8 @@ void timing_events_run_events(void)
 
   do {
     const global_ticks_t new_global_ticks = s_state.event_run_tick_counter + (global_ticks_t)cpu_get_pending_ticks();
-    if (!s_state.active_events_head || new_global_ticks >= s_state.active_events_head->next_run_time) {
+    if (!s_state.active_events_head || new_global_ticks >= s_state.active_events_head->next_run_time ||
+        (system_has_pending_frame_actions && system_has_pending_frame_actions())) {
       cpu_reset_pending_ticks();
       timing_events_commit_global_ticks(new_global_ticks);
     }
@@ -382,6 +390,7 @@ void timing_events_run_events(void)
     if (cpu_has_pending_interrupt()) cpu_dispatch_interrupt();
 
     timing_events_update_cpu_downcount();
+    if (system_process_frame_actions) system_process_frame_actions();
   } while (cpu_get_pending_ticks() >= g_cpu_state.downcount);
 }
 

@@ -1966,25 +1966,50 @@ bool bus_try_write_partial_device(virtual_memory_address_t address, u32 value, u
   const u32                         physical = cpu_virtual_to_physical_address(address);
   const bus_memory_write_handler_t* handlers =
       bus_offset_write_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
-  if (physical < BUS_SPU_BASE || physical >= BUS_SPU_BASE + BUS_SPU_SIZE ||
-      !s_MEMCTRL.r.spu_delay_size.b.data_bus_16bit ||
-      handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT] != hardware_write_word)
+  const bus_memory_write_handler_t handler = handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT];
+  if (handler == ram_write_word || handler == scratchpad_write_word || handler == icache_write_word ||
+      handler == cache_control_write_any)
     return false;
-
-  if (enabled_bytes == 0xFu) {
-    spu_write_common(address, value, MEMORY_ACCESS_SIZE_WORD);
+  if (handler == exp1_write_word) {
+    device_bus_write_masked(address & BUS_EXP1_MASK, value, enabled_bytes,
+                             byte_device_control(s_MEMCTRL.r.exp1_delay_size.bits), write_exp1_bus_unit);
     return true;
   }
-
-  /* A partial access issues one halfword at the lowest enabled byte. Only
-   * single-byte accesses retain a single write enable on the external bus. */
+  if (handler == exp2_write_word && !s_MEMCTRL.r.exp2_delay_size.b.data_bus_16bit) {
+    device_bus_write_masked(address & BUS_EXP2_MASK, value, enabled_bytes,
+                             s_MEMCTRL.r.exp2_delay_size.bits, write_exp2_bus_unit);
+    return true;
+  }
   u32 first = 0;
-  while (!(enabled_bytes & (1u << first)))
-    first++;
-  const u32  halfword = first & ~1u;
-  const bool single   = (enabled_bytes & (enabled_bytes - 1u)) == 0;
-  write_spu_bus_unit((address & BUS_SPU_MASK) + halfword, value >> (halfword * 8u), 2,
-                     single ? 1u << (first & 1u) : 3u);
+  while (!(enabled_bytes & (1u << first))) first++;
+  if (handler == exp2_write_word) {
+    /* Keep the byte-only device's existing mapping for a 16-bit setting. */
+    exp2_write_common(address + first, value >> (first * 8u), MEMORY_ACCESS_SIZE_BYTE);
+    return true;
+  }
+  if (handler == hardware_write_word) {
+    if (physical >= BUS_SPU_BASE && physical < BUS_SPU_BASE + BUS_SPU_SIZE) {
+      device_bus_write_masked(address & BUS_SPU_MASK, value, enabled_bytes,
+                               s_MEMCTRL.r.spu_delay_size.bits, write_spu_bus_unit);
+      return true;
+    }
+    if (physical >= BUS_CDROM_BASE && physical < BUS_CDROM_BASE + BUS_CDROM_SIZE) {
+      device_bus_write_masked(address & BUS_CDROM_MASK, value, enabled_bytes,
+                               byte_device_control(s_MEMCTRL.r.cdrom_delay_size.bits), write_cdrom_bus_unit);
+      return true;
+    }
+    const u32 halfword = first & ~1u;
+    if (physical >= BUS_PAD_BASE && physical < BUS_PAD_BASE + BUS_PAD_SIZE) {
+      pad_write_register((address & BUS_PAD_MASK) + halfword, value >> (halfword * 8u));
+      return true;
+    }
+    if (physical >= BUS_SIO_BASE && physical < BUS_SIO_BASE + BUS_SIO_SIZE) {
+      sio_write_register((address & BUS_SIO_MASK) + halfword, value >> (halfword * 8u));
+      return true;
+    }
+  }
+  /* Unmapped/ignored writes and other register latches have no storage to merge. */
+  handler(address, value);
   return true;
 }
 

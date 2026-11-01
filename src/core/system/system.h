@@ -229,6 +229,9 @@ void system_load_state_from_slot(bool global, s32 slot);
 void system_save_state_to_slot  (bool global, s32 slot);
 
 void system_execute       (void); /* runs CPU until execution cancelled */
+/* Service queued frame actions after CPU event dispatch has completed. */
+void system_process_frame_actions(void);
+bool system_has_pending_frame_actions(void);
 void system_single_step_cpu(void);
 
 /* speed limiter / target speed */

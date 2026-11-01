@@ -37,3 +37,27 @@ void device_bus_write(u32 address, u32 value, memory_access_size_t size, u32 con
     write_unit(next, value >> (offset * 8u), unit, (1u << unit) - 1u);
   }
 }
+
+void device_bus_write_masked(u32 address, u32 value, u32 enabled_bytes, u32 control,
+                             device_bus_write_unit_t write_unit)
+{
+  if (!enabled_bytes || (enabled_bytes & ~0xFu)) return;
+  if (enabled_bytes == 0xFu) {
+    device_bus_write(address, value, MEMORY_ACCESS_SIZE_WORD, control, write_unit);
+    return;
+  }
+  u32 first = 0;
+  while (!(enabled_bytes & (1u << first))) first++;
+  if (control & DEVICE_BUS_16BIT) {
+    const u32 halfword = first & ~1u;
+    const bool single = (enabled_bytes & (enabled_bytes - 1u)) == 0;
+    write_unit(address + halfword, value >> (halfword * 8u), 2,
+               single ? 1u << (first & 1u) : 3u);
+    return;
+  }
+  for (u32 lane = first; lane < 4; lane++) {
+    if (!(enabled_bytes & (1u << lane))) continue;
+    const u32 target = address + ((control & DEVICE_BUS_INCREMENT) ? lane : first);
+    write_unit(target, value >> (lane * 8u), 1, 1);
+  }
+}

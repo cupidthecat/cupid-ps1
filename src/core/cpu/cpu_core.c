@@ -2077,7 +2077,7 @@ static bool cpu_write_memory_partial(virtual_memory_address_t addr, u32 value, b
     return true;
   }
 
-  /* Other device widths still use the existing merge until their strobes are handled. */
+  /* Storage and the separate cache-control mapping keep their merge path. */
   u32 memory;
   if (!cpu_read_memory_word(aligned, &memory)) return false;
   const u32 preserved = left ? 0xFFFFFF00u << shift : 0x00FFFFFFu >> (24u - shift);

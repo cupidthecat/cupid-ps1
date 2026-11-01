@@ -138,3 +138,38 @@ TEST(DeviceBusUnits, write16_halfword)
   EXPECT_EQ(observed.enabled[0], 3);
   EXPECT_EQ(observed.value[0], 0x2211);
 }
+
+static void check_masked_write(bool wide, bool increment)
+{
+  const u32 masks[] = {1, 3, 7, 8, 14, 12, 15};
+  const u32 counts8[] = {1, 2, 3, 1, 3, 2, 4};
+  const u32 starts8[] = {0, 0, 0, 3, 1, 2, 0};
+  const u32 counts16[] = {1, 1, 1, 1, 1, 1, 2};
+  const u32 starts16[] = {0, 0, 0, 2, 0, 2, 0};
+  const u32 enables16[] = {1, 3, 3, 2, 3, 3, 3};
+  const u32 bytes[] = {0x11, 0x22, 0x33, 0x44};
+  for (u32 row = 0; row < countof(masks); row++) {
+    memset(&observed, 0, sizeof(observed));
+    device_bus_write_masked(0x20, 0x44332211, masks[row],
+        (wide ? DEVICE_BUS_16BIT : 0) | (increment ? DEVICE_BUS_INCREMENT : 0), record_write);
+    const u32 start = wide ? starts16[row] : starts8[row];
+    EXPECT_EQ(observed.count, wide ? counts16[row] : counts8[row]);
+    for (u32 i = 0; i < observed.count; i++) {
+      EXPECT_EQ(observed.address[i], 0x20 + start + (increment ? i * (wide ? 2 : 1) : 0));
+      EXPECT_EQ(observed.width[i], wide ? 2 : 1);
+      EXPECT_EQ(observed.enabled[i], wide ? enables16[row] : 1);
+      EXPECT_EQ(observed.value[i], wide ? (start || i ? 0x4433 : 0x2211) : bytes[starts8[row] + i]);
+    }
+  }
+}
+TEST(DeviceBusUnits, masked8_increment) { check_masked_write(false, true); }
+TEST(DeviceBusUnits, masked8_hold) { check_masked_write(false, false); }
+TEST(DeviceBusUnits, masked16_increment) { check_masked_write(true, true); }
+TEST(DeviceBusUnits, masked16_hold) { check_masked_write(true, false); }
+TEST(DeviceBusUnits, invalid_mask_has_no_strobes)
+{
+  memset(&observed, 0, sizeof(observed));
+  device_bus_write_masked(0x20, 0x44332211, 0, 0, record_write);
+  device_bus_write_masked(0x20, 0x44332211, 0x10, 0, record_write);
+  EXPECT_EQ(observed.count, 0);
+}

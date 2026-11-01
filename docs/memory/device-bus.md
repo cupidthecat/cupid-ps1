@@ -62,8 +62,8 @@ retains their previous data mapping. Those configurations remain unqualified.
 Fixed expansion read values do not reproduce an electrical floating bus.
 Expansion instruction fetches, device-window size checks, DMA strobes and
 partial-word write enables also need further work.
-See [partial stores](partial-stores.md) for the supported internal register
-latches and 16-bit SPU dispatch.
+See [partial stores](partial-stores.md) for byte enables, serial register
+selection and the remaining partial-write limits.
 
 ## Expansion read delays
 

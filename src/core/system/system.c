@@ -125,6 +125,7 @@ typedef struct {
   system_boot_mode_t boot_mode;
 
   bool system_executing;
+  bool frame_actions_pending;
   bool system_interrupted;
   bool frame_step_request;
 
@@ -1191,6 +1192,7 @@ void system_shutdown_system(bool save_resume_state)
 static void system_internal_reset(void)
 {
   if (system_is_shutdown()) return;
+  s_state.frame_actions_pending = false;
 
   system_set_taints_from_settings();
 
@@ -1975,9 +1977,21 @@ void system_frame_done(void)
 
   s_state.frame_start_time = current_time;
 
+  /* A timer access can synchronize the GPU from inside a CPU instruction.
+   * State loads and resets must wait for that instruction and its callbacks. */
+  s_state.frame_actions_pending = true;
+  timing_events_update_cpu_downcount();
+}
+
+bool system_has_pending_frame_actions(void) { return s_state.frame_actions_pending; }
+
+void system_process_frame_actions(void)
+{
+  if (!s_state.frame_actions_pending) return;
+  s_state.frame_actions_pending = false;
+  timing_events_update_cpu_downcount();
   host_pump_messages_on_core_thread();
   host_input_manager_poll_sources();
-
   system_check_for_and_exit_execution();
 }
 

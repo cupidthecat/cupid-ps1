@@ -43,6 +43,12 @@ A differing byte fails the comparison and records its first file offset.
 It does not omit timing fields, pipeline/cache contents or the execution-mode
 flag to make different runs match.
 
+Frame checkpoints are serviced at the next CPU event-service boundary after
+the frame completes. The current instruction and callbacks finish first,
+including when an MMIO timer write synchronizes the GPU. Pending CPU ticks
+are committed before saving. The runner still compares every serialized
+byte and the observed frame/tick pair; it does not normalize event overshoot.
+
 To check save-state continuation within one execution mode:
 
 ```sh
