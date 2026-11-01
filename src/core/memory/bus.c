@@ -1041,14 +1041,6 @@ bool bus_inject_executable(const u8* buffer, size_t buffer_size, bool set_pc, Er
     return false;
   }
 
-  if (header.memfill_size > 0u &&
-      !cpu_safe_zero_memory_bytes(header.memfill_start & ~UINT32_C(3),
-                                  AlignDownPow2(header.memfill_size, 4u))) {
-    Error_set_string_fmt(error, "Failed to zero %u bytes of memory at address 0x%08X.",
-                         header.memfill_size, header.memfill_start);
-    return false;
-  }
-
   const u32 data_load_size =
     (u32)((buffer_size - sizeof(bios_psexe_header_t)) < header.file_size
           ? (buffer_size - sizeof(bios_psexe_header_t))
@@ -1061,6 +1053,14 @@ bool bus_inject_executable(const u8* buffer, size_t buffer_size, bool set_pc, Er
                            data_load_size, header.load_address);
       return false;
     }
+  }
+
+  if (header.memfill_size > 0u &&
+      !cpu_safe_zero_memory_bytes(header.memfill_start & ~UINT32_C(3),
+                                  AlignDownPow2(header.memfill_size, 4u))) {
+    Error_set_string_fmt(error, "Failed to zero %u bytes of memory at address 0x%08X.",
+                         header.memfill_size, header.memfill_start);
+    return false;
   }
 
   if (set_pc) {
