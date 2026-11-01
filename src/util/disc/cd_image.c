@@ -172,6 +172,8 @@ void cd_image_init(cd_image_t* i, const cd_image_vtable_t* vtbl)
 
 void cd_image_clear_toc(cd_image_t* i)
 {
+  i->toc_disc_type     = 0;
+  i->has_toc_disc_type = false;
   i->lba_count         = 0;
   i->index_count       = 0;
   i->track_count       = 0;
@@ -184,6 +186,8 @@ void cd_image_clear_toc(cd_image_t* i)
 
 void cd_image_copy_toc(cd_image_t* dst, const cd_image_t* src)
 {
+  dst->toc_disc_type     = src->toc_disc_type;
+  dst->has_toc_disc_type = src->has_toc_disc_type;
   dst->lba_count         = src->lba_count;
   dst->index_count       = 0;
   dst->track_count       = 0;
@@ -239,6 +243,25 @@ cd_image_track_t* cd_image_push_track(cd_image_t* i)
   cd_image_track_t* tr = &i->tracks[i->track_count++];
   memset(tr, 0, sizeof(*tr));
   return tr;
+}
+
+u8 cd_image_get_disc_type(const cd_image_t* image)
+{
+  if (!image) return 0;
+  if (image->has_toc_disc_type) return image->toc_disc_type;
+  for (u32 i = 0; i < image->track_count; i++) {
+    switch (image->tracks[i].mode) {
+      case CD_IMAGE_TRACK_MODE_MODE2:
+      case CD_IMAGE_TRACK_MODE_MODE2_FORM1:
+      case CD_IMAGE_TRACK_MODE_MODE2_FORM2:
+      case CD_IMAGE_TRACK_MODE_MODE2_FORM_MIX:
+      case CD_IMAGE_TRACK_MODE_MODE2_RAW:
+        return 0x20;
+      default:
+        break;
+    }
+  }
+  return 0;
 }
 
 cd_image_lba_t cd_image_get_track_start_position(const cd_image_t* i, u8 track)

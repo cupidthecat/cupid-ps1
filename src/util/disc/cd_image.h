@@ -219,6 +219,8 @@ struct cd_image {
 
   char*  filename;          /* heap, owned */
   u32    lba_count;
+  u8     toc_disc_type;     /* A0.PSec when supplied by the image descriptor. */
+  bool   has_toc_disc_type;
 
   /* Heap arrays. Use cd_image_get_track_count / cd_image_get_index_count. */
   cd_image_track_t* tracks;
@@ -237,6 +239,8 @@ struct cd_image {
 };
 
 u32  cd_image_get_bytes_per_sector(cd_image_track_mode_t mode);
+/* Preserve explicit A0 metadata, otherwise synthesize from the track modes. */
+u8   cd_image_get_disc_type(const cd_image_t* image);
 void cd_image_deinterleave_subcode(const u8* subcode_in, u8* subcode_out);
 
 /* Open an image by path. The caller owns the result and releases it with
@@ -294,9 +298,8 @@ void cd_image_device_list_destroy(cd_image_device_list_t* list);
 
 cd_image_t* cd_image_overlay_ppf(const char* ppf_path, cd_image_t* parent, Error* error);
 
-/* Pre-caches `src` into a memory-backed image (for performance / removable
- * media insurance).  Frees `src` on success.  NULL on failure.  Frontend
- * uses this for `--precache`. */
+/* Copies `src` into a memory-backed image. The caller retains `src` on both
+ * success and failure; the returned image has independent ownership. */
 cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* pc, Error* err);
 
 /* Frees the image and its backing files. NULL-tolerant. */

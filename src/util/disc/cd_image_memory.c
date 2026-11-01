@@ -146,6 +146,8 @@ cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* p
     if (m->base.filename) memcpy(m->base.filename, src_path, n + 1);
   }
   m->base.lba_count = cd_image_get_lba_count(src);
+  m->base.toc_disc_type = src->toc_disc_type;
+  m->base.has_toc_disc_type = src->has_toc_disc_type;
 
   if (!cd_image_seek_track_msf(&m->base, 1, s_zero_pos)) {
     Error_set_string(err, "Initial seek failed");

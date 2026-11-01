@@ -3053,7 +3053,7 @@ static void cdrom_do_id_read(void)
   byte_fifo_clear(&s_state.async_response_fifo);
   byte_fifo_push(&s_state.async_response_fifo, stat_byte);
   byte_fifo_push(&s_state.async_response_fifo, flags_byte);
-  byte_fifo_push(&s_state.async_response_fifo, 0x20); /* disc type from TOC; TODO */
+  byte_fifo_push(&s_state.async_response_fifo, cd_image_get_disc_type(cdrom_get_media()));
   byte_fifo_push(&s_state.async_response_fifo, 0x00); /* session info */
 
   static const u8 region_strings[DISC_REGION_COUNT][4] = {

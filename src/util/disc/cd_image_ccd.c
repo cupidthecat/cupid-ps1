@@ -348,7 +348,7 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
     return false;
   }
 
-  /* 4. Walk Entry N for tracks 1..99 + lead-out (point 0xA2). */
+  /* 4. Read the disc type, tracks and lead-out from the TOC entries. */
   cd_image_lba_t leadout_lba = 0;
   ccd_track_info_t parsed_tracks[100];
   size_t parsed_tracks_count = 0;
@@ -364,7 +364,13 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
     s32 control = 0; bool has_control = kv_list_get_int(&kv, section, "Control", &control);
 
     const u8 point_val = (u8)point;
-    if (point_val == 0xA2 && has_plba) {
+    if (point_val == 0xA0) {
+      s32 disc_type = 0;
+      if (kv_list_get_int(&kv, section, "PSec", &disc_type) && disc_type >= 0 && disc_type <= 0xFF) {
+        img->base.toc_disc_type = (u8)disc_type;
+        img->base.has_toc_disc_type = true;
+      }
+    } else if (point_val == 0xA2 && has_plba) {
       leadout_lba = (cd_image_lba_t)plba;
     } else if (point_val >= 1 && point_val <= 99) {
       ccd_track_info_t info;
