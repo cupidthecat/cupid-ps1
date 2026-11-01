@@ -132,7 +132,9 @@ jobs:
         run: |
           xvfb-run -a build/ci/cupid-ps1-gl-smoke
           xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests
+          xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests --no-texture-buffers
           MESA_GL_VERSION_OVERRIDE=3.3CORE MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests
+          MESA_GL_VERSION_OVERRIDE=3.3CORE MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests --no-texture-buffers
         env:
           SDL_VIDEODRIVER: x11
           LIBGL_ALWAYS_SOFTWARE: '1'

@@ -90,8 +90,9 @@ static bool gpu_hw_create_buffers(gpu_hw_t* hw, Error* err) {
         opengl_texture_buffer_create(GPU_TEXTURE_BUFFER_FORMAT_R16UI, GPU_DEVICE_MIN_TEXEL_BUFFER_ELEMENTS, err);
     if (!hw->vram_upload_buffer) return false;
   } else {
-    WARNING_LOG("Texture buffers not supported by GL device - VRAM update GL path disabled "
-                "(SW mirror remains authoritative).");
+    hw->vram_upload_sampler = opengl_sampler_create(gpu_sampler_get_nearest_config(), err);
+    if (!hw->vram_upload_sampler) return false;
+    INFO_LOG("Using integer textures for VRAM uploads.");
   }
 
   /* Display extract path: RT sized to max display × resolution_scale, plus
@@ -162,6 +163,10 @@ static void gpu_hw_destroy_buffers(gpu_hw_t* hw) {
   if (hw->vram_upload_buffer) {
     opengl_texture_buffer_destroy(hw->vram_upload_buffer);
     hw->vram_upload_buffer = NULL;
+  }
+  if (hw->vram_upload_sampler) {
+    opengl_sampler_destroy(hw->vram_upload_sampler);
+    hw->vram_upload_sampler = NULL;
   }
   /* The legacy single-shot pointer is just an alias for ring slot 0, so
    * NULL it without freeing - the ring teardown below owns the lifetime. */
@@ -331,15 +336,18 @@ static bool gpu_hw_compile_vram_write_pipelines(gpu_hw_t* hw, Error* err) {
   gpu_hw_shadergen_t*            sg = gpu_hw_get_shadergen();
   gpu_pipeline_graphics_config_t cfg;
   gpu_hw_init_screen_quad_config(hw, &cfg);
-  cfg.layout = GPU_PIPELINE_LAYOUT_SINGLE_TEXTURE_BUFFER_AND_PUSH_CONSTANTS;
+  cfg.vertex_shader = (gpu_shader_t*)hw->fullscreen_quad_vertex_shader;
+  cfg.layout        = hw->vram_upload_buffer ? GPU_PIPELINE_LAYOUT_SINGLE_TEXTURE_BUFFER_AND_PUSH_CONSTANTS
+                                             : GPU_PIPELINE_LAYOUT_SINGLE_TEXTURE_AND_PUSH_CONSTANTS;
   if (hw->write_mask_as_depth) cfg.depth_format = VRAM_DS_FORMAT;
 
-  gpu_shader_t* fs = compile_shader_str(
-      GPU_SHADER_STAGE_FRAGMENT,
-      gpu_hw_shadergen_generate_vram_write_fragment_shader(sg, /*use_buffer=*/true, /*use_ssbo=*/false,
-                                                           /*write_mask_as_depth=*/hw->write_mask_as_depth,
-                                                           /*write_depth_as_rt=*/false),
-      err);
+  gpu_shader_t* fs = compile_shader_str(GPU_SHADER_STAGE_FRAGMENT,
+                                        gpu_hw_shadergen_generate_vram_write_fragment_shader(
+                                            sg, hw->vram_upload_buffer != NULL,
+                                            opengl_device_get_features()->texture_buffers_emulated_with_ssbo,
+                                            /*write_mask_as_depth=*/hw->write_mask_as_depth,
+                                            /*write_depth_as_rt=*/false),
+                                        err);
   if (!fs) {
     Error_add_prefix(err, "VRAM write FS compile: ");
     return false;
@@ -373,6 +381,7 @@ static bool gpu_hw_compile_vram_copy_pipelines(gpu_hw_t* hw, Error* err) {
   gpu_hw_shadergen_t*            sg = gpu_hw_get_shadergen();
   gpu_pipeline_graphics_config_t cfg;
   gpu_hw_init_screen_quad_config(hw, &cfg);
+  cfg.vertex_shader = (gpu_shader_t*)hw->fullscreen_quad_vertex_shader;
   if (hw->write_mask_as_depth) cfg.depth_format = VRAM_DS_FORMAT;
 
   gpu_shader_t* fs = compile_shader_str(
@@ -1084,6 +1093,34 @@ static void gpu_hw_restore_mask_depth(gpu_hw_t* hw, gpu_rect_t bounds) {
       ((s32)hw->base.clamped_drawing_area.right + 1) * scale, ((s32)hw->base.clamped_drawing_area.bottom + 1) * scale});
 }
 
+/* Mask depth starts near 1.0 and decreases per draw. With a
+ * GREATER_OR_EQUAL depth test, a destination's set-mask depth blocks
+ * writes from later draws with lower depth. */
+ALWAYS_INLINE static float gpu_hw_normalized_vertex_depth(const gpu_hw_t* hw) {
+  return 1.0f - ((float)hw->current_depth / 65535.0f);
+}
+
+/* Counter overflow guard.  When current_depth approaches the 65535 ceiling
+ * we flush and reset at 65536 - 2. After reset the depth attachment carries
+ * the mask state
+ * for older pixels via the FS's previous oalpha*v_pos.z writes; the new
+ * counter starts at 1 again so subsequent set-mask writes land at z~=1.
+ *
+ * NB: callers must re-run gpu_hw_ensure_batch_buffers_mapped() after this
+ * helper; flush_render unmaps the batch buffers (lazy-map convention), so
+ * the next vertex push would dereference NULL otherwise.  The helper returns
+ * true when a flush actually occurred. */
+#define GPU_HW_MAX_VERTEX_DEPTH_COUNTER (65536u - 2u)
+ALWAYS_INLINE static bool gpu_hw_check_depth_counter(gpu_hw_t* hw, u32 required_vertices) {
+  if (!hw->write_mask_as_depth) return false;
+  if ((u32)hw->current_depth + required_vertices <= GPU_HW_MAX_VERTEX_DEPTH_COUNTER) return false;
+  /* Flush so the current batch drains with the existing depth map. */
+  if (hw->base.vtable->flush_render) hw->base.vtable->flush_render(&hw->base);
+  gpu_hw_restore_mask_depth(hw, gpu_rect_make(0, 0, VRAM_WIDTH, VRAM_HEIGHT));
+  hw->current_depth = 1;
+  return true;
+}
+
 /* Push-constant block matching the VRAMFill UBO. */
 typedef struct {
   u32   u_dst_x;
@@ -1096,7 +1133,7 @@ typedef struct {
 } vram_fill_push_data_t;
 
 /* Push-constant block matching VRAMWriteUBOData.
- * 40 bytes (10 floats/u32). */
+ * 48 bytes including std140 block padding. */
 typedef struct {
   float u_dst_x;
   float u_dst_y;
@@ -1108,6 +1145,7 @@ typedef struct {
   u32   u_buffer_base_offset;
   u32   u_mask_or_bits;
   float u_depth_value;
+  u32   u_pad[2];
 } vram_write_push_data_t;
 
 /* Push-constant block matching VRAMCopyUBOData.
@@ -1186,110 +1224,97 @@ static void gpu_hw_fill_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 heigh
   gpu_hw_mark_vram_dirty(hw, bounds);
 }
 
+static void gpu_hw_prepare_vram_transfer(gpu_hw_t* hw, gpu_rect_t bounds, opengl_pipeline_t* pipeline) {
+  gpu_texture_t* rts[] = {&hw->vram_texture->base};
+  opengl_device_set_render_targets(rts, 1, hw->vram_depth_texture ? &hw->vram_depth_texture->base : NULL);
+  opengl_device_set_pipeline((gpu_pipeline_t*)pipeline);
+  const s32 scale = hw->resolution_scale;
+  opengl_device_set_viewport((opengl_rect_t){0, 0, VRAM_WIDTH * scale, VRAM_HEIGHT * scale});
+  opengl_device_set_scissor(
+      (opengl_rect_t){bounds.left * scale, bounds.top * scale, bounds.right * scale, bounds.bottom * scale});
+}
+
+static void gpu_hw_finish_vram_transfer(gpu_hw_t* hw, gpu_rect_t bounds) {
+  gpu_hw_restore_mask_depth(hw, bounds);
+  opengl_device_set_texture_sampler(0, &hw->vram_read_texture->base, NULL);
+  const s32 scale = hw->resolution_scale;
+  opengl_device_set_scissor((opengl_rect_t){
+      hw->base.clamped_drawing_area.left * scale, hw->base.clamped_drawing_area.top * scale,
+      (hw->base.clamped_drawing_area.right + 1) * scale, (hw->base.clamped_drawing_area.bottom + 1) * scale});
+  hw->batch_ubo_dirty = true;
+  gpu_hw_mark_vram_dirty(hw, bounds);
+}
+
 static void gpu_hw_update_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 height, const u16* data, bool set_mask,
                                   bool check_mask) {
-  /* The FS-based vram_write pipeline path doesn't actually land pixels in
-   * vram_texture on Mesa Intel iGPU (writes go nowhere; verified via
-   * glReadPixels from vram_texture at upload coords; always 0).  Bypass
-   * the FS path and CPU-upload directly via opengl_texture_update, mirroring
-   * the working hw_update_clut path.  Convert each native u16 (RGBA5551)
-   * to RGBA8 (matching VRAM_RT_FORMAT) and replicate `scale` rows so
-   * upscaled samplers see the full block. */
-  (void)set_mask;
-  (void)check_mask; /* mask-bit handled via SW canon for now */
-  /* Flush queued polygons before the immediate CPU upload so overlapping
-   * VRAM writes retain their command order. */
-  if (hw->base.vtable->flush_render) hw->base.vtable->flush_render(&hw->base);
-  if (!hw->vram_texture) return;
-
-  const gpu_rect_t bounds = gpu_hw_vram_transfer_bounds(x, y, width, height);
-  const u32        scale  = (u32)hw->resolution_scale;
-
-  if (width == 0u || height == 0u) return;
-
-  const u32 dst_x = (x % VRAM_WIDTH) * scale;
-  const u32 dst_y = (y % VRAM_HEIGHT) * scale;
-  const u32 dst_w = width * scale;
-  const u32 dst_h = height * scale;
-
-  /* Convert + (when needed) scale the source u16 block into a contiguous
-   * RGBA8 buffer, then push in a SINGLE glTexSubImage2D-shaped call.  The
-   * row-by-row variant was correct but glTexSubImage2D-stalled per row on
-   * Mesa Intel iGPU at upload rates the BIOS hits, starving the audio
-   * thread (Stretcher reset spam).  One call with proper pitch is dramatically
-   * faster. */
-  const u32 num_pixels = dst_w * dst_h;
-  u32*      rgba       = (u32*)malloc((size_t)num_pixels * sizeof(u32));
-  if (!rgba) return;
-  if (scale == 1u) {
-    for (u32 i = 0; i < width * height; i++)
-      rgba[i] = vram_rgba5551_to_rgba8888((u32)data[i]);
-  } else {
-    /* Replicate each src pixel scale x scale into dst. */
-    for (u32 row = 0; row < height; row++) {
-      for (u32 col = 0; col < width; col++) {
-        const u32 px = vram_rgba5551_to_rgba8888((u32)data[row * width + col]);
-        for (u32 sy = 0; sy < scale; sy++) {
-          u32* dst_row = &rgba[(row * scale + sy) * dst_w + col * scale];
-          for (u32 sx = 0; sx < scale; sx++)
-            dst_row[sx] = px;
-        }
-      }
+  if (!width || !height || !hw->vram_texture) return;
+  hw->base.vtable->flush_render(&hw->base);
+  gpu_hw_check_depth_counter(hw, 1);
+  const gpu_rect_t  bounds = gpu_hw_vram_transfer_bounds(x, y, width, height);
+  opengl_texture_t* upload = NULL;
+  u32               offset = 0;
+  if (hw->vram_upload_buffer) {
+    void* mapped = opengl_texture_buffer_map(hw->vram_upload_buffer, width * height);
+    if (!mapped) {
+      ERROR_LOG("Failed to map VRAM upload buffer.");
+      return;
     }
+    offset = hw->vram_upload_buffer->base.current_position;
+    memcpy(mapped, data, (size_t)width * height * sizeof(u16));
+    opengl_texture_buffer_unmap(hw->vram_upload_buffer, width * height);
+  } else {
+    Error err = ERROR_INIT;
+    upload    = opengl_texture_create(width, height, 1, 1, 1, GPU_TEXTURE_TYPE_TEXTURE, GPU_TEXTURE_FORMAT_R16U,
+                                      GPU_TEXTURE_FLAG_NONE, data, width * sizeof(u16), &err);
+    if (!upload) ERROR_LOG("Failed to create VRAM upload texture: %s", Error_get_description(&err));
+    Error_destroy(&err);
+    if (!upload) return;
   }
-  (void)opengl_texture_update(hw->vram_texture, dst_x, dst_y, dst_w, dst_h, rgba, dst_w * (u32)sizeof(u32), 0u, 0u);
-  free(rgba);
-  gpu_hw_restore_mask_depth(hw, bounds);
-  gpu_hw_mark_vram_dirty(hw, bounds);
+  const vram_write_push_data_t uniforms = {.u_dst_x              = (float)(x % VRAM_WIDTH),
+                                           .u_dst_y              = (float)(y % VRAM_HEIGHT),
+                                           .u_end_x              = (float)((x + width) % VRAM_WIDTH),
+                                           .u_end_y              = (float)((y + height) % VRAM_HEIGHT),
+                                           .u_width              = (float)width,
+                                           .u_height             = (float)height,
+                                           .u_resolution_scale   = (float)hw->resolution_scale,
+                                           .u_buffer_base_offset = offset,
+                                           .u_mask_or_bits       = set_mask ? 0x8000u : 0u,
+                                           .u_depth_value        = gpu_hw_normalized_vertex_depth(hw)};
+  gpu_hw_prepare_vram_transfer(hw, bounds, hw->vram_write_pipelines[check_mask && hw->write_mask_as_depth]);
+  if (upload)
+    opengl_device_set_texture_sampler(0, &upload->base, hw->vram_upload_sampler);
+  else
+    opengl_device_set_texture_buffer(0, hw->vram_upload_buffer);
+  opengl_device_draw_with_push_constants(3, 0, &uniforms, sizeof(uniforms));
+  if (upload) opengl_texture_destroy(upload);
+  if (check_mask && hw->write_mask_as_depth) hw->current_depth++;
+  gpu_hw_finish_vram_transfer(hw, bounds);
 }
 
 static void gpu_hw_copy_vram_gl(gpu_hw_t* hw, u32 src_x, u32 src_y, u32 dst_x, u32 dst_y, u32 width, u32 height,
                                 bool set_mask, bool check_mask) {
-  /* The FS-based vram_copy pipeline path doesn't actually land pixels in
-   * vram_texture on Mesa Intel iGPU (same root cause as update_vram_gl).
-   * Bypass with a direct
-   * glCopyImageSubData(vram_texture <- vram_texture).  GL spec allows
-   * same-texture copies for non-overlapping regions (UB on overlap; we
-   * fall back via vram_read_texture as the source for safety since it's
-   * already a full copy of vram_texture from a recent blit). */
-  (void)set_mask;
-  (void)check_mask; /* mask-bit handled via SW canon for now */
-  if (hw->base.vtable->flush_render) hw->base.vtable->flush_render(&hw->base);
-  if (!hw->vram_texture || !hw->vram_read_texture) return;
-
-  const gpu_rect_t src_bounds = gpu_hw_vram_transfer_bounds(src_x, src_y, width, height);
-  const gpu_rect_t dst_bounds = gpu_hw_vram_transfer_bounds(dst_x, dst_y, width, height);
-  const u32        scale      = (u32)hw->resolution_scale;
-
-  const u32 sx = (src_x % VRAM_WIDTH) * scale;
-  const u32 sy = (src_y % VRAM_HEIGHT) * scale;
-  const u32 dx = (dst_x % VRAM_WIDTH) * scale;
-  const u32 dy = (dst_y % VRAM_HEIGHT) * scale;
-  const u32 w  = width * scale;
-  const u32 h  = height * scale;
-  /* Clamp to texture bounds to avoid OOB on wrap.  Wrap-aware split is
-   * deferred; most PSX games copy non-wrap rects. */
-  const u32 vw = (u32)VRAM_WIDTH * scale;
-  const u32 vh = (u32)VRAM_HEIGHT * scale;
-  const u32 cw = (sx + w > vw || dx + w > vw) ? ((vw - (sx > dx ? sx : dx))) : w;
-  const u32 ch = (sy + h > vh || dy + h > vh) ? ((vh - (sy > dy ? sy : dy))) : h;
-  if (cw == 0u || ch == 0u) return;
-
-  /* Copy from the live render target unless source and destination overlap.
-   * For overlap, synchronize vram_read_texture first and copy from it to
-   * avoid an overlapping same-texture glCopyImageSubData operation. */
-  const bool overlaps_with_self = gpu_rect_overlaps(src_bounds, dst_bounds);
-  if (overlaps_with_self) {
-    gpu_hw_update_vram_read_texture(hw);
-    opengl_device_copy_texture_region(&hw->vram_texture->base, dx, dy, 0, 0, &hw->vram_read_texture->base, sx, sy, 0, 0,
-                                      cw, ch);
-  } else {
-    opengl_device_copy_texture_region(&hw->vram_texture->base, dx, dy, 0, 0, &hw->vram_texture->base, sx, sy, 0, 0, cw,
-                                      ch);
-  }
-
-  gpu_hw_restore_mask_depth(hw, dst_bounds);
-  gpu_hw_mark_vram_dirty(hw, dst_bounds);
+  if (!width || !height || !hw->vram_texture || !hw->vram_read_texture) return;
+  hw->base.vtable->flush_render(&hw->base);
+  gpu_hw_check_depth_counter(hw, 1);
+  gpu_hw_update_vram_read_texture(hw);
+  const gpu_rect_t            bounds   = gpu_hw_vram_transfer_bounds(dst_x, dst_y, width, height);
+  const u32                   scale    = hw->resolution_scale;
+  const vram_copy_push_data_t uniforms = {.u_src_x            = (float)((src_x % VRAM_WIDTH) * scale),
+                                          .u_src_y            = (float)((src_y % VRAM_HEIGHT) * scale),
+                                          .u_dst_x            = (float)((dst_x % VRAM_WIDTH) * scale),
+                                          .u_dst_y            = (float)((dst_y % VRAM_HEIGHT) * scale),
+                                          .u_end_x            = (float)(((dst_x + width) % VRAM_WIDTH) * scale),
+                                          .u_end_y            = (float)(((dst_y + height) % VRAM_HEIGHT) * scale),
+                                          .u_vram_width       = (float)(VRAM_WIDTH * scale),
+                                          .u_vram_height      = (float)(VRAM_HEIGHT * scale),
+                                          .u_resolution_scale = (float)scale,
+                                          .u_set_mask_bit     = set_mask,
+                                          .u_depth_value      = gpu_hw_normalized_vertex_depth(hw)};
+  gpu_hw_prepare_vram_transfer(hw, bounds, hw->vram_copy_pipelines[check_mask && hw->write_mask_as_depth]);
+  opengl_device_set_texture_sampler(0, &hw->vram_read_texture->base, NULL);
+  opengl_device_draw_with_push_constants(3, 0, &uniforms, sizeof(uniforms));
+  if (check_mask && hw->write_mask_as_depth) hw->current_depth++;
+  gpu_hw_finish_vram_transfer(hw, bounds);
 }
 
 /* Display extract: dispatch vram_extract_pipeline[0|1] into vram_extract_texture
@@ -1831,34 +1856,6 @@ static bool gpu_hw_batch_config_changed(const gpu_hw_t* hw, const gpu_backend_dr
          hw->batch.check_mask_before_draw != c->check_mask_before_draw ||
          !gpu_texture_window_equals(hw->texture_window_bits, c->window) ||
          (batch_texture_mode == GPU_HW_BATCH_TEXTURE_MODE_PAGE_TEXTURE && hw->batch_cache_texture != cache_texture);
-}
-
-/* Mask depth starts near 1.0 and decreases per draw. With a
- * GREATER_OR_EQUAL depth test, a destination's set-mask depth blocks
- * writes from later draws with lower depth. */
-ALWAYS_INLINE static float gpu_hw_normalized_vertex_depth(const gpu_hw_t* hw) {
-  return 1.0f - ((float)hw->current_depth / 65535.0f);
-}
-
-/* Counter overflow guard.  When current_depth approaches the 65535 ceiling
- * we flush and reset at 65536 - 2. After reset the depth attachment carries
- * the mask state
- * for older pixels via the FS's previous oalpha*v_pos.z writes; the new
- * counter starts at 1 again so subsequent set-mask writes land at z~=1.
- *
- * NB: callers must re-run gpu_hw_ensure_batch_buffers_mapped() after this
- * helper; flush_render unmaps the batch buffers (lazy-map convention), so
- * the next vertex push would dereference NULL otherwise.  The helper returns
- * true when a flush actually occurred. */
-#define GPU_HW_MAX_VERTEX_DEPTH_COUNTER (65536u - 2u)
-ALWAYS_INLINE static bool gpu_hw_check_depth_counter(gpu_hw_t* hw, u32 required_vertices) {
-  if (!hw->write_mask_as_depth) return false;
-  if ((u32)hw->current_depth + required_vertices <= GPU_HW_MAX_VERTEX_DEPTH_COUNTER) return false;
-  /* Flush so the current batch drains with the existing depth map. */
-  if (hw->base.vtable->flush_render) hw->base.vtable->flush_render(&hw->base);
-  gpu_hw_restore_mask_depth(hw, gpu_rect_make(0, 0, VRAM_WIDTH, VRAM_HEIGHT));
-  hw->current_depth = 1;
-  return true;
 }
 
 /* Polygon emission: UV limits, coordinate culling and native color truncation. */

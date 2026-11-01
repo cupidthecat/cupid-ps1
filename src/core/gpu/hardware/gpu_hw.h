@@ -203,6 +203,7 @@ typedef struct gpu_hw {
   opengl_texture_t*          vram_readback_texture;
   opengl_download_texture_t* vram_readback_download_texture;
   opengl_texture_buffer_t*   vram_upload_buffer;
+  opengl_sampler_t*          vram_upload_sampler;
   opengl_texture_t*          vram_write_texture;
 
   /* Streaming batch buffer (mapped from the device's vertex/index streams). */

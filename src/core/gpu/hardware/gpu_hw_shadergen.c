@@ -2997,8 +2997,9 @@ char* gpu_hw_shadergen_generate_vram_write_fragment_shader(gpu_hw_shadergen_t* s
               "  uint value = LOAD_TEXTURE(samp0, int2(offset), 0).x;\n"
               "#else\n"
               "  uint buffer_offset = u_buffer_base_offset + uint((offset.y * u_size.x) + offset.x);\n"
-              "  uint value = GET_VALUE(buffer_offset) | u_mask_or_bits;\n"
+              "  uint value = GET_VALUE(buffer_offset);\n"
               "#endif\n"
+              "  value |= u_mask_or_bits;\n"
               "\n"
               "  o_col0 = RGBA5551ToRGBA8(value);\n"
               "#if WRITE_MASK_AS_DEPTH\n"
@@ -3015,7 +3016,6 @@ char* gpu_hw_shadergen_generate_vram_copy_fragment_shader(gpu_hw_shadergen_t* sg
                                                           bool write_depth_as_rt) {
   Assert(!write_mask_as_depth || (write_mask_as_depth != write_depth_as_rt));
 
-  /* TODO: This won't currently work because we can't bind the texture to both the shader and framebuffer. */
   const bool msaa = false;
 
   small_string_t ss;
@@ -3063,7 +3063,7 @@ char* gpu_hw_shadergen_generate_vram_copy_fragment_shader(gpu_hw_shadergen_t* sg
               "#endif\n"
               "  o_col0 = float4(color.xyz, u_set_mask_bit ? 1.0 : color.a);\n"
               "#if WRITE_MASK_AS_DEPTH\n"
-              "  o_depth = (u_set_mask_bit ? 1.0f : ((o_col0.a == 1.0) ? u_depth_value : 0.0));\n"
+              "  o_depth = (o_col0.a == 1.0) ? u_depth_value : 0.0;\n"
               "#elif WRITE_DEPTH_AS_RT\n"
               "  o_col1 = float4(1.0f, 0.0f, 0.0f, 0.0f);\n"
               "#endif\n"

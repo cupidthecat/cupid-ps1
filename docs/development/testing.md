@@ -36,7 +36,7 @@ output capture and failure reporting. Separate runtime jobs use the executable
 produced by each compiler job, checking its revision and hashes before running
 the complete Python suite. Runtime jobs also run the context smoke and hardware
 renderer checks under Xvfb with software Mesa, including a forced OpenGL 3.3
-context. Both stages keep the 20-minute job limit. The short lived artifact
+context. The renderer matrix runs with buffer and integer-texture uploads. Both stages keep the 20-minute job limit. The short lived artifact
 contains the emulator and GL check executables, revision/hash receipts and
 license notices; the runtime library comes from the matching checkout. CI uses
 generated inputs. BIOS, discs, saved checkpoints and runtime logs are not uploaded.

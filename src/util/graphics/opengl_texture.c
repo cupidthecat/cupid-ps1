@@ -171,8 +171,7 @@ opengl_texture_t* opengl_texture_create(u32 width, u32 height, u32 layers, u32 l
     }
 
     if (!use_tex_storage || data) {
-      const u32 pixel_size = gpu_texture_format_pixel_size(format);
-      const u32 alignment  = get_upload_alignment(data_pitch);
+      const u32 alignment = get_upload_alignment(data_pitch);
       if (data) {
         gpu_device_get_statistics()->buffer_streamed += gpu_texture_calc_upload_size(format, height, data_pitch);
         gpu_device_get_statistics()->num_uploads++;
@@ -185,6 +184,10 @@ opengl_texture_t* opengl_texture_create(u32 width, u32 height, u32 layers, u32 l
       u32       current_width  = width;
       u32       current_height = height;
       for (u32 i = 0; i < levels; i++) {
+        if (data && i > 0) {
+          glPixelStorei(GL_UNPACK_ROW_LENGTH, (GLint)gpu_texture_calc_upload_row_length_from_pitch(format, data_pitch));
+          glPixelStorei(GL_UNPACK_ALIGNMENT, (GLint)get_upload_alignment(data_pitch));
+        }
         if (use_tex_storage) {
           if (is_compressed) {
             const u32 size = gpu_texture_calc_upload_size(format, current_height, data_pitch);
@@ -223,17 +226,17 @@ opengl_texture_t* opengl_texture_create(u32 width, u32 height, u32 layers, u32 l
           }
         }
 
-        if (data_ptr) data_ptr += data_pitch * current_width;
+        if (data_ptr && i + 1 < levels) data_ptr += gpu_texture_calc_upload_size(format, current_height, data_pitch);
 
         current_width  = (current_width > 1) ? (current_width / 2u) : current_width;
         current_height = (current_height > 1) ? (current_height / 2u) : current_height;
 
-        /* TODO: Incorrect assumption. */
-        data_pitch = pixel_size * current_width;
+        /* Subsequent mip levels are tightly packed. */
+        data_pitch = gpu_texture_calc_upload_pitch(format, current_width);
       }
 
       if (data) {
-        if (alignment != DEFAULT_UPLOAD_ALIGNMENT) glPixelStorei(GL_UNPACK_ALIGNMENT, DEFAULT_UPLOAD_ALIGNMENT);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, DEFAULT_UPLOAD_ALIGNMENT);
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
       }
     }
