@@ -1,6 +1,7 @@
 /* cupid-ps1 OpenGL destination-mask history through draws and transfers. */
 #include "common/error.h"
 #include "hardware_clut.h"
+#include "hardware_texture_pages.h"
 #include "core/config/settings.h"
 #include "core/state/save_state_version.h"
 #include "core/gpu/hardware/gpu_hw.h"
@@ -498,6 +499,7 @@ int main(int argc, char** argv) {
     gpu_backend_destroy(be);
   }
   failures += gpu_gl_clut_checks(&wi, &count);
+  failures += gpu_gl_texture_page_checks(&wi, &count);
   opengl_device_destroy();
   settings_destroy(&g_settings);
   Error_destroy(&error);

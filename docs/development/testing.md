@@ -44,7 +44,8 @@ generated inputs. BIOS, discs, saved checkpoints and runtime logs are not upload
 Build the separate renderer check with `make gpu-gl-tests`. It reads the actual
 OpenGL texture and fails if an X11 context cannot be created. See
 [mask history and restored VRAM](../gpu/mask-history.md) for coverage and commands,
-and [palette cache](../gpu/palette-cache.md) for the cached-color matrix.
+and [palette cache](../gpu/palette-cache.md) and
+[decoded texture pages](../gpu/texture-pages.md) for the cache matrices.
 
 The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
 partial refills and state restoration. Its guest program changes BIU modes

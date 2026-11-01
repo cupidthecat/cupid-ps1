@@ -112,8 +112,7 @@ void gpu_texture_cache_copy_vram(u32 src_x, u32 src_y, u32 dst_x, u32 dst_y, u32
                                  bool check_mask, s32 src_l, s32 src_t, s32 src_r, s32 src_b, s32 dst_l, s32 dst_t,
                                  s32 dst_r, s32 dst_b);
 
-/* CLUT-write invalidation: nukes any source whose palette region the write
- * may have touched. */
+/* Relatching a palette discards paletted decoded sources without a VRAM write. */
 void gpu_texture_cache_invalidate_clut(gpu_texture_palette_reg_t reg, bool clut_is_8bit);
 
 /* Drawn-rect query: was [l..r] x [t..b] of VRAM written to since the last

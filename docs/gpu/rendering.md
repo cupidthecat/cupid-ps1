@@ -7,7 +7,8 @@ GPU command resets and interrupt acknowledgement are described in
 See [VRAM uploads](vram-transfers.md) for transfer dimensions and data handling.
 [Mask history and restored VRAM](mask-history.md) describes the OpenGL
 destination-protection checks. [Palette cache](palette-cache.md) covers the
-latched color table and decoded-page sampling.
+latched color table and decoded-page sampling. [Texture pages](texture-pages.md)
+covers wrapped decoding and source-write invalidation.
 
 ## Software renderer (`gpu_sw`)
 

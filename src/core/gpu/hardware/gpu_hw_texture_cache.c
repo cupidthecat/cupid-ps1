@@ -183,15 +183,17 @@ ALWAYS_INLINE void tc_write_rgba8(u8** dst_ptr, u16 vram_pixel) {
 }
 
 /* 4-bit decode: each VRAM pixel packs 4 4-bit indices, produces 4 RGBA8 texels.
- * `width` is in texels; `page` points at the top-left VRAM word. */
-static void tc_decode4(const u16* page, const u16* palette, u32 width, u32 height, u8* dest, u32 dest_stride) {
+ * `width` is in texels; `page` points at the first VRAM row and source_x
+ * supplies its horizontally wrapped word offset. */
+static void tc_decode4(const u16* page, u32 source_x, const u16* palette, u32 width, u32 height, u8* dest,
+                       u32 dest_stride) {
   for (u32 y = 0; y < height; y++) {
     const u16* row = page + (size_t)y * VRAM_WIDTH;
     u8*        d   = dest + (size_t)y * dest_stride;
     if ((width & 3u) == 0u) {
       const u32 vram_w = width / 4u;
       for (u32 x = 0; x < vram_w; x++) {
-        const u32 pp = (u32)row[x];
+        const u32 pp = (u32)row[(source_x + x) & (VRAM_WIDTH - 1u)];
         tc_write_rgba8(&d, palette[pp & 0x0Fu]);
         tc_write_rgba8(&d, palette[(pp >> 4) & 0x0Fu]);
         tc_write_rgba8(&d, palette[(pp >> 8) & 0x0Fu]);
@@ -201,7 +203,7 @@ static void tc_decode4(const u16* page, const u16* palette, u32 width, u32 heigh
       u32 offs  = 0;
       u16 texel = 0;
       for (u32 x = 0; x < width; x++) {
-        if (offs == 0) texel = row[x >> 2];
+        if (offs == 0) texel = row[(source_x + (x >> 2)) & (VRAM_WIDTH - 1u)];
         tc_write_rgba8(&d, palette[texel & 0x0Fu]);
         texel = (u16)(texel >> 4);
         offs  = (offs + 1u) & 3u;
@@ -211,14 +213,15 @@ static void tc_decode4(const u16* page, const u16* palette, u32 width, u32 heigh
 }
 
 /* 8-bit decode: each VRAM pixel packs 2 8-bit indices, produces 2 RGBA8 texels. */
-static void tc_decode8(const u16* page, const u16* palette, u32 width, u32 height, u8* dest, u32 dest_stride) {
+static void tc_decode8(const u16* page, u32 source_x, const u16* palette, u32 width, u32 height, u8* dest,
+                       u32 dest_stride) {
   for (u32 y = 0; y < height; y++) {
     const u16* row = page + (size_t)y * VRAM_WIDTH;
     u8*        d   = dest + (size_t)y * dest_stride;
     if ((width & 1u) == 0u) {
       const u32 vram_w = width / 2u;
       for (u32 x = 0; x < vram_w; x++) {
-        const u32 pp = (u32)row[x];
+        const u32 pp = (u32)row[(source_x + x) & (VRAM_WIDTH - 1u)];
         tc_write_rgba8(&d, palette[pp & 0xFFu]);
         tc_write_rgba8(&d, palette[(pp >> 8) & 0xFFu]);
       }
@@ -226,7 +229,7 @@ static void tc_decode8(const u16* page, const u16* palette, u32 width, u32 heigh
       u32 offs  = 0;
       u16 texel = 0;
       for (u32 x = 0; x < width; x++) {
-        if (offs == 0) texel = row[x >> 1];
+        if (offs == 0) texel = row[(source_x + (x >> 1)) & (VRAM_WIDTH - 1u)];
         tc_write_rgba8(&d, palette[texel & 0xFFu]);
         texel = (u16)(texel >> 8);
         offs ^= 1u;
@@ -236,12 +239,12 @@ static void tc_decode8(const u16* page, const u16* palette, u32 width, u32 heigh
 }
 
 /* Direct 16-bit: 1 VRAM pixel = 1 RGBA8 texel.  No CLUT lookup. */
-static void tc_decode16(const u16* page, u32 width, u32 height, u8* dest, u32 dest_stride) {
+static void tc_decode16(const u16* page, u32 source_x, u32 width, u32 height, u8* dest, u32 dest_stride) {
   for (u32 y = 0; y < height; y++) {
     const u16* row = page + (size_t)y * VRAM_WIDTH;
     u8*        d   = dest + (size_t)y * dest_stride;
     for (u32 x = 0; x < width; x++)
-      tc_write_rgba8(&d, row[x]);
+      tc_write_rgba8(&d, row[(source_x + x) & (VRAM_WIDTH - 1u)]);
   }
 }
 
@@ -253,21 +256,21 @@ static void tc_decode_page(u8 page_index, gpu_texture_palette_reg_t palette_reg,
                            u32 dest_stride) {
   const u32  sx       = vram_page_start_x((u32)page_index);
   const u32  sy       = vram_page_start_y((u32)page_index);
-  const u16* page_ptr = &g_vram[(size_t)sy * VRAM_WIDTH + sx];
+  const u16* page_ptr = &g_vram[(size_t)sy * VRAM_WIDTH];
 
   (void)palette_reg;
   const u16* palette_ptr = (mode < GPU_TEXTURE_MODE_DIRECT_16BIT) ? g_gpu_clut : NULL;
 
   switch (mode) {
     case GPU_TEXTURE_MODE_PALETTE_4BIT:
-      tc_decode4(page_ptr, palette_ptr, TC_DECODE_TEXEL_W, TC_DECODE_TEXEL_H, dest, dest_stride);
+      tc_decode4(page_ptr, sx, palette_ptr, TC_DECODE_TEXEL_W, TC_DECODE_TEXEL_H, dest, dest_stride);
       break;
     case GPU_TEXTURE_MODE_PALETTE_8BIT:
-      tc_decode8(page_ptr, palette_ptr, TC_DECODE_TEXEL_W, TC_DECODE_TEXEL_H, dest, dest_stride);
+      tc_decode8(page_ptr, sx, palette_ptr, TC_DECODE_TEXEL_W, TC_DECODE_TEXEL_H, dest, dest_stride);
       break;
     case GPU_TEXTURE_MODE_DIRECT_16BIT:
     case GPU_TEXTURE_MODE_RESERVED_DIRECT_16BIT:
-      tc_decode16(page_ptr, TC_DECODE_TEXEL_W, TC_DECODE_TEXEL_H, dest, dest_stride);
+      tc_decode16(page_ptr, sx, TC_DECODE_TEXEL_W, TC_DECODE_TEXEL_H, dest, dest_stride);
       break;
   }
 }
@@ -391,17 +394,18 @@ static gpu_tc_hash_t tc_hash_page(u8 page, gpu_texture_mode_t mode) {
    * so cache-content fingerprint identity won't match across
    * implementations; that's OK since we don't share serialized hashes
    * across forks. */
-  const u32 pn          = (u32)page;
-  const u32 sx          = vram_page_start_x(pn);
-  const u32 sy          = vram_page_start_y(pn);
-  const u32 w           = texture_page_width_for_mode(mode);
-  const u32 effective_w = (sx + w > VRAM_WIDTH) ? (VRAM_WIDTH - sx) : w;
-  const u32 h           = VRAM_PAGE_HEIGHT;
+  const u32 pn      = (u32)page;
+  const u32 sx      = vram_page_start_x(pn);
+  const u32 sy      = vram_page_start_y(pn);
+  const u32 w       = texture_page_width_for_mode(mode);
+  const u32 first_w = (sx + w > VRAM_WIDTH) ? (VRAM_WIDTH - sx) : w;
+  const u32 h       = VRAM_PAGE_HEIGHT;
 
   gpu_tc_hash_t hash = tc_fnv1a_init();
   for (u32 y = 0; y < h; y++) {
-    const u16* row = &g_vram[(sy + y) * VRAM_WIDTH + sx];
-    hash           = tc_fnv1a_step(hash, row, (size_t)effective_w * sizeof(u16));
+    const u16* row = &g_vram[(sy + y) * VRAM_WIDTH];
+    hash           = tc_fnv1a_step(hash, row + sx, (size_t)first_w * sizeof(u16));
+    if (first_w < w) hash = tc_fnv1a_step(hash, row, (size_t)(w - first_w) * sizeof(u16));
   }
   hash = tc_fnv1a_step(hash, &mode, sizeof(mode));
   return hash;

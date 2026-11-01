@@ -46,7 +46,8 @@ eight configurations checks:
 - Transparent zero, opaque black with bit 15 set, and destination-mask protection.
 
 These 64 palette cases join the preceding transfer, depth, mip and continuation
-cases for 180 checks. Assertions read actual GL textures. Canonical-buffer byte
+cases for 180 checks. The [decoded-page matrix](texture-pages.md) adds another
+512 checks, for 692 total. Assertions read actual GL textures. Canonical-buffer byte
 comparisons additionally check rejected state reads. Every run requires the
 requested decoded-page-cache setting and checks that textured batches use the
 expected GL path.
@@ -61,7 +62,7 @@ See [GPU regression commands](mask-history.md#renderer-regression-check).
 CI runs all three compiler profiles with default Mesa and forced OpenGL 3.3,
 using both buffer and integer-texture uploads. This tests twelve combinations.
 
-Full texture-cache hardware behavior, other texture-page coordinates and filter
-modes, overlap ordering, interlaced rendering, display timing and representative
+Full texture-cache hardware behavior, textured-primitive UV interpolation and
+filter modes, overlap ordering, interlaced rendering, display timing and representative
 gameplay remain unqualified. The palette tests do not change the command
 processor's palette-address invalidation or mode-transition timing rules.
