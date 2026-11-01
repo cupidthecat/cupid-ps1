@@ -21,6 +21,7 @@
 #include "util/state/state_wrapper.h"
 
 #include <stdatomic.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -564,8 +565,11 @@ static void voice_tick_adsr (spu_voice_t* v);
 static void volume_envelope_reset(volume_envelope_t* e, u8 rate, u8 rate_mask,
                                   bool decreasing, bool exponential, bool phase_invert);
 static bool volume_envelope_tick(volume_envelope_t* e, s16* current_level);
+static bool volume_envelope_state_is_valid(const volume_envelope_t* e);
+static bool volume_sweep_state_is_valid(const volume_sweep_t* s);
 static void volume_sweep_reset(volume_sweep_t* s, volume_register_t reg);
-static void volume_sweep_tick (volume_sweep_t* s);
+static void volume_sweep_tick(volume_sweep_t* s, volume_register_t reg);
+static void volume_sweep_resume_if_needed(volume_sweep_t* s, volume_register_t reg);
 
 ALWAYS_INLINE static bool voice_is_on(const spu_voice_t* v) { return v->adsr_phase != ADSR_PHASE_OFF; }
 
@@ -804,6 +808,18 @@ bool spu_do_state(state_wrapper_t* sw)
 
   state_wrapper_do_bytes(sw, s_ram, SPU_RAM_SIZE);
 
+  if (state_wrapper_is_reading(sw)) {
+    bool valid_envelopes = volume_sweep_state_is_valid(&s_state.main_volume_left) &&
+                           volume_sweep_state_is_valid(&s_state.main_volume_right);
+    for (u32 voice = 0; voice < NUM_VOICES; voice++) {
+      valid_envelopes = valid_envelopes &&
+          volume_sweep_state_is_valid(&s_state.voices[voice].left_volume) &&
+          volume_sweep_state_is_valid(&s_state.voices[voice].right_volume) &&
+          volume_envelope_state_is_valid(&s_state.voices[voice].adsr_envelope);
+    }
+    if (!valid_envelopes) sw->error = true;
+  }
+
   if (state_wrapper_is_reading(sw) &&
       (s_state.noise_clock.divider >= 0x8000 || s_state.noise_clock.counter >= 8 ||
        s_state.transfer_ticks_carry < 0 || s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD ||
@@ -814,6 +830,12 @@ bool spu_do_state(state_wrapper_t* sw)
     sw->error = true;
 
   if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw)) {
+    volume_sweep_resume_if_needed(&s_state.main_volume_left, s_state.main_volume_left_reg);
+    volume_sweep_resume_if_needed(&s_state.main_volume_right, s_state.main_volume_right_reg);
+    for (u32 voice = 0; voice < NUM_VOICES; voice++) {
+      volume_sweep_resume_if_needed(&s_state.voices[voice].left_volume, s_state.voices[voice].regs.volume_left);
+      volume_sweep_resume_if_needed(&s_state.voices[voice].right_volume, s_state.voices[voice].regs.volume_right);
+    }
     update_event_interval();
     if (state_wrapper_get_version(sw) >= 90)
       update_transfer_event();
@@ -882,8 +904,8 @@ u16 spu_read_register(u32 offset)
         const u32 voice_index = (offset - (0x1F801E00u - SPU_BASE)) / 4u;
         spu_generate_pending_samples();
         if (offset & 0x02u)
-          return (u16)s_state.voices[voice_index].left_volume.current_level;
-        return (u16)s_state.voices[voice_index].right_volume.current_level;
+          return (u16)s_state.voices[voice_index].right_volume.current_level;
+        return (u16)s_state.voices[voice_index].left_volume.current_level;
       }
 
       DEV_LOG("Unknown SPU register read: offset 0x%X (address 0x%08X)", offset, offset | SPU_BASE);
@@ -1066,10 +1088,12 @@ void spu_write_register(u32 offset, u16 value)
     case 0x1F801DB8u - SPU_BASE:
       spu_generate_pending_samples();
       s_state.main_volume_left.current_level = (s16)value;
+      volume_sweep_resume_if_needed(&s_state.main_volume_left, s_state.main_volume_left_reg);
       return;
     case 0x1F801DBAu - SPU_BASE:
       spu_generate_pending_samples();
       s_state.main_volume_right.current_level = (s16)value;
+      volume_sweep_resume_if_needed(&s_state.main_volume_right, s_state.main_volume_right_reg);
       return;
 
     case 0x1F801DAEu - SPU_BASE:
@@ -1424,6 +1448,23 @@ static adsr_phase_t get_next_adsr_phase(adsr_phase_t phase)
   }
 }
 
+static bool volume_envelope_state_is_valid(const volume_envelope_t* e)
+{
+  /* The legacy POD record contains raw bool bytes. Check their representation
+   * before evaluating them as booleans, including in the load-time repair. */
+  const u8* bytes = (const u8*)e;
+  return bytes[offsetof(volume_envelope_t, decreasing)] <= 1 &&
+         bytes[offsetof(volume_envelope_t, exponential)] <= 1 &&
+         bytes[offsetof(volume_envelope_t, phase_invert)] <= 1 &&
+         e->rate <= 0x7F && e->counter < 0x8000 && e->counter_increment <= 0x8000;
+}
+
+static bool volume_sweep_state_is_valid(const volume_sweep_t* s)
+{
+  const u8* bytes = (const u8*)s;
+  return bytes[offsetof(volume_sweep_t, envelope_active)] <= 1 && volume_envelope_state_is_valid(&s->envelope);
+}
+
 static void volume_envelope_reset(volume_envelope_t* e, u8 rate, u8 rate_mask,
                                   bool decreasing, bool exponential, bool phase_invert)
 {
@@ -1476,6 +1517,10 @@ static bool volume_envelope_tick(volume_envelope_t* e, s16* current_level)
     }
   }
 
+  /* Exponential slowing must not turn a non-frozen rate into a zero clock. */
+  if (this_increment == 0 && e->counter_increment != 0)
+    this_increment = 1;
+
   e->counter += this_increment;
   /* MSB=1 acts as the rate gate (rate 0x76 behaves like 0x6A). */
   if (!(e->counter & 0x8000u))
@@ -1493,14 +1538,14 @@ static bool volume_envelope_tick(volume_envelope_t* e, s16* current_level)
     else
       new_level = (new_level > 0) ? new_level : 0;
     *current_level = (s16)new_level;
-    return new_level == 0;
+    return e->phase_invert ? new_level < 0 : new_level > 0;
   }
 }
 
 static void volume_sweep_reset(volume_sweep_t* s, volume_register_t reg)
 {
   if (!reg.common.sweep_mode) {
-    s->current_level = (s16)(reg.fixed.fixed_volume_shr1 * 2);
+    /* The control register changes now; the current gain changes on a sample. */
     s->envelope_active = false;
     return;
   }
@@ -1511,8 +1556,23 @@ static void volume_sweep_reset(volume_sweep_t* s, volume_register_t reg)
   s->envelope_active = (s->envelope.counter_increment > 0);
 }
 
-static void volume_sweep_tick(volume_sweep_t* s)
+static void volume_sweep_resume_if_needed(volume_sweep_t* s, volume_register_t reg)
 {
+  if (s->envelope_active || !reg.common.sweep_mode || s->envelope.counter_increment == 0)
+    return;
+  /* A saved early-stop flag or a current-gain write must not strand a sweep
+   * away from its endpoint. Keep intentionally frozen all-ones rates idle. */
+  const s16 endpoint = s->envelope.decreasing ? 0 :
+      (s->envelope.step < 0 ? VOLUME_ENVELOPE_MIN_VOLUME : VOLUME_ENVELOPE_MAX_VOLUME);
+  s->envelope_active = s->current_level != endpoint;
+}
+
+static void volume_sweep_tick(volume_sweep_t* s, volume_register_t reg)
+{
+  if (!reg.common.sweep_mode) {
+    s->current_level = (s16)(reg.fixed.fixed_volume_shr1 * 2);
+    return;
+  }
   if (!s->envelope_active)
     return;
   s->envelope_active = volume_envelope_tick(&s->envelope, &s->current_level);
@@ -1772,8 +1832,6 @@ static void sample_voice(u32 voice_index, s32* out_left, s32* out_right)
 
   *out_left  = apply_volume(volume, voice->left_volume.current_level);
   *out_right = apply_volume(volume, voice->right_volume.current_level);
-  volume_sweep_tick(&voice->left_volume);
-  volume_sweep_tick(&voice->right_volume);
 }
 
 static void update_noise(void)
@@ -1959,6 +2017,8 @@ static void generate_one_frame(bool first_in_batch)
   for (u32 voice = 0; voice < NUM_VOICES; voice++) {
     s32 vleft, vright;
     sample_voice(voice, &vleft, &vright);
+    volume_sweep_tick(&s_state.voices[voice].left_volume, s_state.voices[voice].regs.volume_left);
+    volume_sweep_tick(&s_state.voices[voice].right_volume, s_state.voices[voice].regs.volume_right);
     left_sum  += vleft;
     right_sum += vright;
     if (reverb_on_register & 1u) {
@@ -2014,8 +2074,8 @@ static void generate_one_frame(bool first_in_batch)
     if (on > s_spu_dbg.max_voices_on_seen) s_spu_dbg.max_voices_on_seen = on;
   }
 
-  volume_sweep_tick(&s_state.main_volume_left);
-  volume_sweep_tick(&s_state.main_volume_right);
+  volume_sweep_tick(&s_state.main_volume_left, s_state.main_volume_left_reg);
+  volume_sweep_tick(&s_state.main_volume_right, s_state.main_volume_right_reg);
 
   /* Capture buffers (4 x 1KB regions, raw CDDA + voice 1/3 dumps). */
   write_to_capture_buffer(0, cd_left);
