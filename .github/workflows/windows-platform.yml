@@ -63,3 +63,4 @@ jobs:
           python -m unittest discover -s tests -p test_executable_memfill_live.py
           python -m unittest discover -s tests -p test_mdec_spatial_live.py
           python -m unittest discover -s tests -p test_partial_stores_live.py
+          python -m unittest discover -s tests -p test_gte_color_live.py

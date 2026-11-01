@@ -5,9 +5,9 @@
  *
  * Fixed-point conventions used throughout:
  *   - 16-bit IR registers, 32-bit MAC accumulators on the 0..3 lanes.
- *   - MAC0 saturates at 32 bits signed (MAC0_MIN_VALUE..MAC0_MAX_VALUE);
- *     MAC1..MAC3 saturate at 44 bits signed and the high bits get OR'd
- *     into the FLAG.error bit (see gte_check_mac_overflow_*).
+ *   - MAC overflow checks use signed 32-bit or 44-bit limits. Stored MAC
+ *     values retain their low 32 bits; chained sums fold at 44 bits.
+ *     Overflow flags contribute to FLAG.error.
  *   - The shift parameter ("sf" in the instruction) is either 0 or 12 -
  *     12 means "result is in 20.12 fixed point, shift right 12 to extract".
  *   - The lm parameter ("limit-min", instruction bit 10) clamps IR1..IR3
@@ -313,14 +313,13 @@ static ALWAYS_INLINE void gte_push_sz(s32 value)
   REGS.dr32[19] = (u32)value;    /* SZ3 <- value */
 }
 
-/* RGB FIFO push from MAC1..MAC3.  SHR 4 (not /16) is significant: the
- * sign behavior on negative MACs is bit-shift rather than arithmetic
- * divide. */
+/* Arithmetic shifting keeps negative fractional values negative until
+ * color clipping, so they still set their saturation flags. */
 static ALWAYS_INLINE void gte_push_rgb_from_mac(void)
 {
-  const u32 r = gte_truncate_rgb_r((s32)((u32)REGS.MAC1 >> 4));
-  const u32 g = gte_truncate_rgb_g((s32)((u32)REGS.MAC2 >> 4));
-  const u32 b = gte_truncate_rgb_b((s32)((u32)REGS.MAC3 >> 4));
+  const u32 r = gte_truncate_rgb_r((REGS.MAC1 >> 4));
+  const u32 g = gte_truncate_rgb_g((REGS.MAC2 >> 4));
+  const u32 b = gte_truncate_rgb_b((REGS.MAC3 >> 4));
   const u32 c = (u32)REGS.RGBC[3];
 
   REGS.dr32[20] = REGS.dr32[21];                        /* RGB0 <- RGB1 */
@@ -396,17 +395,17 @@ static void gte_mul_mat_vec_t(const s16* M, const s32 T[3], s16 Vx, s16 Vy, s16 
 {
 #define M_AT(i, j) M[((i) * 3) + (j)]
   gte_truncate_set_mac_ir1(
-    gte_sign_extend_mac1(gte_sign_extend_mac1(((s64)T[0] << 12) + (s64)M_AT(0, 0) * (s64)Vx)
+    gte_sign_extend_mac1(gte_sign_extend_mac1(((s64)T[0] * 4096) + (s64)M_AT(0, 0) * (s64)Vx)
                          + (s64)M_AT(0, 1) * (s64)Vy)
       + (s64)M_AT(0, 2) * (s64)Vz, 
     shift, lm);
   gte_truncate_set_mac_ir2(
-    gte_sign_extend_mac2(gte_sign_extend_mac2(((s64)T[1] << 12) + (s64)M_AT(1, 0) * (s64)Vx)
+    gte_sign_extend_mac2(gte_sign_extend_mac2(((s64)T[1] * 4096) + (s64)M_AT(1, 0) * (s64)Vx)
                          + (s64)M_AT(1, 1) * (s64)Vy)
       + (s64)M_AT(1, 2) * (s64)Vz, 
     shift, lm);
   gte_truncate_set_mac_ir3(
-    gte_sign_extend_mac3(gte_sign_extend_mac3(((s64)T[2] << 12) + (s64)M_AT(2, 0) * (s64)Vx)
+    gte_sign_extend_mac3(gte_sign_extend_mac3(((s64)T[2] * 4096) + (s64)M_AT(2, 0) * (s64)Vx)
                          + (s64)M_AT(2, 1) * (s64)Vy)
       + (s64)M_AT(2, 2) * (s64)Vz, 
     shift, lm);
@@ -422,7 +421,7 @@ static void gte_mul_mat_vec_buggy(const s16* M, const s32 T[3], s16 Vx, s16 Vy, 
   /* lane 1 */
   {
     const s64 partial = gte_sign_extend_mac1(
-      gte_sign_extend_mac1(((s64)T[0] << 12) + (s64)M_AT(0, 0) * (s64)Vx));
+      gte_sign_extend_mac1(((s64)T[0] * 4096) + (s64)M_AT(0, 0) * (s64)Vx));
     gte_truncate_set_ir1((s32)(partial >> shift), false);
     gte_truncate_set_mac_ir1(
       gte_sign_extend_mac1((s64)M_AT(0, 1) * (s64)Vy) + (s64)M_AT(0, 2) * (s64)Vz, shift, lm);
@@ -430,7 +429,7 @@ static void gte_mul_mat_vec_buggy(const s16* M, const s32 T[3], s16 Vx, s16 Vy, 
   /* lane 2 */
   {
     const s64 partial = gte_sign_extend_mac2(
-      gte_sign_extend_mac2(((s64)T[1] << 12) + (s64)M_AT(1, 0) * (s64)Vx));
+      gte_sign_extend_mac2(((s64)T[1] * 4096) + (s64)M_AT(1, 0) * (s64)Vx));
     gte_truncate_set_ir2((s32)(partial >> shift), false);
     gte_truncate_set_mac_ir2(
       gte_sign_extend_mac2((s64)M_AT(1, 1) * (s64)Vy) + (s64)M_AT(1, 2) * (s64)Vz, shift, lm);
@@ -438,7 +437,7 @@ static void gte_mul_mat_vec_buggy(const s16* M, const s32 T[3], s16 Vx, s16 Vy, 
   /* lane 3 */
   {
     const s64 partial = gte_sign_extend_mac3(
-      gte_sign_extend_mac3(((s64)T[2] << 12) + (s64)M_AT(2, 0) * (s64)Vx));
+      gte_sign_extend_mac3(((s64)T[2] * 4096) + (s64)M_AT(2, 0) * (s64)Vx));
     gte_truncate_set_ir3((s32)(partial >> shift), false);
     gte_truncate_set_mac_ir3(
       gte_sign_extend_mac3((s64)M_AT(2, 1) * (s64)Vy) + (s64)M_AT(2, 2) * (s64)Vz, shift, lm);
@@ -456,9 +455,9 @@ static ALWAYS_INLINE u8 gte_inst_mvmva_tvec(u32 inst) { return (u8)((inst >> 13)
 /* IR = (FC<<12) - MAC, then MAC = (IR*IR0 + MAC), all clipped/shifted. */
 static void gte_interpolate_color(s64 in_MAC1, s64 in_MAC2, s64 in_MAC3, u8 shift, bool lm)
 {
-  gte_truncate_set_mac_ir1(((s64)REGS.FC[0] << 12) - in_MAC1, shift, false);
-  gte_truncate_set_mac_ir2(((s64)REGS.FC[1] << 12) - in_MAC2, shift, false);
-  gte_truncate_set_mac_ir3(((s64)REGS.FC[2] << 12) - in_MAC3, shift, false);
+  gte_truncate_set_mac_ir1(((s64)REGS.FC[0] * 4096) - in_MAC1, shift, false);
+  gte_truncate_set_mac_ir2(((s64)REGS.FC[1] * 4096) - in_MAC2, shift, false);
+  gte_truncate_set_mac_ir3(((s64)REGS.FC[2] * 4096) - in_MAC3, shift, false);
 
   gte_truncate_set_mac_ir1((s64)((s32)REGS.IR1 * (s32)REGS.IR0) + in_MAC1, shift, lm);
   gte_truncate_set_mac_ir2((s64)((s32)REGS.IR2 * (s32)REGS.IR0) + in_MAC2, shift, lm);
@@ -472,7 +471,7 @@ static void gte_rtps(const s16 V[3], u8 shift, bool lm, bool last)
 {
 #define DOT3(i)                                                                                    \
   (gte_sign_extend_mac##i(                                                                         \
-     gte_sign_extend_mac##i(((s64)REGS.TR[(i) - 1] << 12)                                          \
+     gte_sign_extend_mac##i(((s64)REGS.TR[(i) - 1] * 4096)                                          \
                             + (s64)REGS.RT[(i) - 1][0] * (s64)V[0])                                \
      + (s64)REGS.RT[(i) - 1][1] * (s64)V[1])                                                       \
    + (s64)REGS.RT[(i) - 1][2] * (s64)V[2]) 
@@ -559,9 +558,9 @@ static void gte_nccs(const s16 V[3], u8 shift, bool lm)
   gte_mul_mat_vec(&REGS.LLM[0][0], V[0], V[1], V[2], shift, lm);
   gte_mul_mat_vec_t(&REGS.LCM[0][0], REGS.BK, REGS.IR1, REGS.IR2, REGS.IR3, shift, lm);
 
-  gte_truncate_set_mac_ir1((s64)((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) << 4, shift, lm);
-  gte_truncate_set_mac_ir2((s64)((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) << 4, shift, lm);
-  gte_truncate_set_mac_ir3((s64)((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) << 4, shift, lm);
+  gte_truncate_set_mac_ir1((s64)((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) * 16, shift, lm);
+  gte_truncate_set_mac_ir2((s64)((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) * 16, shift, lm);
+  gte_truncate_set_mac_ir3((s64)((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) * 16, shift, lm);
 
   gte_push_rgb_from_mac();
 }
@@ -572,9 +571,9 @@ static void gte_ncds(const s16 V[3], u8 shift, bool lm)
   gte_mul_mat_vec(&REGS.LLM[0][0], V[0], V[1], V[2], shift, lm);
   gte_mul_mat_vec_t(&REGS.LCM[0][0], REGS.BK, REGS.IR1, REGS.IR2, REGS.IR3, shift, lm);
 
-  const s32 in_MAC1 = ((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) << 4;
-  const s32 in_MAC2 = ((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) << 4;
-  const s32 in_MAC3 = ((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) << 4;
+  const s32 in_MAC1 = ((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) * 16;
+  const s32 in_MAC2 = ((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) * 16;
+  const s32 in_MAC3 = ((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) * 16;
 
   gte_interpolate_color(in_MAC1, in_MAC2, in_MAC3, shift, lm);
   gte_push_rgb_from_mac();
@@ -840,9 +839,9 @@ static void gte_execute_cc(u32 inst)
 
   gte_mul_mat_vec_t(&REGS.LCM[0][0], REGS.BK, REGS.IR1, REGS.IR2, REGS.IR3, shift, lm);
 
-  gte_truncate_set_mac_ir1((s64)((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) << 4, shift, lm);
-  gte_truncate_set_mac_ir2((s64)((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) << 4, shift, lm);
-  gte_truncate_set_mac_ir3((s64)((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) << 4, shift, lm);
+  gte_truncate_set_mac_ir1((s64)((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) * 16, shift, lm);
+  gte_truncate_set_mac_ir2((s64)((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) * 16, shift, lm);
+  gte_truncate_set_mac_ir3((s64)((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) * 16, shift, lm);
 
   gte_push_rgb_from_mac();
 
@@ -858,9 +857,9 @@ static void gte_execute_cdp(u32 inst)
 
   gte_mul_mat_vec_t(&REGS.LCM[0][0], REGS.BK, REGS.IR1, REGS.IR2, REGS.IR3, shift, lm);
 
-  const s32 in_MAC1 = ((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) << 4;
-  const s32 in_MAC2 = ((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) << 4;
-  const s32 in_MAC3 = ((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) << 4;
+  const s32 in_MAC1 = ((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) * 16;
+  const s32 in_MAC2 = ((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) * 16;
+  const s32 in_MAC3 = ((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) * 16;
 
   gte_interpolate_color(in_MAC1, in_MAC2, in_MAC3, shift, lm);
   gte_push_rgb_from_mac();
@@ -895,9 +894,9 @@ static void gte_execute_dcpl(u32 inst)
   const u8 shift = gte_inst_shift(inst);
   const bool lm = gte_inst_lm(inst);
 
-  const s32 in_MAC1 = ((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) << 4;
-  const s32 in_MAC2 = ((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) << 4;
-  const s32 in_MAC3 = ((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) << 4;
+  const s32 in_MAC1 = ((s32)(u32)REGS.RGBC[0] * (s32)REGS.IR1) * 16;
+  const s32 in_MAC2 = ((s32)(u32)REGS.RGBC[1] * (s32)REGS.IR2) * 16;
+  const s32 in_MAC3 = ((s32)(u32)REGS.RGBC[2] * (s32)REGS.IR3) * 16;
 
   gte_interpolate_color(in_MAC1, in_MAC2, in_MAC3, shift, lm);
   gte_push_rgb_from_mac();
@@ -913,8 +912,8 @@ static void gte_execute_intpl(u32 inst)
   const bool lm = gte_inst_lm(inst);
 
   /* MAC := IR << 12, then FC interpolation. */
-  gte_interpolate_color((s64)((s32)REGS.IR1 << 12), (s64)((s32)REGS.IR2 << 12),
-                        (s64)((s32)REGS.IR3 << 12), shift, lm);
+  gte_interpolate_color(((s64)REGS.IR1 * 4096), ((s64)REGS.IR2 * 4096),
+                        ((s64)REGS.IR3 * 4096), shift, lm);
   gte_push_rgb_from_mac();
 
   gte_flag_update_error();
@@ -929,11 +928,11 @@ static void gte_execute_gpl(u32 inst)
 
   /* GPL preserves the prior MAC accumulator (shifted up by sf*12 first). */
   gte_truncate_set_mac_ir1(
-    (s64)((s32)REGS.IR1 * (s32)REGS.IR0) + ((s64)REGS.MAC1 << shift), shift, lm);
+    (s64)((s32)REGS.IR1 * (s32)REGS.IR0) + ((s64)REGS.MAC1 * ((s64)1 << shift)), shift, lm);
   gte_truncate_set_mac_ir2(
-    (s64)((s32)REGS.IR2 * (s32)REGS.IR0) + ((s64)REGS.MAC2 << shift), shift, lm);
+    (s64)((s32)REGS.IR2 * (s32)REGS.IR0) + ((s64)REGS.MAC2 * ((s64)1 << shift)), shift, lm);
   gte_truncate_set_mac_ir3(
-    (s64)((s32)REGS.IR3 * (s32)REGS.IR0) + ((s64)REGS.MAC3 << shift), shift, lm);
+    (s64)((s32)REGS.IR3 * (s32)REGS.IR0) + ((s64)REGS.MAC3 * ((s64)1 << shift)), shift, lm);
 
   gte_push_rgb_from_mac();
 
@@ -1007,7 +1006,7 @@ s32 gte_get_instruction_cycles(u32 inst_bits)
     case 0x06: return 8;
     case 0x0C: return 6;
     case 0x10: return 8;
-    case 0x11: return 7;
+    case 0x11: return 8;
     case 0x12: return 8;
     case 0x13: return 19;
     case 0x14: return 13;
