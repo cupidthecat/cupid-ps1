@@ -4,6 +4,9 @@ The supported build is Linux x86-64 with a C11 compiler, GNU Make and SDL2.
 On Windows, build through WSL. Native Windows support is
 [planned](#native-windows-support-planned).
 The bundled audio library is currently a Linux x86-64 binary.
+A [pinned source build and native C11 interface check](dependencies/soundtouch.md)
+are available for the audio dependency. Building that DLL alone does not
+provide native Windows emulator support.
 
 On Ubuntu 24.04:
 

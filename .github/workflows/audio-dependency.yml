@@ -1,0 +1,55 @@
+name: Audio dependency validation
+
+on:
+  push:
+    branches: [main, 'fix/native-*', 'feat/native-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audio-dependency-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-c-interface:
+    name: Linux audio C11 interface
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned audio dependency from source
+        run: python3 scripts/dependencies/build_soundtouch.py
+      - name: Compile and run C11 interface check
+        run: |
+          cmake -S tests/dependencies -B build/audio-probe -G Ninja \
+            -DSOUNDTOUCH_BUILD="$PWD/build/dependencies/soundtouch-2.3.3/build"
+          cmake --build build/audio-probe
+          ctest --test-dir build/audio-probe --output-on-failure
+  windows-c-interface:
+    name: Windows audio C11 interface
+    runs-on: windows-2022
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Build pinned audio dependency from source
+        run: python scripts/dependencies/build_soundtouch.py --generator "Visual Studio 17 2022"
+      - name: Compile and run native C11 interface check
+        run: |
+          $dependency = (Resolve-Path build/dependencies/soundtouch-2.3.3/build).Path
+          cmake -S tests/dependencies -B build/audio-probe -G "Visual Studio 17 2022" "-DSOUNDTOUCH_BUILD=$dependency"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build build/audio-probe --config Release
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ctest --test-dir build/audio-probe -C Release --output-on-failure
