@@ -244,6 +244,9 @@ extern gpu_backend_t* g_gpu_backend;
 gpu_backend_t* gpu_backend_create_software(void);
 void           gpu_backend_destroy(gpu_backend_t* be);
 
+/* Shared backend record: VRAM followed by the latched palette. */
+bool gpu_backend_do_vram_state(state_wrapper_t* sw);
+
 /* Reset accumulated counters. */
 void gpu_backend_reset_statistics(gpu_backend_t* be);
 

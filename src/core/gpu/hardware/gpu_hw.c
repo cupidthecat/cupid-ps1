@@ -36,6 +36,15 @@ LOG_CHANNEL(GPU_HW);
 #define GPU_HW_MAX_BATCH_VERTICES 65536u
 #define GPU_HW_MAX_BATCH_INDICES  65536u
 
+/* The latched palette is separate from the VRAM that supplied it. */
+static bool gpu_hw_upload_clut(gpu_hw_t* hw) {
+  if (!hw->clut_texture) return false;
+  u32 rgba[GPU_CLUT_SIZE];
+  for (u32 i = 0; i < GPU_CLUT_SIZE; i++)
+    rgba[i] = vram_rgba5551_to_rgba8888(g_gpu_clut[i]);
+  return opengl_texture_update(hw->clut_texture, 0, 0, GPU_CLUT_SIZE, 1, rgba, sizeof(rgba), 0, 0);
+}
+
 static bool gpu_hw_create_buffers(gpu_hw_t* hw, Error* err) {
   const u32 texture_width  = (u32)VRAM_WIDTH * (u32)hw->resolution_scale;
   const u32 texture_height = (u32)VRAM_HEIGHT * (u32)hw->resolution_scale;
@@ -62,6 +71,13 @@ static bool gpu_hw_create_buffers(gpu_hw_t* hw, Error* err) {
   hw->vram_read_texture = opengl_texture_create(texture_width, texture_height, 1, 1, 1, GPU_TEXTURE_TYPE_TEXTURE,
                                                 VRAM_RT_FORMAT, GPU_TEXTURE_FLAG_NONE, NULL, 0, err);
   if (!hw->vram_read_texture) return false;
+  hw->clut_texture = opengl_texture_create(GPU_CLUT_SIZE, 1, 1, 1, 1, GPU_TEXTURE_TYPE_TEXTURE, VRAM_RT_FORMAT,
+                                           GPU_TEXTURE_FLAG_NONE, NULL, 0, err);
+  if (!hw->clut_texture) return false;
+  if (!gpu_hw_upload_clut(hw)) {
+    Error_set_string(err, "Failed to upload cached palette.");
+    return false;
+  }
 
   hw->vram_readback_texture =
       opengl_texture_create((u32)VRAM_WIDTH / 2u, (u32)VRAM_HEIGHT, 1, 1, 1, GPU_TEXTURE_TYPE_RENDER_TARGET,
@@ -84,14 +100,14 @@ static bool gpu_hw_create_buffers(gpu_hw_t* hw, Error* err) {
     Error_clear(err);
   }
 
+  hw->nearest_sampler = opengl_sampler_create(gpu_sampler_get_nearest_config(), err);
+  if (!hw->nearest_sampler) return false;
   const gpu_device_features_t* feat = opengl_device_get_features();
   if (feat && feat->texture_buffers) {
     hw->vram_upload_buffer =
         opengl_texture_buffer_create(GPU_TEXTURE_BUFFER_FORMAT_R16UI, GPU_DEVICE_MIN_TEXEL_BUFFER_ELEMENTS, err);
     if (!hw->vram_upload_buffer) return false;
   } else {
-    hw->vram_upload_sampler = opengl_sampler_create(gpu_sampler_get_nearest_config(), err);
-    if (!hw->vram_upload_sampler) return false;
     INFO_LOG("Using integer textures for VRAM uploads.");
   }
 
@@ -164,9 +180,9 @@ static void gpu_hw_destroy_buffers(gpu_hw_t* hw) {
     opengl_texture_buffer_destroy(hw->vram_upload_buffer);
     hw->vram_upload_buffer = NULL;
   }
-  if (hw->vram_upload_sampler) {
-    opengl_sampler_destroy(hw->vram_upload_sampler);
-    hw->vram_upload_sampler = NULL;
+  if (hw->nearest_sampler) {
+    opengl_sampler_destroy(hw->nearest_sampler);
+    hw->nearest_sampler = NULL;
   }
   /* The legacy single-shot pointer is just an alias for ring slot 0, so
    * NULL it without freeing - the ring teardown below owns the lifetime. */
@@ -201,6 +217,10 @@ static void gpu_hw_destroy_buffers(gpu_hw_t* hw) {
   if (hw->vram_readback_texture) {
     opengl_texture_destroy(hw->vram_readback_texture);
     hw->vram_readback_texture = NULL;
+  }
+  if (hw->clut_texture) {
+    opengl_texture_destroy(hw->clut_texture);
+    hw->clut_texture = NULL;
   }
   if (hw->vram_read_texture) {
     opengl_texture_destroy(hw->vram_read_texture);
@@ -642,7 +662,7 @@ static bool gpu_hw_compile_batch_pipelines(gpu_hw_t* hw, Error* err) {
   cfg.input_layout.vertex_attribute_count =
       (u32)(sizeof(s_batch_vertex_attrs_untextured) / sizeof(s_batch_vertex_attrs_untextured[0]));
   cfg.geometry_shader   = NULL;
-  cfg.layout            = GPU_PIPELINE_LAYOUT_SINGLE_TEXTURE_AND_UBO;
+  cfg.layout            = GPU_PIPELINE_LAYOUT_MULTI_TEXTURE_AND_UBO;
   cfg.primitive         = GPU_PIPELINE_PRIMITIVE_TRIANGLES;
   cfg.rasterization     = gpu_rasterization_state_no_cull(hw->multisamples, /*per_sample=*/false);
   cfg.blend             = gpu_blend_state_no_blending();
@@ -1282,7 +1302,7 @@ static void gpu_hw_update_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 hei
                                            .u_depth_value        = gpu_hw_normalized_vertex_depth(hw)};
   gpu_hw_prepare_vram_transfer(hw, bounds, hw->vram_write_pipelines[check_mask && hw->write_mask_as_depth]);
   if (upload)
-    opengl_device_set_texture_sampler(0, &upload->base, hw->vram_upload_sampler);
+    opengl_device_set_texture_sampler(0, &upload->base, hw->nearest_sampler);
   else
     opengl_device_set_texture_buffer(0, hw->vram_upload_buffer);
   opengl_device_draw_with_push_constants(3, 0, &uniforms, sizeof(uniforms));
@@ -2481,69 +2501,19 @@ static void hw_drawing_area_changed(gpu_backend_t* self, const gpu_backend_set_d
   hw->drawing_area_changed   = true;
 }
 
-/* CLUT upload.
- *
- * SW path: refresh g_gpu_clut from g_vram (canonical for SW rasterizer).
- * GL path: also push the freshly cached CLUT row into vram_texture so
- * subsequent textured draws sample current CLUT data.  The CLUT lives in
- * VRAM at (palette_x*16, palette_y); a 16- or 256-pixel-wide row of u16
- * entries.  We convert g_gpu_clut[] into RGBA8 (matching the VRAM RT format
- * RGBA8) and call opengl_texture_update at the CLUT row position.
- *
- * Note: vram_read_texture is the texture that batch FS samples.  In cupid-ps1's
- * minimal setup we still need to copy vram_texture -> vram_read_texture
- * before each textured draw (UpdateVRAMReadTexture).  That's TODO
- * polish; for now the FS samples a stale read texture and the SW mirror
- * keeps user-visible output correct.  Even with that, pushing the CLUT to
- * vram_texture keeps the GL-side coherent for when vram_read_texture is
- * wired up.  TODO: UpdateVRAMReadTexture path. */
+/* Refresh the latched palette without changing its source VRAM. Queued
+ * geometry must consume the preceding palette before the new one is uploaded. */
 static void hw_update_clut(gpu_backend_t* self, const gpu_backend_update_clut_cmd_t* c) {
   gpu_hw_t* hw = (gpu_hw_t*)self;
-  /* SW path is canonical for g_gpu_clut. */
+  self->vtable->flush_render(self);
   gpu_sw_rasterizer_update_clut(c->reg, c->clut_is_8bit);
-
-  /* CLUT change invalidates any source whose palette region the
-   * write touched. */
   if (hw->use_texture_cache) gpu_texture_cache_invalidate_clut(c->reg, c->clut_is_8bit);
-
-  /* Push to vram_texture so the GL-side CLUT row matches.  RGBA5551 -> RGBA8888
-   * conversion to match the RT format. */
-  if (!hw->vram_texture) return;
-  /* Drain pending polygon batch first; same Mesa Intel iGPU class of bug as
-   * update_vram and fill_vram: glTexSubImage2D silently no-ops when
-   * vram_texture is the bound FBO color attachment, which it is right after
-   * a polygon batch flush.  Drain so the CLUT upload lands and any
-   * subsequent textured batch sees the new palette. */
-  if (hw->base.vtable->flush_render) hw->base.vtable->flush_render(&hw->base);
-  const u32 base_x  = gpu_texture_palette_reg_get_x_base(c->reg);
-  const u32 base_y  = gpu_texture_palette_reg_get_y_base(c->reg);
-  const u32 entries = c->clut_is_8bit ? 256u : 16u;
-  if (base_y >= VRAM_HEIGHT || base_x >= VRAM_WIDTH) return;
-  const u32 scale = (u32)hw->resolution_scale;
-
-  u32 row_count = entries;
-  if (base_x + row_count > VRAM_WIDTH) row_count = VRAM_WIDTH - base_x;
-  u32 rgba[256];
-  for (u32 i = 0; i < row_count; i++)
-    rgba[i] = vram_rgba5551_to_rgba8888((u32)g_gpu_clut[i]);
-
-  /* vram_texture is allocated at VRAM_WIDTH*scale.  Replicate the native
-   * CLUT row `scale` times so the upscaled block is fully populated; this
-   * keeps the texture coherent even if a downstream consumer samples
-   * unscaled VRAM coordinates above the first scaled row. */
-  const u32 dst_x = base_x * scale;
-  const u32 dst_y = base_y * scale;
-  for (u32 r = 0; r < scale; r++) {
-    (void)opengl_texture_update(hw->vram_texture, dst_x, dst_y + r, row_count, 1u, rgba, row_count * 4u, 0u, 0u);
-  }
-  {
-    gpu_rect_t r2 = gpu_rect_make((s32)base_x, (s32)base_y, (s32)(base_x + row_count), (s32)(base_y + 1));
-    gpu_hw_mark_vram_dirty(hw, r2);
-  }
+  if (!gpu_hw_upload_clut(hw)) ERROR_LOG("Failed to upload cached palette.");
 }
 
 static void hw_clear_cache(gpu_backend_t* self) {
   gpu_hw_t* hw = (gpu_hw_t*)self;
+  self->vtable->flush_render(self);
   /* Clear-cache is the GPU's "drop everything cached on the GL
    * side" hook (e.g. on disc swap / explicit cache flush).  We forward to
    * the texture cache invalidate path which drops both sources and the
@@ -2555,6 +2525,7 @@ static void hw_clear_vram(gpu_backend_t* self) {
   gpu_hw_t* hw = (gpu_hw_t*)self;
   memset(g_vram, 0, sizeof(g_vram));
   memset(g_gpu_clut, 0, sizeof(g_gpu_clut));
+  if (!gpu_hw_upload_clut(hw)) ERROR_LOG("Failed to clear cached palette.");
   /* Cleared vram_texture state must propagate to vram_read_texture too;
    * mark full-VRAM dirty so the next textured bind blits the cleared
    * surface.  Otherwise vram_read_texture keeps pre-clear pixels and
@@ -2799,18 +2770,19 @@ static void hw_flush_render(gpu_backend_t* self) {
   opengl_device_set_pipeline((gpu_pipeline_t*)pl);
 
   /* Bind vram_read_texture as the FS sample source for textured
-   * draws.  NULL sampler => default GL_NEAREST per cupid-ps1 convention.
+   * draws, using explicit nearest sampling for packed VRAM indices.
    * When the current batch is in PAGE_TEXTURE mode AND the cache
    * has materialised a source texture (`batch_cache_texture` set during
    * emit), bind that instead; the FS samples the pre-decoded RGBA8
    * page rather than the live VRAM read texture. */
   if (hw->batch.texture_mode != GPU_HW_BATCH_TEXTURE_MODE_DISABLED) {
     if (hw->batch.texture_mode == GPU_HW_BATCH_TEXTURE_MODE_PAGE_TEXTURE && hw->batch_cache_texture) {
-      opengl_device_set_texture_sampler(0, &hw->batch_cache_texture->base, NULL);
+      opengl_device_set_texture_sampler(0, &hw->batch_cache_texture->base, hw->nearest_sampler);
     } else if (hw->vram_read_texture) {
       if (getenv("CUPID_GL_NO_BLIT") == NULL) gpu_hw_update_vram_read_texture(hw);
-      opengl_device_set_texture_sampler(0, &hw->vram_read_texture->base, NULL);
+      opengl_device_set_texture_sampler(0, &hw->vram_read_texture->base, hw->nearest_sampler);
     }
+    opengl_device_set_texture_sampler(1, &hw->clut_texture->base, hw->nearest_sampler);
   }
 
   const u32           scale = (u32)hw->resolution_scale;
@@ -2885,27 +2857,20 @@ static void hw_flush_render(gpu_backend_t* self) {
 
 static bool hw_do_state(gpu_backend_t* self, state_wrapper_t* sw) {
   gpu_hw_t* hw = (gpu_hw_t*)self;
-  /* Flush any pending GPU work first so the GL-side VRAM is up to date.
-   * SW mirror is already up to date because every draw dual-wrote g_vram. */
+  if (state_wrapper_has_error(sw)) return false;
   hw_flush_render(self);
-
-  /* Cache contents are not persisted. Restored VRAM invalidates any
-   * textures decoded from the preceding pixels. */
+  const bool reading = state_wrapper_is_reading(sw);
+  if (!gpu_backend_do_vram_state(sw)) return false;
   if (hw->use_texture_cache) gpu_texture_cache_invalidate();
-
-  state_wrapper_do_bytes(sw, g_vram, sizeof(g_vram));
-  state_wrapper_do_bytes(sw, g_gpu_clut, sizeof(g_gpu_clut));
-
-  if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw))
+  if (reading) {
     gpu_hw_update_vram_gl(hw, 0, 0, VRAM_WIDTH, VRAM_HEIGHT, g_vram, false, false);
-
-  /* Restored pixels also invalidate sampled VRAM and cached batch state. */
+    if (!gpu_hw_upload_clut(hw)) return false;
+  }
   hw->vram_dirty_draw_rect  = GPU_HW_VRAM_SIZE_RECT;
   hw->vram_dirty_write_rect = GPU_HW_VRAM_SIZE_RECT;
   hw->batch_ubo_dirty       = true;
   hw->drawing_area_changed  = true;
-
-  return !state_wrapper_has_error(sw);
+  return true;
 }
 
 static void hw_destroy(gpu_backend_t* self) {

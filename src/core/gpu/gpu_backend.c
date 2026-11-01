@@ -7,6 +7,8 @@
  */
 
 #include "core/gpu/gpu_backend.h"
+#include "core/gpu/software/gpu_sw_rasterizer.h"
+#include "util/state/state_wrapper.h"
 #include "core/mdec/fmv_dump.h"
 #include "common/assert.h"
 #include "common/log.h"
@@ -33,6 +35,21 @@ static u64 s_be_count_update_vram    = 0;
 static u64 s_be_count_copy_vram      = 0;
 static u64 s_be_count_update_clut    = 0;
 static u64 s_be_count_update_display = 0;
+
+bool gpu_backend_do_vram_state(state_wrapper_t* sw) {
+  if (state_wrapper_has_error(sw)) return false;
+  if (state_wrapper_is_reading(sw)) {
+    const size_t position = state_wrapper_get_position(sw), size = state_wrapper_get_size(sw);
+    const size_t required = sizeof(g_vram) + sizeof(g_gpu_clut);
+    if (position > size || size - position < required) {
+      sw->error = true;
+      return false;
+    }
+  }
+  state_wrapper_do_bytes(sw, g_vram, sizeof(g_vram));
+  state_wrapper_do_bytes(sw, g_gpu_clut, sizeof(g_gpu_clut));
+  return !state_wrapper_has_error(sw);
+}
 
 void gpu_backend_destroy(gpu_backend_t* be) {
   if (!be) return;

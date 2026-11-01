@@ -255,9 +255,8 @@ static void tc_decode_page(u8 page_index, gpu_texture_palette_reg_t palette_reg,
   const u32  sy       = vram_page_start_y((u32)page_index);
   const u16* page_ptr = &g_vram[(size_t)sy * VRAM_WIDTH + sx];
 
-  const u32  px          = gpu_texture_palette_reg_get_x_base(palette_reg);
-  const u32  py          = gpu_texture_palette_reg_get_y_base(palette_reg);
-  const u16* palette_ptr = (mode < GPU_TEXTURE_MODE_DIRECT_16BIT) ? &g_vram[(size_t)py * VRAM_WIDTH + px] : NULL;
+  (void)palette_reg;
+  const u16* palette_ptr = (mode < GPU_TEXTURE_MODE_DIRECT_16BIT) ? g_gpu_clut : NULL;
 
   switch (mode) {
     case GPU_TEXTURE_MODE_PALETTE_4BIT:
@@ -411,13 +410,9 @@ static gpu_tc_hash_t tc_hash_page(u8 page, gpu_texture_mode_t mode) {
 static gpu_tc_hash_t tc_hash_palette(gpu_texture_palette_reg_t reg, gpu_texture_mode_t mode) {
   const u32 width = get_palette_width(mode);
   if (width == 0) return 0;
-  const u32     px          = gpu_texture_palette_reg_get_x_base(reg);
-  const u32     py          = gpu_texture_palette_reg_get_y_base(reg);
-  const u32     effective_w = (px + width > VRAM_WIDTH) ? (VRAM_WIDTH - px) : width;
-  const u16*    row         = &g_vram[py * VRAM_WIDTH + px];
-  gpu_tc_hash_t hash        = tc_fnv1a_init();
-  hash                      = tc_fnv1a_step(hash, row, (size_t)effective_w * sizeof(u16));
-  hash                      = tc_fnv1a_step(hash, &reg.bits, sizeof(reg.bits));
+  gpu_tc_hash_t hash = tc_fnv1a_init();
+  hash               = tc_fnv1a_step(hash, g_gpu_clut, (size_t)width * sizeof(u16));
+  hash               = tc_fnv1a_step(hash, &reg.bits, sizeof(reg.bits));
   return hash;
 }
 
@@ -1025,16 +1020,19 @@ void gpu_texture_cache_copy_vram(u32 src_x, u32 src_y, u32 dst_x, u32 dst_y, u32
 }
 
 void gpu_texture_cache_invalidate_clut(gpu_texture_palette_reg_t reg, bool clut_is_8bit) {
+  (void)reg;
+  (void)clut_is_8bit;
   if (!tc_state.initialized) return;
-  /* CLUT update invalidates sources whose palette region overlaps the new
-   * CLUT (or any CLUT page in 8-bit mode). */
-  const u32 px    = gpu_texture_palette_reg_get_x_base(reg);
-  const u32 py    = gpu_texture_palette_reg_get_y_base(reg);
-  const u32 width = clut_is_8bit ? 256u : 16u;
-  const u32 right = (px + width > VRAM_WIDTH) ? VRAM_WIDTH : (px + width);
-  gpu_texture_cache_add_written_rectangle((s32)px, (s32)py, (s32)right, (s32)(py + 1u),
-                                          /*update_vram_writes=*/false,
-                                          /*remove_from_hash_cache=*/false);
+  /* Each decoded source has one hash-cache reference. Relatching a palette
+   * invalidates those decoded colors, without recording a VRAM write. */
+  for (u32 i = 0; i < tc_state.hash_cache_cap; i++) {
+    tc_list_t* list = &tc_state.hash_cache[i].sources;
+    for (tc_node_t* node = list->head; node;) {
+      tc_source_t* source = (tc_source_t*)node->ref;
+      node                = node->next;
+      if (source->key.mode < GPU_TEXTURE_MODE_DIRECT_16BIT) tc_destroy_source(source, false);
+    }
+  }
 }
 
 static bool tc_is_page_drawn(u32 page_index, s32 l, s32 t, s32 r, s32 b) {

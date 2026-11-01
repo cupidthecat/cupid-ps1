@@ -272,9 +272,7 @@ static void sw_flush_render(gpu_backend_t* self) {
 
 static bool sw_do_state(gpu_backend_t* self, state_wrapper_t* sw) {
   (void)self;
-  state_wrapper_do_bytes(sw, g_vram, sizeof(g_vram));
-  state_wrapper_do_bytes(sw, g_gpu_clut, sizeof(g_gpu_clut));
-  return !state_wrapper_has_error(sw);
+  return gpu_backend_do_vram_state(sw);
 }
 
 static void sw_destroy(gpu_backend_t* self) {

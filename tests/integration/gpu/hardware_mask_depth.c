@@ -1,5 +1,6 @@
 /* cupid-ps1 OpenGL destination-mask history through draws and transfers. */
 #include "common/error.h"
+#include "hardware_clut.h"
 #include "core/config/settings.h"
 #include "core/state/save_state_version.h"
 #include "core/gpu/hardware/gpu_hw.h"
@@ -496,6 +497,7 @@ int main(int argc, char** argv) {
     failures += !check_truncated_restore((gpu_hw_t*)be);
     gpu_backend_destroy(be);
   }
+  failures += gpu_gl_clut_checks(&wi, &count);
   opengl_device_destroy();
   settings_destroy(&g_settings);
   Error_destroy(&error);

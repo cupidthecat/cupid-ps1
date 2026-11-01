@@ -41,7 +41,7 @@ At 1x and 2x it checks rectangles, triangles and lines across forced depth-ID
 rollover, uploaded/copied mask data, clearing operations, saved restoration and
 resolution changes in both directions. A separate sequence executes 65,535
 real draws to exercise natural rollover at each scale. The default matrix has
-116 checks, including truncated-state rejection followed by valid restoration.
+180 checks, including truncated-state rejection followed by valid restoration.
 The transfer cases exercise set-mask, check-mask and both flags together. Wrapped
 2x2 uploads and copies check all four corners across both VRAM edges, then issue
 protected draws to those destinations. A wrapped source is also copied to an
@@ -52,7 +52,9 @@ row pitch. Upload and copy checks compare every scaled RGBA pixel exactly,
 including mask alpha. A rectangular three-level host texture checks source
 advancement and per-level row stride without reading outside its guarded input.
 The capability override runs the same matrix through the
-integer-texture upload path. CI checks both upload paths under each compiler
+integer-texture upload path. The [palette-cache matrix](palette-cache.md) adds
+64 checks of cached colors, draw ordering, rejected state reads and restoration.
+CI checks both upload paths under each compiler
 with default Mesa and forced OpenGL 3.3. Setup errors, wrong pixels and GL errors
 fail the executable.
 

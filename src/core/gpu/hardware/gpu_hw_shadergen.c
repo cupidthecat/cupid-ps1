@@ -2225,6 +2225,7 @@ char* gpu_hw_shadergen_generate_batch_fragment_shader(
   write_color_conversion_functions(sg, &ss);
   write_batch_uniform_buffer(sg, &ss);
   dt(sg, &ss, "samp0", 0, false);
+  if (palette) dt(sg, &ss, "samp1", 1, false);
 
   if (use_rov) {
     di(sg, &ss, "rov_color", 0, false);
@@ -2346,23 +2347,14 @@ char* gpu_hw_shadergen_generate_batch_fragment_shader(
          "    #endif\n"
          "    uint vram_value = RGBA8ToRGBA5551(texel);\n"
          "\n"
-         "    // apply palette\n"
          "    #if PALETTE_4_BIT\n"
          "      uint subpixel = icoord.x & 3u;\n"
          "      uint palette_index = (vram_value >> (subpixel * 4u)) & 0x0Fu;\n"
-         "      uint2 palette_icoord = uint2((texpage.z + palette_index), texpage.w);\n"
-         "    #elif PALETTE_8_BIT\n"
-         "      // can only wrap in X direction for 8-bit, 4-bit will fit in texpage size.\n"
+         "    #else\n"
          "      uint subpixel = icoord.x & 1u;\n"
          "      uint palette_index = (vram_value >> (subpixel * 8u)) & 0xFFu;\n"
-         "      uint2 palette_icoord = uint2(((texpage.z + palette_index) & 0x3FFu), texpage.w);\n"
          "    #endif\n"
-         "\n"
-         "    #if !UPSCALED\n"
-         "      return LOAD_TEXTURE(samp0, int2(palette_icoord), 0);\n"
-         "    #else\n"
-         "      return SAMPLE_TEXTURE_LEVEL(samp0, float2(palette_icoord) * RCP_VRAM_SIZE, 0.0);\n"
-         "    #endif\n"
+         "    return LOAD_TEXTURE(samp1, int2(int(palette_index), 0), 0);\n"
          "  #else\n"
          "    // Direct texturing - usually render-to-texture effects.\n"
          "    #if !UPSCALED\n"

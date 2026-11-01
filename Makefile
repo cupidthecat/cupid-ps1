@@ -152,7 +152,7 @@ $(BUILD)/cupid-ps1-gl-smoke: $(GL_SMOKE_OBJ) $(GL_SMOKE_LIB_OBJ) $(GLAD_OBJ) | $
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 # Actual hardware-renderer checks use a live GL context, separate from unit tests.
-GPU_GL_OBJ := $(BUILD)/tests/integration/gpu/hardware_mask_depth.o
+GPU_GL_OBJ := $(BUILD)/tests/integration/gpu/hardware_mask_depth.o $(BUILD)/tests/integration/gpu/hardware_clut.o
 GPU_GL_LIB_OBJ := $(filter-out $(BUILD)/frontend/%.o,$(ALL_OBJ))
 gpu-gl-tests: dirs $(BUILD)/cupid-ps1-gpu-gl-tests
 
