@@ -2212,31 +2212,38 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
   const u32 color     = raw_tex ? 0x00808080u : (src_color & 0x00FFFFFFu);
   const u32 base_col  = color | 0xFF000000u;
 
-  const s32 pos_x         = c->x;
-  const s32 pos_y         = c->y;
-  const u32 orig_tex_left = (u32)(c->texcoord & 0xFFu);
-  const u32 orig_tex_top  = (u32)((c->texcoord >> 8) & 0xFFu);
-  const u32 rect_w        = c->width;
-  const u32 rect_h        = c->height;
+  const s32  pos_x         = c->x;
+  const s32  pos_y         = c->y;
+  const bool flip_x        = textured && gpu_draw_mode_reg_texture_x_flip(c->base.draw_mode);
+  const bool flip_y        = textured && gpu_draw_mode_reg_texture_y_flip(c->base.draw_mode);
+  const u32  orig_tex_left = (u32)(c->texcoord & 0xFFu) | (u32)flip_x;
+  const u32  orig_tex_top  = (u32)((c->texcoord >> 8) & 0xFFu);
+  const u32  rect_w        = c->width;
+  const u32  rect_h        = c->height;
 
   /* Page walk: split into 256x256-aligned chunks so the texture page repeats. */
   u32 tex_top = orig_tex_top;
   for (u32 y_off = 0; y_off < rect_h;) {
-    const u32 quad_h =
-        (rect_h - y_off) < (TEXTURE_PAGE_HEIGHT - tex_top) ? (rect_h - y_off) : (TEXTURE_PAGE_HEIGHT - tex_top);
-    const float qy0        = (float)(pos_y + (s32)y_off);
-    const float qy1        = qy0 + (float)quad_h;
-    const u32   tex_bottom = tex_top + quad_h;
+    const u32   row_remaining = flip_y ? tex_top + 1u : TEXTURE_PAGE_HEIGHT - tex_top;
+    const u32   quad_h        = (rect_h - y_off) < row_remaining ? rect_h - y_off : row_remaining;
+    const float qy0           = (float)(pos_y + (s32)y_off);
+    const float qy1           = qy0 + (float)quad_h;
+    const u32   tex_start_y   = tex_top + (u32)(flip_y && hw->resolution_scale > 1);
+    const s32   tex_bottom    = flip_y ? (s32)tex_start_y - (s32)quad_h : (s32)(tex_top + quad_h);
 
     u32 tex_left = orig_tex_left;
     for (u32 x_off = 0; x_off < rect_w;) {
-      const u32 quad_w =
-          (rect_w - x_off) < (TEXTURE_PAGE_WIDTH - tex_left) ? (rect_w - x_off) : (TEXTURE_PAGE_WIDTH - tex_left);
-      const float qx0       = (float)(pos_x + (s32)x_off);
-      const float qx1       = qx0 + (float)quad_w;
-      const u32   tex_right = tex_left + quad_w;
-      const u32   uv_limits = (tex_left & 0xFFu) | ((tex_top & 0xFFu) << 8) | (((tex_right - 1u) & 0xFFu) << 16) |
-                            (((tex_bottom - 1u) & 0xFFu) << 24);
+      const u32   column_remaining = flip_x ? tex_left + 1u : TEXTURE_PAGE_WIDTH - tex_left;
+      const u32   quad_w           = (rect_w - x_off) < column_remaining ? rect_w - x_off : column_remaining;
+      const float qx0              = (float)(pos_x + (s32)x_off);
+      const float qx1              = qx0 + (float)quad_w;
+      const u32   tex_start_x      = tex_left + (u32)(flip_x && hw->resolution_scale > 1);
+      const s32   tex_right        = flip_x ? (s32)tex_start_x - (s32)quad_w : (s32)(tex_left + quad_w);
+      const u32   min_u            = flip_x ? tex_left + 1u - quad_w : tex_left;
+      const u32   min_v            = flip_y ? tex_top + 1u - quad_h : tex_top;
+      const u32   max_u            = flip_x ? tex_left : tex_left + quad_w - 1u;
+      const u32   max_v            = flip_y ? tex_top : tex_top + quad_h - 1u;
+      const u32   uv_limits        = min_u | (min_v << 8) | (max_u << 16) | (max_v << 24);
 
       if ((u32)hw->batch_vertex_count + 4u > (u32)hw->batch_vertex_space ||
           (u32)hw->batch_index_count + 6u > (u32)hw->batch_index_space) {
@@ -2252,8 +2259,8 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
       v[0].w                              = 1.0f;
       v[0].color                          = base_col;
       v[0].texpage                        = texpage;
-      v[0].u                              = (u16)tex_left;
-      v[0].v                              = (u16)tex_top;
+      v[0].u                              = (u16)tex_start_x;
+      v[0].v                              = (u16)tex_start_y;
       v[0].uv_limits                      = uv_limits;
       v[1].x                              = qx1;
       v[1].y                              = qy0;
@@ -2262,7 +2269,7 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
       v[1].color                          = base_col;
       v[1].texpage                        = texpage;
       v[1].u                              = (u16)tex_right;
-      v[1].v                              = (u16)tex_top;
+      v[1].v                              = (u16)tex_start_y;
       v[1].uv_limits                      = uv_limits;
       v[2].x                              = qx0;
       v[2].y                              = qy1;
@@ -2270,7 +2277,7 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
       v[2].w                              = 1.0f;
       v[2].color                          = base_col;
       v[2].texpage                        = texpage;
-      v[2].u                              = (u16)tex_left;
+      v[2].u                              = (u16)tex_start_x;
       v[2].v                              = (u16)tex_bottom;
       v[2].uv_limits                      = uv_limits;
       v[3].x                              = qx1;
@@ -2294,10 +2301,10 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
       hw->batch_index_count = (u16)(hw->batch_index_count + 6u);
 
       x_off += quad_w;
-      tex_left = 0;
+      tex_left = flip_x ? TEXTURE_PAGE_WIDTH - 1u : 0;
     }
     y_off += quad_h;
-    tex_top = 0;
+    tex_top = flip_y ? TEXTURE_PAGE_HEIGHT - 1u : 0;
   }
 
   gpu_hw_latch_batch_config(hw, &c->base, batch_texture_mode, trans_mode);

@@ -45,9 +45,9 @@ eight configurations checks:
 - The final palette index, including a wrapped 8-bit tail update and reload.
 - Transparent zero, opaque black with bit 15 set, and destination-mask protection.
 
-These 64 palette cases join the preceding transfer, depth, mip and continuation
-cases for 180 checks. The [decoded-page matrix](texture-pages.md) adds another
-512 checks, for 692 total. Assertions read actual GL textures. Canonical-buffer byte
+These 64 palette cases run alongside transfer, depth, mip, continuation,
+[decoded-page](texture-pages.md) and [rendered-coordinate](texture-coordinates.md)
+checks. Assertions read actual GL textures. Canonical-buffer byte
 comparisons additionally check rejected state reads. Every run requires the
 requested decoded-page-cache setting and checks that textured batches use the
 expected GL path.

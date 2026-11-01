@@ -121,8 +121,9 @@ typedef struct {
   float x, y, z, w;
   u32   color;
   u32   texpage;
-  u16   u, v;
-  u32   uv_limits;
+  /* Packed signed 16-bit coordinates; reversed native edges can end at -1. */
+  u16 u, v;
+  u32 uv_limits;
 } gpu_hw_batch_vertex_t;
 
 typedef struct {

@@ -520,8 +520,10 @@ static bool tc_hash_cache_grow(u32 new_cap) {
            * old `sources.list` field of `src`.  Re-target them at the new
            * slot's `sources` list. */
           new_table[idx].sources = src->sources;
-          for (tc_node_t* n = new_table[idx].sources.head; n; n = n->next)
-            n->list = &new_table[idx].sources;
+          for (tc_node_t* n = new_table[idx].sources.head; n; n = n->next) {
+            n->list                                 = &new_table[idx].sources;
+            ((tc_source_t*)n->ref)->from_hash_cache = &new_table[idx];
+          }
           tc_state.hash_cache_count++;
           break;
         }

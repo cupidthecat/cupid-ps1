@@ -9,6 +9,8 @@ See [VRAM uploads](vram-transfers.md) for transfer dimensions and data handling.
 destination-protection checks. [Palette cache](palette-cache.md) covers the
 latched color table and decoded-page sampling. [Texture pages](texture-pages.md)
 covers wrapped decoding and source-write invalidation.
+[Rendered texture coordinates](texture-coordinates.md) covers native sampling,
+rectangle flips, clipping and decoded-source ownership.
 
 ## Software renderer (`gpu_sw`)
 

@@ -23,8 +23,9 @@ RGBA8 expectation rounds each native five-bit channel to 0..255.
 For each page, the test rewrites its final source word through the backend and
 checks the complete decoded texture again. The wrapped cases therefore check
 both initial decoding and invalidation/hash reuse. The lower-half pages include
-the final VRAM row. These 512 checks join the preceding 180 renderer checks for
-692 checks in `gpu-gl-tests`. See [commands](mask-history.md#renderer-regression-check).
+the final VRAM row. These 512 checks run in `gpu-gl-tests` alongside the
+[rendered-coordinate matrix](texture-coordinates.md). See
+[commands](mask-history.md#renderer-regression-check).
 
 This matrix checks decoded cache contents. It does not qualify every textured
 primitive's UV interpolation, texture-window behavior, filtering, replacement
