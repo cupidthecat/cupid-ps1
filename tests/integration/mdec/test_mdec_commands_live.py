@@ -50,6 +50,7 @@ class MdecCommandsLiveTest(unittest.TestCase):
         start = payload.index(marker) + len(marker) + 4 + 5 * 3 * 4 + command_program.RESULT_ADDRESS
         self.assertEqual(struct.unpack_from('<5I', payload, start),
                          (command_program.RESULT_MAGIC, 0x9584FFFF, 0x80808080, 0x80808080, 30))
+        self.assertEqual(struct.unpack_from('<I', payload, start + 20)[0], 0xF8F8F8F8)
         self.assertEqual(struct.unpack_from('<I', payload, start + 24)[0], 0x9584FFFF)
 
 

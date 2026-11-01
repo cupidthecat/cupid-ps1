@@ -719,18 +719,18 @@ static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ti
   timing_event_deactivate(&s_state.block_copy_out_event);
 
   switch ((mdec_data_output_depth_t)s_state.status.bits.data_output_depth) {
-    /* Not worth vectorising 4-bit / 8-bit modes; basically never used. */
+    /* Keep every monochrome source pixel within its byte before packing. */
     case MDEC_DATA_OUTPUT_DEPTH_4BIT: {
       const u32* in_ptr = s_state.block_rgb;
       for (u32 i = 0; i < (64u / 8u); i++) {
-        u32 value = *(in_ptr++) >> 4;
-        value |= (*(in_ptr++) >> 4) << 4;
-        value |= (*(in_ptr++) >> 4) << 8;
-        value |= (*(in_ptr++) >> 4) << 12;
-        value |= (*(in_ptr++) >> 4) << 16;
-        value |= (*(in_ptr++) >> 4) << 20;
-        value |= (*(in_ptr++) >> 4) << 24;
-        value |= (*(in_ptr++) >> 4) << 28;
+        u32 value = (*(in_ptr++) & 0xFFu) >> 4;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 4;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 8;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 12;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 16;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 20;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 24;
+        value |= ((*(in_ptr++) & 0xFFu) >> 4) << 28;
         mdec_fifo_out_push(&s_state.data_out_fifo, value);
       }
       break;
@@ -739,10 +739,10 @@ static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ti
     case MDEC_DATA_OUTPUT_DEPTH_8BIT: {
       const u32* in_ptr = s_state.block_rgb;
       for (u32 i = 0; i < (64u / 4u); i++) {
-        u32 value = *in_ptr++;
-        value |= *in_ptr++ << 8;
-        value |= *in_ptr++ << 16;
-        value |= *in_ptr++ << 24;
+        u32 value = *in_ptr++ & 0xFFu;
+        value |= (*in_ptr++ & 0xFFu) << 8;
+        value |= (*in_ptr++ & 0xFFu) << 16;
+        value |= (*in_ptr++ & 0xFFu) << 24;
         mdec_fifo_out_push(&s_state.data_out_fifo, value);
       }
       break;
@@ -1097,7 +1097,7 @@ static void mdec_yuv_to_mono(const s16* Yblk)
   const s32 addval = s_state.status.bits.data_output_signed ? 0 : 0x80;
   for (u32 i = 0; i < 64; i++)
     s_state.block_rgb[i] =
-      (u32)(mdec_clamp_s32((s32)SignExtendN_u32((u32)Yblk[i], 9), -128, 127) + addval);
+      (u32)(u8)(mdec_clamp_s32((s32)SignExtendN_u32((u32)Yblk[i], 9), -128, 127) + addval);
 }
 
 static void mdec_handle_set_quant_table_command(void)
