@@ -1,8 +1,7 @@
 /* Unsupported guest commands must not terminate the host process. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void unsupported_commands_continue(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void unsupported_commands_continue(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   const u32 commands[] = {0x4BE00000, 0x4A000002, 0x4A00003C};
   for (size_t command = 0; command < sizeof(commands) / sizeof(commands[0]); command++) {
     const u32 words[] = {commands[command], 0x26100001, 0x1000FFFF, 0};
@@ -20,22 +19,18 @@ static void unsupported_commands_continue(cpu_execution_mode_t mode, cpu_fastmem
   }
 }
 
-TEST(GteCommandDispatch, interpreter_unsupported_commands_continue)
-{
+TEST(GteCommandDispatch, interpreter_unsupported_commands_continue) {
   unsupported_commands_continue(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(GteCommandDispatch, cached_unsupported_commands_continue)
-{
+TEST(GteCommandDispatch, cached_unsupported_commands_continue) {
   unsupported_commands_continue(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(GteCommandDispatch, native_unsupported_commands_continue)
-{
+TEST(GteCommandDispatch, native_unsupported_commands_continue) {
   unsupported_commands_continue(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(GteCommandDispatch, mmap_unsupported_commands_continue)
-{
+TEST(GteCommandDispatch, mmap_unsupported_commands_continue) {
   unsupported_commands_continue(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP);
 }

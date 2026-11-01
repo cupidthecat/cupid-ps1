@@ -17,7 +17,7 @@ extern "C" {
 #endif
 
 void  shiftjis_sjis2ascii(char* b_data);
-char* shiftjis_sjis2utf8 (char* input);
+char* shiftjis_sjis2utf8(char* input);
 
 void shiftjis_to_utf8(const u8* in, size_t in_len, small_string_t* out);
 
@@ -27,8 +27,7 @@ void shiftjis_to_utf8(const u8* in, size_t in_len, small_string_t* out);
  *   Returns false if the buffer is empty or a two-byte lead is not followed
  *   by a trail byte. */
 
-bool shiftjis_decode_codepoint(const u8* in, size_t in_len,
-                               size_t* consumed, u32* codepoint);
+bool shiftjis_decode_codepoint(const u8* in, size_t in_len, size_t* consumed, u32* codepoint);
 
 #ifdef __cplusplus
 }

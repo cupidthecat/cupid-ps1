@@ -27,16 +27,13 @@ extern tick_count_t system_scale_ticks_to_overclock(tick_count_t t) __attribute_
 extern tick_count_t system_unscale_ticks_to_overclock(tick_count_t t, tick_count_t* carry) __attribute__((weak));
 
 /* Default slice and identity tick scaling when optional system hooks are absent. */
-static tick_count_t default_max_slice_ticks(void)
-{
+static tick_count_t default_max_slice_ticks(void) {
   return 1000;
 }
-static tick_count_t default_scale(tick_count_t t)
-{
+static tick_count_t default_scale(tick_count_t t) {
   return t;
 }
-static tick_count_t default_unscale(tick_count_t t, tick_count_t* c)
-{
+static tick_count_t default_unscale(tick_count_t t, tick_count_t* c) {
   (void)c;
   return t;
 }
@@ -98,21 +95,18 @@ static void         timers_add_sysclk_ticks(void* user, tick_count_t sysclk_tick
 static tick_count_t timers_get_ticks_until_next_interrupt(void);
 static void         timers_update_sysclk_event(void);
 
-void timers_initialize(void)
-{
+void timers_initialize(void) {
   timing_event_init(&s_state.sysclk_event, s_sysclk_event_name, (u32)(sizeof(s_sysclk_event_name) - 1), 1, 1,
                     &timers_add_sysclk_ticks, NULL);
   timers_reset();
 }
 
-void timers_shutdown(void)
-{
+void timers_shutdown(void) {
   timing_event_deactivate(&s_state.sysclk_event);
   timing_event_destroy(&s_state.sysclk_event);
 }
 
-void timers_reset(void)
-{
+void timers_reset(void) {
   for (u32 i = 0; i < NUM_TIMERS; i++) {
     timer_counter_state_t* cs     = &s_state.counters[i];
     cs->mode.bits                 = 0;
@@ -133,8 +127,7 @@ void timers_reset(void)
   timers_update_sysclk_event();
 }
 
-bool timers_do_state(state_wrapper_t* sw)
-{
+bool timers_do_state(state_wrapper_t* sw) {
   for (u32 i = 0; i < NUM_TIMERS; i++) {
     timer_counter_state_t* cs = &s_state.counters[i];
     state_wrapper_do_u32(sw, &cs->mode.bits);
@@ -160,29 +153,24 @@ bool timers_do_state(state_wrapper_t* sw)
   return !state_wrapper_has_error(sw);
 }
 
-void timers_cpu_clocks_changed(void)
-{
+void timers_cpu_clocks_changed(void) {
   s_state.sysclk_ticks_carry = 0;
 }
 
-bool timers_is_using_external_clock(u32 timer)
-{
+bool timers_is_using_external_clock(u32 timer) {
   return s_state.counters[timer].external_counting_enabled;
 }
 
-bool timers_is_sync_enabled(u32 timer)
-{
+bool timers_is_sync_enabled(u32 timer) {
   return s_state.counters[timer].mode.sync_enable != 0;
 }
 
-bool timers_is_external_irq_enabled(u32 timer)
-{
+bool timers_is_external_irq_enabled(u32 timer) {
   const timer_counter_state_t* cs = &s_state.counters[timer];
   return (cs->external_counting_enabled && (cs->mode.bits & ((1u << 4) | (1u << 5))) != 0);
 }
 
-void timers_set_gate(u32 timer, bool state)
-{
+void timers_set_gate(u32 timer, bool state) {
   if (timer >= 2) return;
   timer_counter_state_t* cs = &s_state.counters[timer];
   if (cs->gate == state) return;
@@ -222,8 +210,7 @@ void timers_set_gate(u32 timer, bool state)
   timers_update_sysclk_event();
 }
 
-tick_count_t timers_get_ticks_until_irq(u32 timer)
-{
+tick_count_t timers_get_ticks_until_irq(u32 timer) {
   const timer_counter_state_t* cs = &s_state.counters[timer];
   if (!cs->counting_enabled || (!cs->mode.irq_repeat && cs->irq_done)) return INT32_MAX;
   u32 ticks = INT32_MAX;
@@ -238,13 +225,11 @@ tick_count_t timers_get_ticks_until_irq(u32 timer)
   return (tick_count_t)ticks;
 }
 
-static u32 timers_visible_counter(const timer_counter_state_t* cs)
-{
+static u32 timers_visible_counter(const timer_counter_state_t* cs) {
   return cs->reset_hold == 2 ? cs->target : cs->counter;
 }
 
-static void timers_signal_events(u32 timer, bool target, bool overflow)
-{
+static void timers_signal_events(u32 timer, bool target, bool overflow) {
   timer_counter_state_t* cs = &s_state.counters[timer];
   if (target) cs->mode.reached_target = 1;
   if (overflow) cs->mode.reached_overflow = 1;
@@ -263,8 +248,7 @@ static void timers_signal_events(u32 timer, bool target, bool overflow)
   }
 }
 
-void timers_add_ticks(u32 timer, tick_count_t count)
-{
+void timers_add_ticks(u32 timer, tick_count_t count) {
   timer_counter_state_t* cs = &s_state.counters[timer];
   if (count <= 0) return;
   u32 remaining = (u32)count;
@@ -297,23 +281,19 @@ void timers_add_ticks(u32 timer, tick_count_t count)
   }
 }
 
-u32 timers_dbg_counter(u32 timer)
-{
+u32 timers_dbg_counter(u32 timer) {
   return timer < NUM_TIMERS ? timers_visible_counter(&s_state.counters[timer]) : 0;
 }
 
-u32 timers_dbg_mode(u32 timer)
-{
+u32 timers_dbg_mode(u32 timer) {
   return timer < NUM_TIMERS ? s_state.counters[timer].mode.bits : 0;
 }
 
-u32 timers_dbg_target(u32 timer)
-{
+u32 timers_dbg_target(u32 timer) {
   return timer < NUM_TIMERS ? s_state.counters[timer].target : 0;
 }
 
-static void timers_add_sysclk_ticks(void* user, tick_count_t sysclk_ticks, tick_count_t ticks_late)
-{
+static void timers_add_sysclk_ticks(void* user, tick_count_t sysclk_ticks, tick_count_t ticks_late) {
   (void)user;
   (void)ticks_late;
   if (system_unscale_ticks_to_overclock)
@@ -336,8 +316,7 @@ static void timers_add_sysclk_ticks(void* user, tick_count_t sysclk_ticks, tick_
   timers_update_sysclk_event();
 }
 
-u32 timers_read_register(u32 offset)
-{
+u32 timers_read_register(u32 offset) {
   const u32 timer_index = (offset >> 4) & 0x03u;
   const u32 port_offset = offset & 0x0Fu;
   if (timer_index >= 3u) {
@@ -382,8 +361,7 @@ u32 timers_read_register(u32 offset)
   }
 }
 
-void timers_write_register(u32 offset, u32 value)
-{
+void timers_write_register(u32 offset, u32 value) {
   const u32 timer_index = (offset >> 4) & 0x03u;
   const u32 port_offset = offset & 0x0Fu;
   if (timer_index >= 3u) {
@@ -444,8 +422,7 @@ void timers_write_register(u32 offset, u32 value)
   if (update_gpu && gpu_reschedule_crtc) gpu_reschedule_crtc();
 }
 
-static void timers_update_counting_enabled(u32 timer, timer_counter_state_t* cs)
-{
+static void timers_update_counting_enabled(u32 timer, timer_counter_state_t* cs) {
   if (timer == 2) {
     cs->counting_enabled = !cs->mode.sync_enable || cs->mode.sync_mode == SYNC_MODE_RESET_ON_GATE_END ||
                            cs->mode.sync_mode == SYNC_MODE_RESET_AND_RUN_ON_START;
@@ -474,8 +451,7 @@ static void timers_update_counting_enabled(u32 timer, timer_counter_state_t* cs)
   cs->external_counting_enabled = cs->use_external_clock && cs->counting_enabled;
 }
 
-static tick_count_t timers_get_ticks_until_next_interrupt(void)
-{
+static tick_count_t timers_get_ticks_until_next_interrupt(void) {
   tick_count_t minimum = system_get_max_slice_ticks ? system_get_max_slice_ticks() : default_max_slice_ticks();
   for (u32 timer = 0; timer < NUM_TIMERS; timer++) {
     const timer_counter_state_t* cs = &s_state.counters[timer];
@@ -489,7 +465,6 @@ static tick_count_t timers_get_ticks_until_next_interrupt(void)
   return system_scale_ticks_to_overclock ? system_scale_ticks_to_overclock(minimum) : default_scale(minimum);
 }
 
-static void timers_update_sysclk_event(void)
-{
+static void timers_update_sysclk_event(void) {
   timing_event_schedule(&s_state.sysclk_event, timers_get_ticks_until_next_interrupt());
 }

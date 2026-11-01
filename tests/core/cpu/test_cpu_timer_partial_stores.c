@@ -5,15 +5,13 @@
 static bus_memory_read_handler_t original_timer_word_read;
 static u32                       observed_timer_word_reads;
 
-static u32 observe_timer_word_read(u32 address)
-{
+static u32 observe_timer_word_read(u32 address) {
   observed_timer_word_reads++;
   return original_timer_word_read(address);
 }
 
 static void expect_timer_execution(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem,
-                                   const cpu_execution_stats_t* stats)
-{
+                                   const cpu_execution_stats_t* stats) {
   if (mode == CPU_EXECUTION_MODE_RECOMPILER) {
     EXPECT_TRUE(stats->native_blocks_completed > 0);
     EXPECT_EQ(stats->interpreted_instructions, stats->native_dispatch_delay_slots);
@@ -24,8 +22,7 @@ static void expect_timer_execution(cpu_execution_mode_t mode, cpu_fastmem_mode_t
   }
 }
 
-static void restore_timer_execution(u32 timer)
-{
+static void restore_timer_execution(u32 timer) {
   u8           cpu[16384], counters[4096], timing[16384];
   const size_t bus_capacity = bus_get_ram_size() + 4096;
   u8*          bus          = malloc(bus_capacity);
@@ -69,8 +66,7 @@ static void restore_timer_execution(u32 timer)
   free(bus);
 }
 
-static void check_timer_partial_targets(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_timer_partial_targets(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 baselines[] = {0, 0xFFFFFFFF, 0x11223344};
   const u32 sources[]   = {0xAABBCCDD, 0xFEDCBA98};
   u32       failures = 0, read_failures = 0, cells = 0;
@@ -146,8 +142,7 @@ static void check_timer_partial_targets(cpu_execution_mode_t mode, cpu_fastmem_m
   EXPECT_EQ(read_failures, 0);
 }
 
-static void check_timer_partial_flags(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_timer_partial_flags(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 words[]  = {0x240B1357, 0xAD4B0000, 0x8D4C0000, 0, 0xA9090000, 0x26100001, 0x1000FFFF, 0};
   u32       failures = 0, unexpected_reads = 0, cells = 0;
   for (u32 timer = 0; timer < 3; timer++) {
@@ -197,12 +192,10 @@ static void check_timer_partial_flags(cpu_execution_mode_t mode, cpu_fastmem_mod
 }
 
 #define TIMER_PARTIAL_CASE(name, mode, fastmem, linking) \
-  TEST(CpuPartialTimerTarget, name)                      \
-  {                                                      \
+  TEST(CpuPartialTimerTarget, name) {                    \
     check_timer_partial_targets(mode, fastmem, linking); \
   }                                                      \
-  TEST(CpuPartialTimerFlags, name)                       \
-  {                                                      \
+  TEST(CpuPartialTimerFlags, name) {                     \
     check_timer_partial_flags(mode, fastmem, linking);   \
   }
 TIMER_PARTIAL_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

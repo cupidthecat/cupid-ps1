@@ -4,22 +4,19 @@
 static u32 device_reads;
 static u32 device_writes;
 
-static u32 read_device(u32 address)
-{
+static u32 read_device(u32 address) {
   (void)address;
   device_reads++;
   return 0x13572468;
 }
 
-static void write_device(u32 address, u32 value)
-{
+static void write_device(u32 address, u32 value) {
   (void)address;
   (void)value;
   device_writes++;
 }
 
-static void check_disabled(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, const u32* operations, size_t count)
-{
+static void check_disabled(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, const u32* operations, size_t count) {
   for (size_t operation = 0; operation < count; operation++) {
     for (u32 branch = 0; branch < 3; branch++) {
       const u32 cop     = (operations[operation] >> 26) & 3;
@@ -81,62 +78,51 @@ static void check_disabled(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem
   }
 }
 
-static void disabled_register_operations(cpu_execution_mode_t mode)
-{
+static void disabled_register_operations(cpu_execution_mode_t mode) {
   const u32 operations[] = {0x44090000, 0x44490000, 0x44890000, 0x44C90000, 0x46000000,
                             0x4C090000, 0x4C490000, 0x4C890000, 0x4CC90000, 0x4E000000};
   check_disabled(mode, CPU_FASTMEM_MODE_DISABLED, operations, sizeof(operations) / sizeof(operations[0]));
 }
 
-TEST(CpuCoprocessorPermission, interpreter_disabled_register_operations)
-{
+TEST(CpuCoprocessorPermission, interpreter_disabled_register_operations) {
   disabled_register_operations(CPU_EXECUTION_MODE_INTERPRETER);
 }
 
-TEST(CpuCoprocessorPermission, cached_disabled_register_operations)
-{
+TEST(CpuCoprocessorPermission, cached_disabled_register_operations) {
   disabled_register_operations(CPU_EXECUTION_MODE_CACHED_INTERPRETER);
 }
 
-TEST(CpuCoprocessorPermission, native_disabled_register_operations)
-{
+TEST(CpuCoprocessorPermission, native_disabled_register_operations) {
   disabled_register_operations(CPU_EXECUTION_MODE_RECOMPILER);
 }
 
-static void disabled_memory_operations(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void disabled_memory_operations(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   const u32 operations[] = {0xC1090000, 0xC5090000, 0xC9090000, 0xCD090000,
                             0xE1090000, 0xE5090000, 0xE9090000, 0xED090000};
   check_disabled(mode, fastmem, operations, sizeof(operations) / sizeof(operations[0]));
 }
 
-TEST(CpuCoprocessorPermission, interpreter_disabled_memory_operations)
-{
+TEST(CpuCoprocessorPermission, interpreter_disabled_memory_operations) {
   disabled_memory_operations(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(CpuCoprocessorPermission, cached_disabled_memory_operations)
-{
+TEST(CpuCoprocessorPermission, cached_disabled_memory_operations) {
   disabled_memory_operations(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(CpuCoprocessorPermission, native_disabled_memory_operations)
-{
+TEST(CpuCoprocessorPermission, native_disabled_memory_operations) {
   disabled_memory_operations(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(CpuCoprocessorPermission, mmap_disabled_memory_operations)
-{
+TEST(CpuCoprocessorPermission, mmap_disabled_memory_operations) {
   disabled_memory_operations(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP);
 }
 
-TEST(CpuCoprocessorPermission, lut_disabled_memory_operations)
-{
+TEST(CpuCoprocessorPermission, lut_disabled_memory_operations) {
   disabled_memory_operations(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT);
 }
 
-TEST(CpuCoprocessorPermission, enabled_register_operations_do_not_trap)
-{
+TEST(CpuCoprocessorPermission, enabled_register_operations_do_not_trap) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   const u32 words[] = {0x44090000, 0x44490000, 0x44890000, 0x44C90000, 0x46000000, 0x4C090000, 0x4C490000,
@@ -151,8 +137,7 @@ TEST(CpuCoprocessorPermission, enabled_register_operations_do_not_trap)
   }
 }
 
-TEST(CpuCoprocessorPermission, status_write_disables_register_operations)
-{
+TEST(CpuCoprocessorPermission, status_write_disables_register_operations) {
   for (u32 cop = 1; cop <= 3; cop += 2) {
     const u32 words[] = {0x40806000, 0x40090000 | (cop << 26), 0x26100001, 0x1000FFFF, 0};
     start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0x00010000, words, 5);
@@ -168,8 +153,7 @@ TEST(CpuCoprocessorPermission, status_write_disables_register_operations)
   }
 }
 
-TEST(CpuCoprocessorPermission, user_mode_cop0_requires_enable)
-{
+TEST(CpuCoprocessorPermission, user_mode_cop0_requires_enable) {
   const cpu_execution_mode_t modes[]      = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                              CPU_EXECUTION_MODE_RECOMPILER};
   const u32                  operations[] = {0x40097800, 0x40007800, 0x40891800, 0x42000010};
@@ -177,8 +161,7 @@ TEST(CpuCoprocessorPermission, user_mode_cop0_requires_enable)
     check_disabled(modes[mode], CPU_FASTMEM_MODE_DISABLED, operations, sizeof(operations) / sizeof(operations[0]));
 }
 
-TEST(CpuCoprocessorPermission, native_cop0_kernel_and_enabled_user_reads)
-{
+TEST(CpuCoprocessorPermission, native_cop0_kernel_and_enabled_user_reads) {
   const u32 states[] = {0, 0x10000000, 0x10000002};
   for (size_t state = 0; state < sizeof(states) / sizeof(states[0]); state++) {
     const u32 words[] = {0x40097800, 0, 0x26100001, 0x1000FFFF, 0};
@@ -192,8 +175,7 @@ TEST(CpuCoprocessorPermission, native_cop0_kernel_and_enabled_user_reads)
   }
 }
 
-TEST(CpuCoprocessorPermission, native_status_write_enters_user_mode_before_cop0)
-{
+TEST(CpuCoprocessorPermission, native_status_write_enters_user_mode_before_cop0) {
   const u32 words[] = {0x40896000, 0x400A7800, 0x26100001, 0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0x00010000, words, 5);
   const u32 handler[] = {0x1000FFFF, 0};
@@ -209,8 +191,7 @@ TEST(CpuCoprocessorPermission, native_status_write_enters_user_mode_before_cop0)
   finish_cpu();
 }
 
-TEST(CpuCoprocessorPermission, native_disabled_gte_store_traps_before_busy_wait)
-{
+TEST(CpuCoprocessorPermission, native_disabled_gte_store_traps_before_busy_wait) {
   const u32 words[] = {0xE9090000, 0x26100001, 0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_RECOMPILER, 0x00010000, words, 4);
   const u32 handler[] = {0x1000FFFF, 0};

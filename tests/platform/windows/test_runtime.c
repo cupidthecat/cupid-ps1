@@ -18,8 +18,7 @@
     }                                                                                              \
   } while (0)
 
-static void consume_cpu(void)
-{
+static void consume_cpu(void) {
   const timer_value_t end      = timer_get_current_value() + timer_seconds_to_value(5);
   const u64           before   = threading_get_thread_cpu_time();
   const u64           required = threading_get_thread_ticks_per_second() / 50;
@@ -37,8 +36,7 @@ typedef struct {
   u64                          parent_cpu_before, child_cpu;
 } thread_fixture_t;
 
-static void worker(void* argument)
-{
+static void worker(void* argument) {
   thread_fixture_t* fixture = argument;
   threading_set_name_of_current_thread("cupid-platform-\xCE\xBB");
   const threading_thread_handle_t self = threading_thread_handle_get_for_calling_thread();
@@ -54,8 +52,7 @@ static void worker(void* argument)
   threading_kernel_semaphore_post(&fixture->finished);
 }
 
-static void check_thread(bool detach)
-{
+static void check_thread(bool detach) {
   thread_fixture_t fixture;
   threading_kernel_semaphore_init(&fixture.ready);
   threading_kernel_semaphore_init(&fixture.resume);
@@ -97,8 +94,7 @@ static void check_thread(bool detach)
 
 static u8*                         s_pages;
 static atomic_uint                 s_fault_count;
-static page_fault_handler_result_t concurrent_fault(void* pc, void* address, bool write)
-{
+static page_fault_handler_result_t concurrent_fault(void* pc, void* address, bool write) {
   if (!pc || !write || (uintptr_t)address < (uintptr_t)s_pages ||
       (uintptr_t)address - (uintptr_t)s_pages >= 8 * HOST_PAGE_SIZE)
     return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
@@ -108,13 +104,11 @@ static page_fault_handler_result_t concurrent_fault(void* pc, void* address, boo
   return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
 }
 
-static void write_page(void* address)
-{
+static void write_page(void* address) {
   *(volatile u8*)address = 0x63;
 }
 
-static void check_concurrent_faults(void)
-{
+static void check_concurrent_faults(void) {
   s_pages = memmap_allocate_jit_memory(8 * HOST_PAGE_SIZE);
   CHECK(s_pages && memmap_mem_protect(s_pages, 8 * HOST_PAGE_SIZE, MEMMAP_PAGE_PROTECT_READ_ONLY));
   CHECK(page_fault_handler_install(NULL));
@@ -134,8 +128,7 @@ static void check_concurrent_faults(void)
   memmap_release_jit_memory(s_pages, 8 * HOST_PAGE_SIZE);
 }
 
-int main(void)
-{
+int main(void) {
   CHECK(timer_get_frequency() == 1.0);
   CHECK(timer_seconds_to_value(1) == 1000000000);
   CHECK(timer_value_to_seconds(1000000000) == 1.0);

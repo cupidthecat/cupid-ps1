@@ -6,8 +6,7 @@
 
 enum { SOUND_CAPACITY = SPU_RAM_SIZE + 65536 };
 
-static void begin_timeline(void)
-{
+static void begin_timeline(void) {
   const u32 program[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, program, 2);
   interrupt_controller_reset();
@@ -16,15 +15,13 @@ static void begin_timeline(void)
   spu_write_register(0x1A2, 0xF000);
 }
 
-static void end_timeline(void)
-{
+static void end_timeline(void) {
   spu_shutdown();
   dma_shutdown();
   finish_cpu();
 }
 
-TEST(SpuTransferTimeline, capture_before_write_at_sample_boundary)
-{
+TEST(SpuTransferTimeline, capture_before_write_at_sample_boundary) {
   begin_timeline();
   advance_spu_clock(752);
   spu_write_register(0x1A6, 0);
@@ -46,8 +43,7 @@ TEST(SpuTransferTimeline, capture_before_write_at_sample_boundary)
   end_timeline();
 }
 
-TEST(SpuTransferTimeline, read_keeps_data_before_later_capture)
-{
+TEST(SpuTransferTimeline, read_keeps_data_before_later_capture) {
   begin_timeline();
   memset(spu_get_writable_ram(), 0xFF, 64);
   advance_spu_clock(752);
@@ -60,8 +56,7 @@ TEST(SpuTransferTimeline, read_keeps_data_before_later_capture)
   end_timeline();
 }
 
-TEST(SpuTransferTimeline, address_change_preserves_elapsed_work)
-{
+TEST(SpuTransferTimeline, address_change_preserves_elapsed_work) {
   begin_timeline();
   spu_write_register(0x1A6, 0x10000 / 8);
   spu_write_register(0x1AA, 0x20);
@@ -82,8 +77,7 @@ TEST(SpuTransferTimeline, address_change_preserves_elapsed_work)
   end_timeline();
 }
 
-TEST(SpuTransferTimeline, reset_cancels_pending_transfer)
-{
+TEST(SpuTransferTimeline, reset_cancels_pending_transfer) {
   begin_timeline();
   spu_write_register(0x1A6, 0x10000 / 8);
   spu_write_register(0x1AA, 0x20);
@@ -98,8 +92,7 @@ TEST(SpuTransferTimeline, reset_cancels_pending_transfer)
   end_timeline();
 }
 
-TEST(SpuTransferTimeline, legacy_deadline_uses_restored_clock)
-{
+TEST(SpuTransferTimeline, legacy_deadline_uses_restored_clock) {
   for (u32 version = 88; version <= 89; version++) {
     begin_timeline();
     advance_spu_clock(1000);
@@ -126,8 +119,7 @@ TEST(SpuTransferTimeline, legacy_deadline_uses_restored_clock)
   }
 }
 
-TEST(SpuTransferTimeline, irq_fires_without_status_polling)
-{
+TEST(SpuTransferTimeline, irq_fires_without_status_polling) {
   for (u32 read = 0; read < 2; read++) {
     begin_timeline();
     spu_write_register(0x1A6, 0x10000 / 8);

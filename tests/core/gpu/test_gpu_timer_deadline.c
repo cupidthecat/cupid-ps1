@@ -8,8 +8,7 @@
 
 #include <limits.h>
 
-static timing_event_t* find_crtc_event(void)
-{
+static timing_event_t* find_crtc_event(void) {
   for (timing_event_t* event = *timing_events_get_head_event_ptr(); event; event = event->next) {
     if (event->name_len == 13 && memcmp(event->name_data, "GPU CRTC Tick", 13) == 0) return event;
   }
@@ -17,8 +16,7 @@ static timing_event_t* find_crtc_event(void)
   return NULL;
 }
 
-static void check_completed_counter(bool toggle, bool restore)
-{
+static void check_completed_counter(bool toggle, bool restore) {
   const u32 resolutions[]  = {0, 1, 2, 3, 0x40};
   const u32 dot_dividers[] = {10, 8, 5, 4, 7};
   u32       failures = 0, observations = 0;
@@ -90,19 +88,15 @@ static void check_completed_counter(bool toggle, bool restore)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(GpuTimerDeadline, completed_pulse)
-{
+TEST(GpuTimerDeadline, completed_pulse) {
   check_completed_counter(false, false);
 }
-TEST(GpuTimerDeadline, completed_toggle)
-{
+TEST(GpuTimerDeadline, completed_toggle) {
   check_completed_counter(true, false);
 }
-TEST(GpuTimerDeadline, restored_pulse)
-{
+TEST(GpuTimerDeadline, restored_pulse) {
   check_completed_counter(false, true);
 }
-TEST(GpuTimerDeadline, restored_toggle)
-{
+TEST(GpuTimerDeadline, restored_toggle) {
   check_completed_counter(true, true);
 }

@@ -28,8 +28,7 @@ bool   game_database_test_load_from_cache(void);
 bool   game_database_test_save_to_cache(void);
 bool   game_database_test_is_loaded_from_cache(void);
 
-TEST(GameDatabase, loads_known_count)
-{
+TEST(GameDatabase, loads_known_count) {
   game_database_ensure_loaded();
   size_t n = game_database_test_get_entry_count();
   /* As of 2026-04 the bundled gamedb.yaml has ~10764 entries.  Keep a wide
@@ -45,13 +44,15 @@ TEST(GameDatabase, loads_known_count)
   EXPECT_TRUE(e->title_len >= 5);
   bool found = false;
   for (u32 i = 0; i + 5 <= e->title_len; i++) {
-    if (memcmp(e->title + i, "Crash", 5) == 0) { found = true; break; }
+    if (memcmp(e->title + i, "Crash", 5) == 0) {
+      found = true;
+      break;
+    }
   }
   EXPECT_TRUE(found);
 }
 
-TEST(GameDatabase, crash_has_force_round_textures_trait)
-{
+TEST(GameDatabase, crash_has_force_round_textures_trait) {
   game_database_ensure_loaded();
   const game_database_entry_t* e = game_database_get_entry_for_serial("SCUS-94900");
   EXPECT_NOT_NULL(e);
@@ -60,12 +61,10 @@ TEST(GameDatabase, crash_has_force_round_textures_trait)
      "ForceRoundTextureCoordinates", which maps to the
      GAME_DATABASE_TRAIT_FORCE_ROUND_UPSCALED_TEXTURE_COORDINATES enum
      value (see s_trait_names[] in game_database.c). */
-  EXPECT_TRUE(game_database_entry_has_trait(
-    e, GAME_DATABASE_TRAIT_FORCE_ROUND_UPSCALED_TEXTURE_COORDINATES));
+  EXPECT_TRUE(game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_ROUND_UPSCALED_TEXTURE_COORDINATES));
 }
 
-TEST(GameDatabase, codes_table_nonempty)
-{
+TEST(GameDatabase, codes_table_nonempty) {
   game_database_ensure_loaded();
   const size_t n_entries = game_database_test_get_entry_count();
   const size_t n_codes   = game_database_test_get_code_count();
@@ -76,8 +75,7 @@ TEST(GameDatabase, codes_table_nonempty)
   EXPECT_TRUE(n_codes >= n_entries);
 }
 
-TEST(GameDatabase, disc_sets_loaded)
-{
+TEST(GameDatabase, disc_sets_loaded) {
   game_database_ensure_loaded();
   /* discsets.yaml ships ~280+ disc sets. */
   size_t n = game_database_test_get_disc_set_count();
@@ -96,23 +94,21 @@ typedef struct {
   bool has_disc_set;
 } snapshot_t;
 
-static void snapshot_crash(snapshot_t* s)
-{
+static void snapshot_crash(snapshot_t* s) {
   memset(s, 0, sizeof(*s));
   const game_database_entry_t* e = game_database_get_entry_for_serial("SCUS-94900");
   if (!e) return;
-  s->found = true;
+  s->found      = true;
   s->serial_len = e->serial_len;
   s->title_len  = e->title_len;
   if (e->serial_len < sizeof(s->serial)) memcpy(s->serial, e->serial, e->serial_len);
-  if (e->title_len  < sizeof(s->title))  memcpy(s->title,  e->title,  e->title_len);
+  if (e->title_len < sizeof(s->title)) memcpy(s->title, e->title, e->title_len);
   memcpy(s->trait_bits, e->trait_bits, sizeof(s->trait_bits));
   s->supported_controllers = e->supported_controllers;
-  s->has_disc_set = (e->disc_set != NULL);
+  s->has_disc_set          = (e->disc_set != NULL);
 }
 
-TEST(GameDatabase, cache_roundtrip)
-{
+TEST(GameDatabase, cache_roundtrip) {
   /* Cold load (deletes any existing cache so we go through the YAML path). */
   unlink("gamedb.cache");
   game_database_test_reset();
@@ -121,9 +117,9 @@ TEST(GameDatabase, cache_roundtrip)
   const size_t yaml_entries   = game_database_test_get_entry_count();
   const size_t yaml_disc_sets = game_database_test_get_disc_set_count();
   const size_t yaml_codes     = game_database_test_get_code_count();
-  EXPECT_TRUE(yaml_entries   > 8000);
+  EXPECT_TRUE(yaml_entries > 8000);
   EXPECT_TRUE(yaml_disc_sets > 100);
-  EXPECT_TRUE(yaml_codes     >= yaml_entries);
+  EXPECT_TRUE(yaml_codes >= yaml_entries);
 
   snapshot_t before;
   snapshot_crash(&before);
@@ -134,24 +130,23 @@ TEST(GameDatabase, cache_roundtrip)
   game_database_test_reset();
   EXPECT_TRUE(game_database_test_load_from_cache());
   EXPECT_TRUE(game_database_test_is_loaded_from_cache());
-  EXPECT_EQ(yaml_entries,   game_database_test_get_entry_count());
+  EXPECT_EQ(yaml_entries, game_database_test_get_entry_count());
   EXPECT_EQ(yaml_disc_sets, game_database_test_get_disc_set_count());
-  EXPECT_EQ(yaml_codes,     game_database_test_get_code_count());
+  EXPECT_EQ(yaml_codes, game_database_test_get_code_count());
 
   snapshot_t after;
   snapshot_crash(&after);
   EXPECT_TRUE(after.found);
-  EXPECT_EQ(before.serial_len,            after.serial_len);
-  EXPECT_EQ(before.title_len,             after.title_len);
+  EXPECT_EQ(before.serial_len, after.serial_len);
+  EXPECT_EQ(before.title_len, after.title_len);
   EXPECT_EQ(0, memcmp(before.serial, after.serial, before.serial_len));
-  EXPECT_EQ(0, memcmp(before.title,  after.title,  before.title_len));
+  EXPECT_EQ(0, memcmp(before.title, after.title, before.title_len));
   EXPECT_EQ(0, memcmp(before.trait_bits, after.trait_bits, sizeof(before.trait_bits)));
   EXPECT_EQ(before.supported_controllers, after.supported_controllers);
-  EXPECT_EQ(before.has_disc_set ? 1 : 0,  after.has_disc_set ? 1 : 0);
+  EXPECT_EQ(before.has_disc_set ? 1 : 0, after.has_disc_set ? 1 : 0);
 }
 
-TEST(GameDatabase, cache_rejects_stale_mtime)
-{
+TEST(GameDatabase, cache_rejects_stale_mtime) {
   /* Corrupt only the cached timestamp; resource files stay untouched. */
   unlink("gamedb.cache");
   game_database_test_reset();
@@ -171,8 +166,7 @@ TEST(GameDatabase, cache_rejects_stale_mtime)
   EXPECT_FALSE(game_database_test_load_from_cache());
 }
 
-TEST(GameDatabase, cache_rejects_previous_parser_version)
-{
+TEST(GameDatabase, cache_rejects_previous_parser_version) {
   unlink("gamedb.cache");
   game_database_test_reset();
   game_database_ensure_loaded();
@@ -189,8 +183,7 @@ TEST(GameDatabase, cache_rejects_previous_parser_version)
 
 /* Crash Bandicoot SCUS-94900 has the ForceRoundTextureCoordinates trait per
    gamedb.yaml.  ApplySettings should flip gpu_force_round_texcoords to true. */
-TEST(GameDatabase, apply_crash_disables_some_setting)
-{
+TEST(GameDatabase, apply_crash_disables_some_setting) {
   game_database_ensure_loaded();
   const game_database_entry_t* e = game_database_get_entry_for_serial("SCUS-94900");
   EXPECT_NOT_NULL(e);
@@ -207,8 +200,7 @@ TEST(GameDatabase, apply_crash_disables_some_setting)
 /* Fear Effect Disc 1 (SLES-02166) has the DisableMultitap trait.  Because
    that trait is wired through ApplySettings, applying its entry should snap
    multitap_mode to MULTITAP_MODE_DISABLED. */
-TEST(GameDatabase, apply_fear_effect_disables_multitap)
-{
+TEST(GameDatabase, apply_fear_effect_disables_multitap) {
   game_database_ensure_loaded();
   const game_database_entry_t* e = game_database_get_entry_for_serial("SLES-02166");
   EXPECT_NOT_NULL(e);
@@ -226,11 +218,11 @@ TEST(GameDatabase, apply_fear_effect_disables_multitap)
 /* Wall-clock probe: cold (YAML) vs warm (cache) load.  Not a hard assertion;
    prints to stderr so the developer can eyeball the speed-up.  We do require
    that the warm path is at least as fast as the cold path. */
-TEST(GameDatabase, cache_loads_faster_than_yaml)
-{
+TEST(GameDatabase, cache_loads_faster_than_yaml) {
   unlink("gamedb.cache");
   game_database_test_reset();
-  timer_t_ t; timer_init(&t);
+  timer_t_ t;
+  timer_init(&t);
   game_database_ensure_loaded();
   const double cold_ms = timer_get_milliseconds(&t);
   EXPECT_TRUE(!game_database_test_is_loaded_from_cache());
@@ -238,8 +230,7 @@ TEST(GameDatabase, cache_loads_faster_than_yaml)
   /* The cache should now exist on disk (save_to_cache ran). */
   struct stat st;
   EXPECT_EQ(0, stat("gamedb.cache", &st));
-  fprintf(stderr, "    cold YAML load: %.1f ms; cache file: %lld bytes\n",
-          cold_ms, (long long)st.st_size);
+  fprintf(stderr, "    cold YAML load: %.1f ms; cache file: %lld bytes\n", cold_ms, (long long)st.st_size);
 
   game_database_test_reset();
   timer_init(&t);
@@ -261,18 +252,23 @@ u32  game_database_test_get_track_hash_bucket_count(void);
 void game_database_test_reset_track_hashes(void);
 
 /* Hex parse helper, MSB-first, 32 chars -> 16 bytes. */
-static bool hex32_to_md5(const char* in, u8 out[16])
-{
+static bool hex32_to_md5(const char* in, u8 out[16]) {
   for (int i = 0; i < 16; i++) {
-    int hi = -1, lo = -1;
+    int  hi = -1, lo = -1;
     char ch = in[i * 2];
-    if (ch >= '0' && ch <= '9') hi = ch - '0';
-    else if (ch >= 'a' && ch <= 'f') hi = 10 + ch - 'a';
-    else if (ch >= 'A' && ch <= 'F') hi = 10 + ch - 'A';
+    if (ch >= '0' && ch <= '9')
+      hi = ch - '0';
+    else if (ch >= 'a' && ch <= 'f')
+      hi = 10 + ch - 'a';
+    else if (ch >= 'A' && ch <= 'F')
+      hi = 10 + ch - 'A';
     ch = in[i * 2 + 1];
-    if (ch >= '0' && ch <= '9') lo = ch - '0';
-    else if (ch >= 'a' && ch <= 'f') lo = 10 + ch - 'a';
-    else if (ch >= 'A' && ch <= 'F') lo = 10 + ch - 'A';
+    if (ch >= '0' && ch <= '9')
+      lo = ch - '0';
+    else if (ch >= 'a' && ch <= 'f')
+      lo = 10 + ch - 'a';
+    else if (ch >= 'A' && ch <= 'F')
+      lo = 10 + ch - 'A';
     if (hi < 0 || lo < 0) return false;
     out[i] = (u8)((hi << 4) | lo);
   }
@@ -281,8 +277,7 @@ static bool hex32_to_md5(const char* in, u8 out[16])
 
 /* Look up a known md5 from the first entry of discdb.yaml
    (SLPM-80238 -> 0aa29df886d9f4f3ec5340bdd3b4f3be). */
-TEST(GameDatabase, tracks_lookup_known_md5)
-{
+TEST(GameDatabase, tracks_lookup_known_md5) {
   game_database_test_reset_track_hashes();
 
   u8 md5[16];
@@ -296,19 +291,16 @@ TEST(GameDatabase, tracks_lookup_known_md5)
   EXPECT_STREQ("SLPM-80238", td->serial);
   EXPECT_EQ((int)0, (int)td->revision);
 
-  fprintf(stderr,
-          "    track-hashes: %u entries, %u buckets, max probe = %u\n",
-          game_database_test_get_track_hash_count(),
-          game_database_test_get_track_hash_bucket_count(),
+  fprintf(stderr, "    track-hashes: %u entries, %u buckets, max probe = %u\n",
+          game_database_test_get_track_hash_count(), game_database_test_get_track_hash_bucket_count(),
           game_database_test_get_track_hash_max_probe());
   EXPECT_TRUE(game_database_test_get_track_hash_count() > 10000);
 }
 
-TEST(GameDatabase, tracks_lookup_unknown_md5)
-{
+TEST(GameDatabase, tracks_lookup_unknown_md5) {
   /* Lookup with all-zero md5 -- not a valid MD5 of any disc track. */
-  u8 md5[16] = { 0 };
-  const game_database_track_data_t* td = game_database_lookup_track_hash(md5);
+  u8                                md5[16] = {0};
+  const game_database_track_data_t* td      = game_database_lookup_track_hash(md5);
   EXPECT_NULL(td);
 }
 
@@ -322,56 +314,60 @@ typedef struct {
   char bin[96];
 } serial_disc_t;
 
-static void disc_write_both32(u8* out, u32 value)
-{
+static void disc_write_both32(u8* out, u32 value) {
   for (u32 i = 0; i < 4; i++) {
-    out[i] = (u8)(value >> (i * 8));
+    out[i]     = (u8)(value >> (i * 8));
     out[4 + i] = (u8)(value >> ((3 - i) * 8));
   }
 }
 
-static u32 disc_directory_record(u8* out, u32 sector, u32 length,
-                                 u8 flags, const char* name, u8 name_length)
-{
+static u32 disc_directory_record(u8* out, u32 sector, u32 length, u8 flags, const char* name, u8 name_length) {
   const u32 size = (33u + name_length + 1u) & ~1u;
   memset(out, 0, size);
   out[0] = (u8)size;
   disc_write_both32(out + 2, sector);
   disc_write_both32(out + 10, length);
-  out[18] = 126; out[19] = 1; out[20] = 1;
+  out[18] = 126;
+  out[19] = 1;
+  out[20] = 1;
   out[25] = flags;
-  out[28] = 1; out[31] = 1;
+  out[28] = 1;
+  out[31] = 1;
   out[32] = name_length;
   memcpy(out + 33, name, name_length);
   return size;
 }
 
-static void make_serial_disc(serial_disc_t* disc)
-{
+static void make_serial_disc(serial_disc_t* disc) {
   strcpy(disc->directory, "/tmp/cupid-ps1-serial-XXXXXX");
   EXPECT_NOT_NULL(mkdtemp(disc->directory));
   snprintf(disc->cue, sizeof(disc->cue), "%s/metadata.cue", disc->directory);
   snprintf(disc->bin, sizeof(disc->bin), "%s/metadata.bin", disc->directory);
   static const char cnf[] = "BOOT = cdrom:\\SCUS_949.00;1\r\n";
-  FILE* bin = fopen(disc->bin, "wb");
+  FILE*             bin   = fopen(disc->bin, "wb");
   EXPECT_NOT_NULL(bin);
   for (u32 lba = 0; lba < 24; lba++) {
     u8 sector[2352] = {0};
     memset(sector + 1, 0xFF, 10);
-    sector[12] = 0; sector[13] = 2;
+    sector[12] = 0;
+    sector[13] = 2;
     sector[14] = (u8)(((lba / 10) << 4) | (lba % 10));
     sector[15] = 2;
     sector[18] = sector[22] = 8;
-    u8* data = sector + 24;
+    u8* data                = sector + 24;
     if (lba == 16) {
-      data[0] = 1; memcpy(data + 1, "CD001", 5); data[6] = 1;
+      data[0] = 1;
+      memcpy(data + 1, "CD001", 5);
+      data[6] = 1;
       disc_write_both32(data + 80, 24);
       data[120] = data[123] = data[124] = data[127] = 1;
       data[129] = data[130] = 8;
       disc_directory_record(data + 156, 20, 2048, 2, "", 1);
       data[881] = 1;
     } else if (lba == 17) {
-      data[0] = 255; memcpy(data + 1, "CD001", 5); data[6] = 1;
+      data[0] = 255;
+      memcpy(data + 1, "CD001", 5);
+      data[6] = 1;
     } else if (lba == 20) {
       u32 pos = disc_directory_record(data, 20, 2048, 2, "", 1);
       pos += disc_directory_record(data + pos, 20, 2048, 2, "\1", 1);
@@ -386,19 +382,18 @@ static void make_serial_disc(serial_disc_t* disc)
   EXPECT_NOT_NULL(cue);
   EXPECT_TRUE(fputs("FILE \"metadata.bin\" BINARY\n"
                     "  TRACK 01 MODE2/2352\n"
-                    "    INDEX 01 00:00:00\n", cue) >= 0);
+                    "    INDEX 01 00:00:00\n",
+                    cue) >= 0);
   EXPECT_EQ(0, fclose(cue));
 }
 
-static void destroy_serial_disc(const serial_disc_t* disc)
-{
+static void destroy_serial_disc(const serial_disc_t* disc) {
   EXPECT_EQ(0, unlink(disc->cue));
   EXPECT_EQ(0, unlink(disc->bin));
   EXPECT_EQ(0, rmdir(disc->directory));
 }
 
-TEST(GameDatabase, serial_for_path_crash)
-{
+TEST(GameDatabase, serial_for_path_crash) {
   serial_disc_t disc;
   make_serial_disc(&disc);
   char* s = game_database_get_serial_for_path(disc.cue);
@@ -409,8 +404,7 @@ TEST(GameDatabase, serial_for_path_crash)
   destroy_serial_disc(&disc);
 }
 
-TEST(GameDatabase, get_entry_for_disc_crash)
-{
+TEST(GameDatabase, get_entry_for_disc_crash) {
   serial_disc_t disc;
   make_serial_disc(&disc);
   cd_image_t* img = cd_image_open(disc.cue, NULL);
@@ -429,8 +423,7 @@ TEST(GameDatabase, get_entry_for_disc_crash)
 
 /* Negative paths: NULL inputs are tolerated and return NULL.  Bogus path
  * also returns NULL. */
-TEST(GameDatabase, serial_for_disc_null_safe)
-{
+TEST(GameDatabase, serial_for_disc_null_safe) {
   EXPECT_NULL(game_database_get_serial_for_disc(NULL));
   EXPECT_NULL(game_database_get_serial_for_path(NULL));
   EXPECT_NULL(game_database_get_serial_for_path(""));
@@ -444,8 +437,7 @@ TEST(GameDatabase, serial_for_disc_null_safe)
  * Crash in digital mode, so if either condition regresses (gamedb refresh
  * drops the entry / changes the controllers list / etc.) we want to fail
  * here instead of in the runtime smoke. */
-TEST(GameDatabase, gamedb_wires_crash_to_disable_auto_analog)
-{
+TEST(GameDatabase, gamedb_wires_crash_to_disable_auto_analog) {
   serial_disc_t disc;
   make_serial_disc(&disc);
   cd_image_t* img = cd_image_open(disc.cue, NULL);
@@ -456,11 +448,13 @@ TEST(GameDatabase, gamedb_wires_crash_to_disable_auto_analog)
 
   const game_database_entry_t* e = game_database_get_entry_for_disc(img);
   EXPECT_NOT_NULL(e);
-  if (!e) { cd_image_destroy(img); return; }
+  if (!e) {
+    cd_image_destroy(img);
+    return;
+  }
 
   /* Crash's gamedb entry has the ForceRoundTextureCoordinates trait. */
-  EXPECT_TRUE(game_database_entry_has_trait(
-    e, GAME_DATABASE_TRAIT_FORCE_ROUND_UPSCALED_TEXTURE_COORDINATES));
+  EXPECT_TRUE(game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_ROUND_UPSCALED_TEXTURE_COORDINATES));
 
   /* Crash's controllers: list is `- DigitalController`.  Therefore the
    * `supported_controllers` bitmask must (a) be neither the "no list"
@@ -469,7 +463,7 @@ TEST(GameDatabase, gamedb_wires_crash_to_disable_auto_analog)
   EXPECT_TRUE(e->supported_controllers != 0);
   EXPECT_TRUE(e->supported_controllers != (u16)0xFFFFu);
 
-  const u16 analog_bit = (u16)(1u << (u32)CONTROLLER_TYPE_ANALOG_CONTROLLER);
+  const u16 analog_bit  = (u16)(1u << (u32)CONTROLLER_TYPE_ANALOG_CONTROLLER);
   const u16 digital_bit = (u16)(1u << (u32)CONTROLLER_TYPE_DIGITAL_CONTROLLER);
   EXPECT_EQ((int)0, (int)(e->supported_controllers & analog_bit));
   EXPECT_TRUE((e->supported_controllers & digital_bit) != 0);

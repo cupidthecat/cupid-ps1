@@ -31,12 +31,9 @@ typedef struct {
 void cdrom_subq_replacement_init(cdrom_subq_replacement_t* r);
 void cdrom_subq_replacement_destroy(cdrom_subq_replacement_t* r);
 
-bool cdrom_subq_replacement_load_for_image(cdrom_subq_replacement_t* out_replacement,
-                                           bool* out_has_data,
-                                           cd_image_t* image,
-                                           const char* serial, size_t serial_len,
-                                           const char* title, size_t title_len,
-                                           const char* save_title, size_t save_title_len,
+bool cdrom_subq_replacement_load_for_image(cdrom_subq_replacement_t* out_replacement, bool* out_has_data,
+                                           cd_image_t* image, const char* serial, size_t serial_len, const char* title,
+                                           size_t title_len, const char* save_title, size_t save_title_len,
                                            Error* error);
 
 /* Returns the count of replacement entries. */

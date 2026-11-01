@@ -5,13 +5,11 @@
 #include "tests/core/cpu/cpu_execution_fixture.h"
 #include "core/spu/spu.h"
 
-static void set_device_control(u32 address, u32 value)
-{
+static void set_device_control(u32 address, u32 value) {
   cpu_get_memory_write_handler(address, MEMORY_ACCESS_SIZE_WORD)(address, value);
 }
 
-static void restore_device_bus_execution(u32 scratch_pc, u32 control_address, bool with_spu)
-{
+static void restore_device_bus_execution(u32 scratch_pc, u32 control_address, bool with_spu) {
   u8           cpu[16384], timing[16384];
   const size_t capacity = bus_get_ram_size() + 4096u;
   u8*          bus      = malloc(capacity);
@@ -79,8 +77,7 @@ static void restore_device_bus_execution(u32 scratch_pc, u32 control_address, bo
 }
 
 static void expect_device_bus_path(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem,
-                                   const cpu_execution_stats_t* stats)
-{
+                                   const cpu_execution_stats_t* stats) {
   if (mode == CPU_EXECUTION_MODE_RECOMPILER) {
     EXPECT_TRUE(stats->native_blocks_entered > 0);
     EXPECT_TRUE(stats->native_blocks_completed > 0);

@@ -31,17 +31,17 @@ typedef void* opengl_surface_handle_t;
 #define OPENGL_MAIN_SURFACE ((opengl_surface_handle_t)NULL)
 
 typedef struct opengl_context_vtable {
-  void  (*destroy)              (opengl_context_t* ctx);
-  void* (*get_proc_address)     (opengl_context_t* ctx, const char* name);
-  opengl_surface_handle_t (*create_surface) (opengl_context_t* ctx, window_info_t* wi, Error* err);
-  void  (*destroy_surface)      (opengl_context_t* ctx, opengl_surface_handle_t handle);
-  void  (*resize_surface)       (opengl_context_t* ctx, window_info_t* wi, opengl_surface_handle_t handle);
-  bool  (*swap_buffers)         (opengl_context_t* ctx);
-  bool  (*is_current)           (const opengl_context_t* ctx);
-  bool  (*make_current)         (opengl_context_t* ctx, opengl_surface_handle_t surface, Error* err);
-  bool  (*done_current)         (opengl_context_t* ctx);
-  bool  (*supports_negative_swap_interval)(const opengl_context_t* ctx);
-  bool  (*set_swap_interval)    (opengl_context_t* ctx, s32 interval, Error* err);
+  void (*destroy)(opengl_context_t* ctx);
+  void* (*get_proc_address)(opengl_context_t* ctx, const char* name);
+  opengl_surface_handle_t (*create_surface)(opengl_context_t* ctx, window_info_t* wi, Error* err);
+  void (*destroy_surface)(opengl_context_t* ctx, opengl_surface_handle_t handle);
+  void (*resize_surface)(opengl_context_t* ctx, window_info_t* wi, opengl_surface_handle_t handle);
+  bool (*swap_buffers)(opengl_context_t* ctx);
+  bool (*is_current)(const opengl_context_t* ctx);
+  bool (*make_current)(opengl_context_t* ctx, opengl_surface_handle_t surface, Error* err);
+  bool (*done_current)(opengl_context_t* ctx);
+  bool (*supports_negative_swap_interval)(const opengl_context_t* ctx);
+  bool (*set_swap_interval)(opengl_context_t* ctx, s32 interval, Error* err);
   /* Returns owning ctx; surface set in *out_surface; caller destroys both. */
   opengl_context_t* (*create_shared_context)(opengl_context_t* ctx, window_info_t* wi,
                                              opengl_surface_handle_t* out_surface, Error* err);
@@ -59,32 +59,48 @@ struct opengl_context {
 opengl_context_t* opengl_context_create(window_info_t* wi, opengl_surface_handle_t* out_surface,
                                         bool prefer_gles_context, Error* err);
 
-ALWAYS_INLINE bool opengl_context_is_gles(const opengl_context_t* ctx)
-{
+ALWAYS_INLINE bool opengl_context_is_gles(const opengl_context_t* ctx) {
   return ctx->version.profile == OPENGL_CONTEXT_PROFILE_ES;
 }
 
 /* Convenience dispatchers (one-line forwarders to vtable). */
-ALWAYS_INLINE void  opengl_context_destroy(opengl_context_t* ctx) { if (ctx) ctx->vt->destroy(ctx); }
-ALWAYS_INLINE void* opengl_context_get_proc_address(opengl_context_t* ctx, const char* name)
-{ return ctx->vt->get_proc_address(ctx, name); }
-ALWAYS_INLINE opengl_surface_handle_t opengl_context_create_surface(opengl_context_t* ctx, window_info_t* wi, Error* err)
-{ return ctx->vt->create_surface(ctx, wi, err); }
-ALWAYS_INLINE void opengl_context_destroy_surface(opengl_context_t* ctx, opengl_surface_handle_t h)
-{ ctx->vt->destroy_surface(ctx, h); }
-ALWAYS_INLINE void opengl_context_resize_surface(opengl_context_t* ctx, window_info_t* wi, opengl_surface_handle_t h)
-{ ctx->vt->resize_surface(ctx, wi, h); }
-ALWAYS_INLINE bool opengl_context_swap_buffers(opengl_context_t* ctx) { return ctx->vt->swap_buffers(ctx); }
-ALWAYS_INLINE bool opengl_context_is_current(const opengl_context_t* ctx) { return ctx->vt->is_current(ctx); }
-ALWAYS_INLINE bool opengl_context_make_current(opengl_context_t* ctx, opengl_surface_handle_t s, Error* err)
-{ return ctx->vt->make_current(ctx, s, err); }
-ALWAYS_INLINE bool opengl_context_done_current(opengl_context_t* ctx) { return ctx->vt->done_current(ctx); }
-ALWAYS_INLINE bool opengl_context_supports_negative_swap_interval(const opengl_context_t* ctx)
-{ return ctx->vt->supports_negative_swap_interval(ctx); }
-ALWAYS_INLINE bool opengl_context_set_swap_interval(opengl_context_t* ctx, s32 i, Error* err)
-{ return ctx->vt->set_swap_interval(ctx, i, err); }
+ALWAYS_INLINE void opengl_context_destroy(opengl_context_t* ctx) {
+  if (ctx) ctx->vt->destroy(ctx);
+}
+ALWAYS_INLINE void* opengl_context_get_proc_address(opengl_context_t* ctx, const char* name) {
+  return ctx->vt->get_proc_address(ctx, name);
+}
+ALWAYS_INLINE opengl_surface_handle_t opengl_context_create_surface(opengl_context_t* ctx, window_info_t* wi,
+                                                                    Error* err) {
+  return ctx->vt->create_surface(ctx, wi, err);
+}
+ALWAYS_INLINE void opengl_context_destroy_surface(opengl_context_t* ctx, opengl_surface_handle_t h) {
+  ctx->vt->destroy_surface(ctx, h);
+}
+ALWAYS_INLINE void opengl_context_resize_surface(opengl_context_t* ctx, window_info_t* wi, opengl_surface_handle_t h) {
+  ctx->vt->resize_surface(ctx, wi, h);
+}
+ALWAYS_INLINE bool opengl_context_swap_buffers(opengl_context_t* ctx) {
+  return ctx->vt->swap_buffers(ctx);
+}
+ALWAYS_INLINE bool opengl_context_is_current(const opengl_context_t* ctx) {
+  return ctx->vt->is_current(ctx);
+}
+ALWAYS_INLINE bool opengl_context_make_current(opengl_context_t* ctx, opengl_surface_handle_t s, Error* err) {
+  return ctx->vt->make_current(ctx, s, err);
+}
+ALWAYS_INLINE bool opengl_context_done_current(opengl_context_t* ctx) {
+  return ctx->vt->done_current(ctx);
+}
+ALWAYS_INLINE bool opengl_context_supports_negative_swap_interval(const opengl_context_t* ctx) {
+  return ctx->vt->supports_negative_swap_interval(ctx);
+}
+ALWAYS_INLINE bool opengl_context_set_swap_interval(opengl_context_t* ctx, s32 i, Error* err) {
+  return ctx->vt->set_swap_interval(ctx, i, err);
+}
 ALWAYS_INLINE opengl_context_t* opengl_context_create_shared(opengl_context_t* ctx, window_info_t* wi,
-                                                             opengl_surface_handle_t* s, Error* err)
-{ return ctx->vt->create_shared_context(ctx, wi, s, err); }
+                                                             opengl_surface_handle_t* s, Error* err) {
+  return ctx->vt->create_shared_context(ctx, wi, s, err);
+}
 
 #endif /* CUPID_UTIL_OPENGL_CONTEXT_H */

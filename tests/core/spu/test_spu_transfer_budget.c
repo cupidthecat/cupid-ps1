@@ -7,8 +7,7 @@
 
 enum { TRANSFER_BASE = 0x10000, STATE_CAPACITY = SPU_RAM_SIZE + 65536 };
 
-static size_t save_sound(u8* bytes, u32 version)
-{
+static size_t save_sound(u8* bytes, u32 version) {
   state_wrapper_t sw;
   state_wrapper_init_write(&sw, bytes, STATE_CAPACITY, version);
   EXPECT_TRUE(spu_do_state(&sw));
@@ -16,8 +15,7 @@ static size_t save_sound(u8* bytes, u32 version)
   return state_wrapper_get_position(&sw);
 }
 
-static bool load_sound(u8* bytes, size_t length, u32 version)
-{
+static bool load_sound(u8* bytes, size_t length, u32 version) {
   state_wrapper_t sw;
   state_wrapper_init_read(&sw, bytes, length, version);
   const bool valid = spu_do_state(&sw) && !state_wrapper_has_error(&sw) && state_wrapper_get_position(&sw) == length;
@@ -25,8 +23,7 @@ static bool load_sound(u8* bytes, size_t length, u32 version)
   return valid;
 }
 
-static void begin_budget(bool read)
-{
+static void begin_budget(bool read) {
   const u32 program[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, program, 2);
   interrupt_controller_reset();
@@ -42,24 +39,23 @@ static void begin_budget(bool read)
   spu_write_register(0x1AA, read ? 0x30 : 0x20);
   if (!read) {
     u32 words[16];
-    for (u32 i = 0; i < 16; i++) words[i] = 0x1234ABCD ^ (i * 0x00310073);
+    for (u32 i = 0; i < 16; i++)
+      words[i] = 0x1234ABCD ^ (i * 0x00310073);
     spu_dma_write(words, 16);
   }
 }
 
-static void end_budget(void)
-{
+static void end_budget(void) {
   spu_shutdown();
   dma_shutdown();
   finish_cpu();
 }
 
-static void expect_progress(u32 halfwords, bool read)
-{
+static void expect_progress(u32 halfwords, bool read) {
   u8* bytes = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(bytes);
   const size_t length = save_sound(bytes, SAVE_STATE_VERSION);
-  u32 address, size;
+  u32          address, size;
   memcpy(&address, bytes + 10, sizeof(address));
   memcpy(&size, bytes + length - SPU_RAM_SIZE - sizeof(size), sizeof(size));
   printf("spu-budget read=%u halfwords=%u address=%08X size=%u\n", read, halfwords, address, size);
@@ -85,8 +81,7 @@ static void expect_progress(u32 halfwords, bool read)
   free(bytes);
 }
 
-static void check_budget(bool read)
-{
+static void check_budget(bool read) {
   begin_budget(read);
   advance_spu_clock(16);
   expect_progress(1, read);
@@ -105,13 +100,16 @@ static void check_budget(bool read)
   end_budget();
 }
 
-TEST(SpuTransferBudget, read_consumes_ticks_once) { check_budget(true); }
-TEST(SpuTransferBudget, write_consumes_ticks_once) { check_budget(false); }
+TEST(SpuTransferBudget, read_consumes_ticks_once) {
+  check_budget(true);
+}
+TEST(SpuTransferBudget, write_consumes_ticks_once) {
+  check_budget(false);
+}
 
-TEST(SpuTransferBudget, batching_preserves_complete_state)
-{
+TEST(SpuTransferBudget, batching_preserves_complete_state) {
   u8* batched = calloc(1, STATE_CAPACITY);
-  u8* split = calloc(1, STATE_CAPACITY);
+  u8* split   = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(batched);
   EXPECT_NOT_NULL(split);
   for (u32 read = 0; read < 2; read++) {
@@ -121,7 +119,8 @@ TEST(SpuTransferBudget, batching_preserves_complete_state)
       const size_t length = save_sound(batched, SAVE_STATE_VERSION);
       end_budget();
       begin_budget(read != 0);
-      for (u32 i = 0; i < ticks; i++) advance_spu_clock(1);
+      for (u32 i = 0; i < ticks; i++)
+        advance_spu_clock(1);
       EXPECT_EQ(save_sound(split, SAVE_STATE_VERSION), length);
       EXPECT_EQ(memcmp(batched, split, length), 0);
       end_budget();
@@ -131,11 +130,10 @@ TEST(SpuTransferBudget, batching_preserves_complete_state)
   free(batched);
 }
 
-TEST(SpuTransferBudget, restore_continues_fractional_ticks)
-{
-  u8* saved = calloc(1, STATE_CAPACITY);
+TEST(SpuTransferBudget, restore_continues_fractional_ticks) {
+  u8* saved    = calloc(1, STATE_CAPACITY);
   u8* expected = calloc(1, STATE_CAPACITY);
-  u8* actual = calloc(1, STATE_CAPACITY);
+  u8* actual   = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   EXPECT_NOT_NULL(expected);
   EXPECT_NOT_NULL(actual);
@@ -160,8 +158,7 @@ TEST(SpuTransferBudget, restore_continues_fractional_ticks)
   free(saved);
 }
 
-TEST(SpuTransferBudget, completed_fifo_has_no_idle_credit)
-{
+TEST(SpuTransferBudget, completed_fifo_has_no_idle_credit) {
   for (u32 read = 0; read < 2; read++) {
     begin_budget(read != 0);
     advance_spu_clock(32 * 16 + 15);
@@ -196,8 +193,7 @@ TEST(SpuTransferBudget, completed_fifo_has_no_idle_credit)
   }
 }
 
-TEST(SpuTransferBudget, legacy_state_drops_unrecorded_credit)
-{
+TEST(SpuTransferBudget, legacy_state_drops_unrecorded_credit) {
   u8* saved = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   begin_budget(false);
@@ -213,15 +209,14 @@ TEST(SpuTransferBudget, legacy_state_drops_unrecorded_credit)
   free(saved);
 }
 
-TEST(SpuTransferBudget, invalid_fifo_state_is_rejected)
-{
+TEST(SpuTransferBudget, invalid_fifo_state_is_rejected) {
   u8* saved = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   for (u32 field = 0; field < 4; field++) {
     begin_budget(true);
-    const size_t length = save_sound(saved, SAVE_STATE_VERSION);
+    const size_t length       = save_sound(saved, SAVE_STATE_VERSION);
     const size_t fifo_indices = length - SPU_RAM_SIZE - 3 * sizeof(u32);
-    const u32 bad = field < 2 ? 32 : field == 2 ? 33 : 1;
+    const u32    bad          = field < 2 ? 32 : field == 2 ? 33 : 1;
     memcpy(saved + fifo_indices + (field < 3 ? field : 1) * sizeof(u32), &bad, sizeof(bad));
     EXPECT_FALSE(load_sound(saved, length, SAVE_STATE_VERSION));
     end_budget();
@@ -229,8 +224,7 @@ TEST(SpuTransferBudget, invalid_fifo_state_is_rejected)
   free(saved);
 }
 
-TEST(SpuTransferBudget, invalid_fractional_state_is_rejected)
-{
+TEST(SpuTransferBudget, invalid_fractional_state_is_rejected) {
   u8* saved = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   const s32 invalid[] = {-1, 16, INT32_MAX};
@@ -245,8 +239,7 @@ TEST(SpuTransferBudget, invalid_fractional_state_is_rejected)
   free(saved);
 }
 
-TEST(SpuTransferBudget, truncated_state_is_rejected)
-{
+TEST(SpuTransferBudget, truncated_state_is_rejected) {
   u8* saved = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   begin_budget(true);
@@ -256,8 +249,7 @@ TEST(SpuTransferBudget, truncated_state_is_rejected)
   free(saved);
 }
 
-TEST(SpuTransferBudget, transfer_irq_waits_for_its_address)
-{
+TEST(SpuTransferBudget, transfer_irq_waits_for_its_address) {
   for (u32 read = 0; read < 2; read++) {
     begin_budget(read != 0);
     spu_write_register(0x1A4, (TRANSFER_BASE + 8) / 8);
@@ -274,9 +266,8 @@ TEST(SpuTransferBudget, transfer_irq_waits_for_its_address)
   }
 }
 
-TEST(SpuTransferBudget, nonpositive_slices_preserve_state)
-{
-  u8* saved = calloc(1, STATE_CAPACITY);
+TEST(SpuTransferBudget, nonpositive_slices_preserve_state) {
+  u8* saved  = calloc(1, STATE_CAPACITY);
   u8* actual = calloc(1, STATE_CAPACITY);
   EXPECT_NOT_NULL(saved);
   EXPECT_NOT_NULL(actual);
@@ -292,14 +283,14 @@ TEST(SpuTransferBudget, nonpositive_slices_preserve_state)
   free(saved);
 }
 
-TEST(SpuTransferBudget, dma_refill_shares_the_elapsed_budget)
-{
+TEST(SpuTransferBudget, dma_refill_shares_the_elapsed_budget) {
   begin_budget(false);
   spu_reset();
   spu_write_register(0x1A6, TRANSFER_BASE / 8);
   spu_write_register(0x1AA, 0x20);
   u32 words[64];
-  for (u32 i = 0; i < 64; i++) words[i] = 0x1248ABCD ^ (i * 0x17731439u);
+  for (u32 i = 0; i < 64; i++)
+    words[i] = 0x1248ABCD ^ (i * 0x17731439u);
   memcpy(bus_get_unprotected_ram_pointer() + 0x40000, words, sizeof(words));
   dma_write_register(0x70, 0x80000);
   dma_write_register(0x40, 0x40000);
@@ -319,9 +310,9 @@ TEST(SpuTransferBudget, dma_refill_shares_the_elapsed_budget)
     u16 actual;
     memcpy(&actual, spu_get_ram() + TRANSFER_BASE + i * 2, sizeof(actual));
     const u16 expected = (u16)(words[i / 2] >> (16 * (i & 1)));
-    if (actual != expected) printf("spu-refill-mismatch index=%u actual=%04X expected=%04X global=%llu pending=%d\n",
-                                  i, actual, expected, (unsigned long long)timing_events_get_global_tick_counter(),
-                                  cpu_get_pending_ticks());
+    if (actual != expected)
+      printf("spu-refill-mismatch index=%u actual=%04X expected=%04X global=%llu pending=%d\n", i, actual, expected,
+             (unsigned long long)timing_events_get_global_tick_counter(), cpu_get_pending_ticks());
   }
   fflush(stdout);
   EXPECT_EQ(dma_dbg_block_control(4) >> 16, 3);
@@ -336,8 +327,7 @@ TEST(SpuTransferBudget, dma_refill_shares_the_elapsed_budget)
   end_budget();
 }
 
-TEST(SpuTransferBudget, dma_read_blocks_share_the_elapsed_budget)
-{
+TEST(SpuTransferBudget, dma_read_blocks_share_the_elapsed_budget) {
   begin_budget(true);
   memset(bus_get_unprotected_ram_pointer() + 0x40000, 0xA5, 64 * sizeof(u32));
   dma_write_register(0x70, 0x80000);

@@ -6,8 +6,7 @@ static u32                       observed_reads;
 static bool                      report_bus_failure;
 static bus_memory_read_handler_t original_read;
 
-static u32 observe_read(u32 address)
-{
+static u32 observe_read(u32 address) {
   EXPECT_EQ(address, 0x1F8010F0);
   observed_reads++;
   const u32 value = original_read(address);
@@ -16,8 +15,7 @@ static u32 observe_read(u32 address)
 }
 
 static void check_coprocessor_load(u32 cop, u32 fault, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem,
-                                   bool linking)
-{
+                                   bool linking) {
   const u32 entry = 0x00010000;
   for (u32 constant_base = 0; constant_base < 2; constant_base++) {
     for (u32 branch = 0; branch < 3; branch++) {
@@ -101,28 +99,22 @@ static void check_coprocessor_load(u32 cop, u32 fault, cpu_execution_mode_t mode
 }
 
 #define COP_LOAD_CASES(name, cop, fault)                                                                        \
-  TEST(CpuCoprocessorLoad, name##_interpreter)                                                                  \
-  {                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_interpreter) {                                                                \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);        \
   }                                                                                                             \
-  TEST(CpuCoprocessorLoad, name##_cached)                                                                       \
-  {                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_cached) {                                                                     \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true); \
   }                                                                                                             \
-  TEST(CpuCoprocessorLoad, name##_native)                                                                       \
-  {                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_native) {                                                                     \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
   }                                                                                                             \
-  TEST(CpuCoprocessorLoad, name##_lut)                                                                          \
-  {                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_lut) {                                                                        \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                                             \
-  TEST(CpuCoprocessorLoad, name##_mmap)                                                                         \
-  {                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_mmap) {                                                                       \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);             \
   }                                                                                                             \
-  TEST(CpuCoprocessorLoad, name##_unlinked)                                                                     \
-  {                                                                                                             \
+  TEST(CpuCoprocessorLoad, name##_unlinked) {                                                                   \
     check_coprocessor_load(cop, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);        \
   }
 

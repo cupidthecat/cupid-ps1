@@ -1,8 +1,7 @@
 /* cupid-ps1 ROM control changes with previously decoded host blocks. */
 #include "tests/core/memory/device_bus_execution_fixture.h"
 
-static void check_warm_rom_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_warm_rom_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 cached = 0; cached < 2; cached++) {
     const u32 base = 0xA0010000, target = cached ? 0x9FC00400 : 0xBFC00400;
     const u32 words[] = {0x24091357, 0xAD490000, 0x8D4B0000, 0, 0xAD8E1010, 0x01000008, 0};
@@ -46,8 +45,7 @@ static void check_warm_rom_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t f
 }
 
 #define WARM_FETCH_CASE(name, mode, fastmem, linking) \
-  TEST(DeviceBusWarmFetch, name)                      \
-  {                                                   \
+  TEST(DeviceBusWarmFetch, name) {                    \
     check_warm_rom_fetch(mode, fastmem, linking);     \
   }
 WARM_FETCH_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

@@ -6,8 +6,7 @@
 #include "core/interrupts/interrupt_controller.h"
 #include "core/timers/timers.h"
 
-static timing_event_t* gate_crtc_event(void)
-{
+static timing_event_t* gate_crtc_event(void) {
   for (timing_event_t* event = *timing_events_get_head_event_ptr(); event; event = event->next) {
     if (event->name_len == 13 && memcmp(event->name_data, "GPU CRTC Tick", 13) == 0) return event;
   }
@@ -15,16 +14,14 @@ static timing_event_t* gate_crtc_event(void)
   return NULL;
 }
 
-static void advance_beam(u32 tick, u32 line)
-{
+static void advance_beam(u32 tick, u32 line) {
   const tick_count_t duration = gpu_get_system_ticks_until_ticks_and_line(tick, line);
   EXPECT_TRUE(duration > 0);
   cpu_add_pending_ticks(duration);
   timing_events_run_events();
 }
 
-static void restore_gated_clock(void)
-{
+static void restore_gated_clock(void) {
   u8           cpu[16384], irq[16], counters[128], timing[4096];
   const size_t gpu_capacity = 2 * 1024 * 1024;
   u8*          gpu          = malloc(gpu_capacity);
@@ -58,8 +55,7 @@ static void restore_gated_clock(void)
   free(gpu);
 }
 
-static void check_hblank_pause(bool dotclock, bool restore)
-{
+static void check_hblank_pause(bool dotclock, bool restore) {
   const u32 resolutions[] = {0, 1, 2, 3, 0x40};
   u32       failures = 0, observations = 0;
   for (u32 pal = 0; pal < 2; pal++) {
@@ -113,19 +109,15 @@ static void check_hblank_pause(bool dotclock, bool restore)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(GpuTimerGate, hblank_system_clock)
-{
+TEST(GpuTimerGate, hblank_system_clock) {
   check_hblank_pause(false, false);
 }
-TEST(GpuTimerGate, hblank_dot_clock)
-{
+TEST(GpuTimerGate, hblank_dot_clock) {
   check_hblank_pause(true, false);
 }
-TEST(GpuTimerGate, restored_system_clock)
-{
+TEST(GpuTimerGate, restored_system_clock) {
   check_hblank_pause(false, true);
 }
-TEST(GpuTimerGate, restored_dot_clock)
-{
+TEST(GpuTimerGate, restored_dot_clock) {
   check_hblank_pause(true, true);
 }

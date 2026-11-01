@@ -22,21 +22,18 @@ static u32 s_interrupt_line_state;
 
 #if !defined(NDEBUG)
 static const char* const s_irq_names[INTERRUPT_CONTROLLER_IRQ_MAX_COUNT] = {
-  "VBLANK", "GPU", "CDROM", "DMA", "TMR0", "TMR1", "TMR2", "PAD", "SIO", "SPU", "IRQ10"
-};
+    "VBLANK", "GPU", "CDROM", "DMA", "TMR0", "TMR1", "TMR2", "PAD", "SIO", "SPU", "IRQ10"};
 #endif
 
 static void interrupt_controller_update_cpu_request(void);
 
-void interrupt_controller_reset(void)
-{
+void interrupt_controller_reset(void) {
   s_interrupt_status_register = 0;
   s_interrupt_mask_register   = 0;
   s_interrupt_line_state      = 0;
 }
 
-bool interrupt_controller_do_state(state_wrapper_t* sw)
-{
+bool interrupt_controller_do_state(state_wrapper_t* sw) {
   state_wrapper_do_u32(sw, &s_interrupt_status_register);
   state_wrapper_do_u32(sw, &s_interrupt_mask_register);
   /* Old (pre-v63) save states didn't persist the device-side line state;
@@ -49,22 +46,25 @@ bool interrupt_controller_do_state(state_wrapper_t* sw)
   return !state_wrapper_has_error(sw);
 }
 
-static u32 s_dbg_irq_set_count[32];
-__attribute__((visibility("default")))
-const u32* irq_dbg_set_counts(void) { return s_dbg_irq_set_count; }
+static u32                                        s_dbg_irq_set_count[32];
+__attribute__((visibility("default"))) const u32* irq_dbg_set_counts(void) {
+  return s_dbg_irq_set_count;
+}
 
-u32 irq_dbg_status_register(void) { return s_interrupt_status_register; }
-u32 irq_dbg_mask_register(void) { return s_interrupt_mask_register; }
+u32 irq_dbg_status_register(void) {
+  return s_interrupt_status_register;
+}
+u32 irq_dbg_mask_register(void) {
+  return s_interrupt_mask_register;
+}
 
-void interrupt_controller_set_line_state(interrupt_controller_irq_t irq, bool state)
-{
+void interrupt_controller_set_line_state(interrupt_controller_irq_t irq, bool state) {
   if (state && (u32)irq < 32) s_dbg_irq_set_count[(u32)irq]++;
   /* Interrupts are edge-triggered: latch into I_STATUS only on 0->1. */
-  const u32 bit = (1u << (u32)irq);
-  const u32 prev_state = s_interrupt_line_state;
+  const u32 bit          = (1u << (u32)irq);
+  const u32 prev_state   = s_interrupt_line_state;
   s_interrupt_line_state = (s_interrupt_line_state & ~bit) | (state ? bit : 0u);
-  if (s_interrupt_line_state == prev_state)
-    return;
+  if (s_interrupt_line_state == prev_state) return;
 
 #if !defined(NDEBUG)
   if (!(prev_state & bit) && state)
@@ -73,15 +73,12 @@ void interrupt_controller_set_line_state(interrupt_controller_irq_t irq, bool st
     DEBUG_LOG("%s IRQ line inactive", s_irq_names[(size_t)irq]);
 #endif
 
-  s_interrupt_status_register |=
-    (state ? (prev_state ^ s_interrupt_line_state) : 0u) & s_interrupt_line_state;
+  s_interrupt_status_register |= (state ? (prev_state ^ s_interrupt_line_state) : 0u) & s_interrupt_line_state;
   interrupt_controller_update_cpu_request();
 }
 
-u32 interrupt_controller_read_register(u32 offset)
-{
-  switch (offset)
-  {
+u32 interrupt_controller_read_register(u32 offset) {
+  switch (offset) {
     case 0x00: /* I_STATUS */
       return s_interrupt_status_register;
 
@@ -94,17 +91,14 @@ u32 interrupt_controller_read_register(u32 offset)
   }
 }
 
-void interrupt_controller_write_register(u32 offset, u32 value)
-{
-  switch (offset)
-  {
+void interrupt_controller_write_register(u32 offset, u32 value) {
+  switch (offset) {
     case 0x00: /* I_STATUS; writes acknowledge (clear) bits. */
     {
 #if !defined(NDEBUG)
       const u32 cleared_bits = (s_interrupt_status_register & ~value);
       for (u32 i = 0; i < (u32)INTERRUPT_CONTROLLER_IRQ_MAX_COUNT; i++) {
-        if (cleared_bits & (1u << i))
-          DEBUG_LOG("%s IRQ cleared", s_irq_names[i]);
+        if (cleared_bits & (1u << i)) DEBUG_LOG("%s IRQ cleared", s_irq_names[i]);
       }
 #endif
       s_interrupt_status_register = s_interrupt_status_register & (value & IRQ_REGISTER_WRITE_MASK);
@@ -124,8 +118,7 @@ void interrupt_controller_write_register(u32 offset, u32 value)
   }
 }
 
-static void interrupt_controller_update_cpu_request(void)
-{
+static void interrupt_controller_update_cpu_request(void) {
   const bool state = (s_interrupt_status_register & s_interrupt_mask_register) != 0;
   cpu_set_irq_request(state);
 }

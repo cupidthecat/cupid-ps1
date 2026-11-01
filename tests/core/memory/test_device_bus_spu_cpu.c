@@ -1,26 +1,22 @@
 /* cupid-ps1 SPU bus controls exercised by guest CPU programs. */
 #include "tests/core/memory/device_bus_execution_fixture.h"
 
-static void emit_constant(u32* words, u32* count, u32 reg, u32 value)
-{
+static void emit_constant(u32* words, u32* count, u32 reg, u32 value) {
   words[(*count)++] = 0x3C000000 | (reg << 16) | (value >> 16);
   words[(*count)++] = 0x34000000 | (reg << 21) | (reg << 16) | (value & 0xFFFF);
 }
 
-static void emit_spu_control(u32* words, u32* count, u32 value)
-{
+static void emit_spu_control(u32* words, u32* count, u32 value) {
   emit_constant(words, count, 14, value);
   words[(*count)++] = 0xAD8E0014;
 }
 
-static void emit_spu_word(u32* words, u32* count, u32 value)
-{
+static void emit_spu_word(u32* words, u32* count, u32 value) {
   emit_constant(words, count, 15, value);
   words[(*count)++] = 0xADAF0000;
 }
 
-static void check_spu_cpu_controls(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_spu_cpu_controls(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 constant = 0; constant < 2; constant++) {
     for (u32 restore = 0; restore < 2; restore++) {
       const u32 base = 0xA0010000;
@@ -98,8 +94,7 @@ static void check_spu_cpu_controls(cpu_execution_mode_t mode, cpu_fastmem_mode_t
 }
 
 #define SPU_CPU_CASE(name, mode, fastmem, linking)  \
-  TEST(DeviceBusSPUCPU, name)                       \
-  {                                                 \
+  TEST(DeviceBusSPUCPU, name) {                     \
     check_spu_cpu_controls(mode, fastmem, linking); \
   }
 SPU_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

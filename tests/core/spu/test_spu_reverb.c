@@ -15,19 +15,16 @@ static const s16 input_kernel[39] = {-1,   0,    2,   0,     -10,  0,     35,   
                                      0,    1332, 0,   -2960, 0,    10246, 16384, 10246, 0,    -2960, 0,   1332, 0,
                                      -616, 0,    266, 0,     -103, 0,     35,    0,     -10,  0,     2,   0,    -1};
 
-static s32 floor_shift(s64 value, u32 shift)
-{
+static s32 floor_shift(s64 value, u32 shift) {
   const s64 unit = (s64)1 << shift;
   return (s32)(value >= 0 ? value / unit : -((-value + unit - 1) / unit));
 }
 
-static s16 saturate_sample(s32 value)
-{
+static s16 saturate_sample(s32 value) {
   return (s16)(value < -32768 ? -32768 : value > 32767 ? 32767 : value);
 }
 
-static void begin_reverb(void)
-{
+static void begin_reverb(void) {
   const u32 program[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, program, 2);
   interrupt_controller_reset();
@@ -42,23 +39,20 @@ static void begin_reverb(void)
   spu_write_register(0x1AA, 0xC080);
 }
 
-static void end_reverb(void)
-{
+static void end_reverb(void) {
   spu_shutdown();
   dma_shutdown();
   finish_cpu();
 }
 
-static size_t save_sound(u8* bytes)
-{
+static size_t save_sound(u8* bytes) {
   state_wrapper_t sw;
   state_wrapper_init_write(&sw, bytes, SOUND_CAPACITY, SAVE_STATE_VERSION);
   EXPECT_TRUE(spu_do_state(&sw));
   return state_wrapper_get_position(&sw);
 }
 
-static void load_sound(const u8* bytes, size_t length)
-{
+static void load_sound(const u8* bytes, size_t length) {
   state_wrapper_t sw;
   state_wrapper_init_read(&sw, bytes, length, SAVE_STATE_VERSION);
   EXPECT_TRUE(spu_do_state(&sw));
@@ -66,8 +60,7 @@ static void load_sound(const u8* bytes, size_t length)
   spu_post_load_state(SAVE_STATE_VERSION);
 }
 
-static void set_history(u8* bytes, const s16 history[2][64], u32 position)
-{
+static void set_history(u8* bytes, const s16 history[2][64], u32 position) {
   for (u32 channel = 0; channel < 2; channel++) {
     for (u32 copy = 0; copy < 2; copy++)
       memcpy(bytes + DOWNSAMPLE_OFFSET + (channel * 128 + copy * 64) * sizeof(s16), history[channel], 64 * sizeof(s16));
@@ -75,8 +68,7 @@ static void set_history(u8* bytes, const s16 history[2][64], u32 position)
   memcpy(bytes + POSITION_OFFSET, &position, sizeof(position));
 }
 
-static void expect_reflections(const s16 history[2][64], u32 position, u32 reverb_step, s16* previous)
-{
+static void expect_reflections(const s16 history[2][64], u32 position, u32 reverb_step, s16* previous) {
   for (u32 channel = 0; channel < 2; channel++) {
     s64 sum = 0;
     for (u32 tap = 0; tap < 39; tap++)
@@ -90,8 +82,7 @@ static void expect_reflections(const s16 history[2][64], u32 position, u32 rever
   }
 }
 
-TEST(SpuReverb, input_impulses_all_history_positions)
-{
+TEST(SpuReverb, input_impulses_all_history_positions) {
   begin_reverb();
   u8* initial = calloc(1, SOUND_CAPACITY);
   EXPECT_NOT_NULL(initial);
@@ -120,8 +111,7 @@ TEST(SpuReverb, input_impulses_all_history_positions)
   end_reverb();
 }
 
-TEST(SpuReverb, input_saturation_and_dc)
-{
+TEST(SpuReverb, input_saturation_and_dc) {
   begin_reverb();
   u8* bytes = calloc(1, SOUND_CAPACITY);
   EXPECT_NOT_NULL(bytes);
@@ -147,8 +137,7 @@ TEST(SpuReverb, input_saturation_and_dc)
   end_reverb();
 }
 
-TEST(SpuReverb, streaming_history_wrap_and_restore)
-{
+TEST(SpuReverb, streaming_history_wrap_and_restore) {
   begin_reverb();
   u8* bytes = calloc(1, SOUND_CAPACITY);
   EXPECT_NOT_NULL(bytes);
@@ -181,8 +170,7 @@ TEST(SpuReverb, streaming_history_wrap_and_restore)
   end_reverb();
 }
 
-TEST(SpuReverb, decoded_voice_feeds_all_input_taps)
-{
+TEST(SpuReverb, decoded_voice_feeds_all_input_taps) {
   begin_reverb();
   for (u32 block = 0; block < 8; block++) {
     u8* data = spu_get_writable_ram() + 0x10000 + block * 16;

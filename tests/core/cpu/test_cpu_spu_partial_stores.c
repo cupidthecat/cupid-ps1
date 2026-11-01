@@ -4,20 +4,17 @@
 static bus_memory_read_handler_t original_spu_word_read;
 static u32                       observed_spu_word_reads;
 
-static u32 observe_spu_word_read(u32 address)
-{
+static u32 observe_spu_word_read(u32 address) {
   observed_spu_word_reads++;
   return original_spu_word_read(address);
 }
 
-static void emit_constant(u32* words, u32* count, u32 reg, u32 value)
-{
+static void emit_constant(u32* words, u32* count, u32 reg, u32 value) {
   words[(*count)++] = 0x3C000000 | (reg << 16) | (value >> 16);
   words[(*count)++] = 0x34000000 | (reg << 21) | (reg << 16) | (value & 0xFFFF);
 }
 
-static void check_spu_partial_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_spu_partial_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 baselines[]          = {0, 0xFFFFFFFF, 0x11223344};
   const u32 sources[]            = {0xAABBCCDD, 0xFEDCBA98};
   const u16 left_values[2][2][4] = {
@@ -125,8 +122,7 @@ static void check_spu_partial_stores(cpu_execution_mode_t mode, cpu_fastmem_mode
 }
 
 #define SPU_PARTIAL_CASE(name, mode, fastmem, linking) \
-  TEST(CpuPartialSPU, name)                            \
-  {                                                    \
+  TEST(CpuPartialSPU, name) {                          \
     check_spu_partial_stores(mode, fastmem, linking);  \
   }
 SPU_PARTIAL_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

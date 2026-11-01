@@ -11,15 +11,14 @@ typedef struct {
   u16  qscale;
   u8   decoder;
   bool pending;
-  u8 output_row_words, output_word;
+  u8   output_row_words, output_word;
   u8   iq_uv[64], iq_y[64];
   s16  scale[64];
   s16  blocks[6][64];
   u32  rgb[256];
 } coefficient_snapshot_t;
 
-static coefficient_snapshot_t read_coefficients(void)
-{
+static coefficient_snapshot_t read_coefficients(void) {
   u8              bytes[8192];
   state_wrapper_t state;
   state_wrapper_init_write(&state, bytes, sizeof(bytes), SAVE_STATE_VERSION);
@@ -52,8 +51,7 @@ static coefficient_snapshot_t read_coefficients(void)
   return result;
 }
 
-static void restore_coefficients(void)
-{
+static void restore_coefficients(void) {
   u8 cpu[16384], decoder[8192], dmac[4096], events[4096], after[8192];
   struct {
     bool (*do_state)(state_wrapper_t*);
@@ -87,8 +85,7 @@ static void restore_coefficients(void)
   EXPECT_EQ(memcmp(decoder, after, components[1].size), 0);
 }
 
-static timing_event_t* find_mdec_copy_event(void)
-{
+static timing_event_t* find_mdec_copy_event(void) {
   timing_event_t* event = *timing_events_get_head_event_ptr();
   while (event && strcmp(event->name_data, "MDEC Block Copy Out") != 0)
     event = event->next;
@@ -96,8 +93,7 @@ static timing_event_t* find_mdec_copy_event(void)
   return event;
 }
 
-static void begin_decode(bool old)
-{
+static void begin_decode(bool old) {
   const u32 program[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, program, 2);
   g_settings.mdec_use_old_routines      = old;
@@ -106,8 +102,7 @@ static void begin_decode(bool old)
   mdec_initialize();
 }
 
-static void end_decode(void)
-{
+static void end_decode(void) {
   mdec_shutdown();
   dma_shutdown();
   finish_cpu();

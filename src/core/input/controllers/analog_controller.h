@@ -19,7 +19,7 @@
 #include "common/types.h"
 
 enum {
-  ANALOG_CONTROLLER_NUM_MOTORS    = 2,
+  ANALOG_CONTROLLER_NUM_MOTORS          = 2,
   ANALOG_CONTROLLER_MAX_RESPONSE_LENGTH = 8,
   ANALOG_CONTROLLER_RUMBLE_CONFIG_LEN   = 6,
 };
@@ -68,30 +68,29 @@ typedef enum : u8 {
 typedef enum : u8 {
   ANALOG_CONTROLLER_CMD_IDLE,
   ANALOG_CONTROLLER_CMD_READY,
-  ANALOG_CONTROLLER_CMD_READ_PAD,            /* 0x42 */
-  ANALOG_CONTROLLER_CMD_CONFIG_MODE_SET_MODE,/* 0x43 */
-  ANALOG_CONTROLLER_CMD_SET_ANALOG_MODE,     /* 0x44 */
-  ANALOG_CONTROLLER_CMD_GET_ANALOG_MODE,     /* 0x45 */
-  ANALOG_CONTROLLER_CMD_46,                  /* 0x46; unknown query */
-  ANALOG_CONTROLLER_CMD_47,                  /* 0x47; ditto */
-  ANALOG_CONTROLLER_CMD_4C,                  /* 0x4C; ditto */
-  ANALOG_CONTROLLER_CMD_GET_SET_RUMBLE,      /* 0x4D */
+  ANALOG_CONTROLLER_CMD_READ_PAD,             /* 0x42 */
+  ANALOG_CONTROLLER_CMD_CONFIG_MODE_SET_MODE, /* 0x43 */
+  ANALOG_CONTROLLER_CMD_SET_ANALOG_MODE,      /* 0x44 */
+  ANALOG_CONTROLLER_CMD_GET_ANALOG_MODE,      /* 0x45 */
+  ANALOG_CONTROLLER_CMD_46,                   /* 0x46; unknown query */
+  ANALOG_CONTROLLER_CMD_47,                   /* 0x47; ditto */
+  ANALOG_CONTROLLER_CMD_4C,                   /* 0x4C; ditto */
+  ANALOG_CONTROLLER_CMD_GET_SET_RUMBLE,       /* 0x4D */
 } analog_controller_command_t;
 
 enum {
   ANALOG_CONTROLLER_HALFAXIS_BIND_START_INDEX = (u32)ANALOG_CONTROLLER_BUTTON_COUNT,
-  ANALOG_CONTROLLER_MOTOR_BIND_START_INDEX    = ANALOG_CONTROLLER_HALFAXIS_BIND_START_INDEX +
-                                                (u32)ANALOG_CONTROLLER_HALF_AXIS_COUNT,
-  ANALOG_CONTROLLER_LED_BIND_START_INDEX      = ANALOG_CONTROLLER_MOTOR_BIND_START_INDEX +
-                                                ANALOG_CONTROLLER_NUM_MOTORS,
+  ANALOG_CONTROLLER_MOTOR_BIND_START_INDEX =
+      ANALOG_CONTROLLER_HALFAXIS_BIND_START_INDEX + (u32)ANALOG_CONTROLLER_HALF_AXIS_COUNT,
+  ANALOG_CONTROLLER_LED_BIND_START_INDEX = ANALOG_CONTROLLER_MOTOR_BIND_START_INDEX + ANALOG_CONTROLLER_NUM_MOTORS,
 };
 
 typedef struct analog_controller {
   controller_t base;
 
   analog_controller_command_t command;
-  u8 command_step;
-  u8 response_length;
+  u8                          command_step;
+  u8                          response_length;
 
   /* Transmit and receive buffers, not including the first Hi-Z/ack response byte. */
   u8 rx_buffer[ANALOG_CONTROLLER_MAX_RESPONSE_LENGTH];

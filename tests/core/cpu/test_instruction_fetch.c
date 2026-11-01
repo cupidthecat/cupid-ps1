@@ -16,22 +16,19 @@ static const u32 fetch_program[]  = {
 static u32                       device_fetch_reads;
 static bus_memory_read_handler_t original_device_fetch;
 
-static u32 count_device_fetch(u32 address)
-{
+static u32 count_device_fetch(u32 address) {
   device_fetch_reads++;
   return original_device_fetch(address);
 }
 
-static void install_fetch_handler(void)
-{
+static void install_fetch_handler(void) {
   const u32 handler[] = {0x26100001, 0x1000FFFF, 0};
   memcpy(bus_get_unprotected_ram_pointer() + 0x80, handler, sizeof(handler));
   g_cpu_state.cop0_regs.sr.BEV   = 0;
   g_cpu_state.cop0_regs.BadVaddr = 0x12345678;
 }
 
-static void check_fetch_fault(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 physical)
-{
+static void check_fetch_fault(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 physical) {
   for (size_t segment = 0; segment < FETCH_COUNT(fetch_segments); segment++) {
     const u32 prefix = fetch_segments[segment];
     const u32 target = prefix | physical;
@@ -54,8 +51,7 @@ static void check_fetch_fault(cpu_execution_mode_t mode, cpu_fastmem_mode_t fast
   }
 }
 
-static void check_fetch_device(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 physical)
-{
+static void check_fetch_device(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 physical) {
   for (size_t segment = 0; segment < FETCH_COUNT(fetch_segments); segment++) {
     const u32 prefix = fetch_segments[segment];
     const u32 target = prefix | physical;
@@ -90,8 +86,7 @@ static void check_fetch_device(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
   }
 }
 
-static void check_fetch_delay_slot(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_fetch_delay_slot(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   for (size_t segment = 0; segment < FETCH_COUNT(fetch_segments); segment++) {
     const u32 prefix = fetch_segments[segment];
     const u32 loop[] = {0x1000FFFF, 0};
@@ -114,8 +109,7 @@ static void check_fetch_delay_slot(cpu_execution_mode_t mode, cpu_fastmem_mode_t
   }
 }
 
-static void check_fetch_alignment(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_fetch_alignment(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   for (size_t segment = 0; segment < FETCH_COUNT(fetch_segments); segment++) {
     const u32 prefix = fetch_segments[segment];
     start_cpu_with_fastmem(mode, fastmem, prefix | 0x10020, fetch_program, FETCH_COUNT(fetch_program));
@@ -135,8 +129,7 @@ static void check_fetch_alignment(cpu_execution_mode_t mode, cpu_fastmem_mode_t 
   }
 }
 
-static void check_compiled_alignment(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_compiled_alignment(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   const u32 words[] = {0x3C080002, 0x35080002, 0x0100F809, 0x26310001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(mode, fastmem, 0x10020, words, FETCH_COUNT(words));
   install_fetch_handler();
@@ -154,8 +147,7 @@ static void check_compiled_alignment(cpu_execution_mode_t mode, cpu_fastmem_mode
   finish_cpu();
 }
 
-static void check_delay_exception_priority(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_delay_exception_priority(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   const u32 words[] = {0x0100F809, 0x0000000C, 0x1000FFFF, 0}; /* jalr; syscall */
   start_cpu_with_fastmem(mode, fastmem, 0x10020, words, FETCH_COUNT(words));
   install_fetch_handler();
@@ -172,16 +164,14 @@ static void check_delay_exception_priority(cpu_execution_mode_t mode, cpu_fastme
   finish_cpu();
 }
 
-static void install_cached_return(u32 target)
-{
+static void install_cached_return(u32 target) {
   const u32 line                                                = cpu_get_icache_line(target);
   g_cpu_state.icache_tags[line]                                 = cpu_get_icache_tag_for_address(target);
   g_cpu_state.icache_data[line * CPU_ICACHE_WORDS_PER_LINE]     = 0x03E00008;
   g_cpu_state.icache_data[line * CPU_ICACHE_WORDS_PER_LINE + 1] = 0;
 }
 
-static void check_cached_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_cached_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   for (size_t segment = 0; segment < 2; segment++) {
     const u32 prefix = fetch_segments[segment];
     const u32 target = prefix | 0x1F800000;
@@ -199,46 +189,36 @@ static void check_cached_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
 }
 
 /* Each device region has its own test so one failure cannot hide the others. */
-#define FETCH_CASES(name, mode, fastmem)                  \
-  TEST(InstructionFetch, name##_scratchpad)               \
-  {                                                       \
-    check_fetch_fault(mode, fastmem, 0x1F800000);         \
-  }                                                       \
-  TEST(InstructionFetch, name##_mdec)                     \
-  {                                                       \
-    check_fetch_fault(mode, fastmem, 0x1F801820);         \
-  }                                                       \
-  TEST(InstructionFetch, name##_interrupts)               \
-  {                                                       \
-    check_fetch_fault(mode, fastmem, 0x1F801070);         \
-  }                                                       \
-  TEST(InstructionFetch, name##_ram)                      \
-  {                                                       \
-    check_fetch_device(mode, fastmem, 0x00040000);        \
-  }                                                       \
-  TEST(InstructionFetch, name##_spu)                      \
-  {                                                       \
-    check_fetch_device(mode, fastmem, 0x1F801C00);        \
-  }                                                       \
-  TEST(InstructionFetch, name##_dma_channel)              \
-  {                                                       \
-    check_fetch_device(mode, fastmem, 0x1F801084);        \
-  }                                                       \
-  TEST(InstructionFetch, name##_dma_control)              \
-  {                                                       \
-    check_fetch_device(mode, fastmem, 0x1F8010F0);        \
-  }                                                       \
-  TEST(InstructionFetch, name##_faulting_delay_slot)      \
-  {                                                       \
-    check_fetch_delay_slot(mode, fastmem);                \
-  }                                                       \
-  TEST(InstructionFetch, name##_unaligned_target)         \
-  {                                                       \
-    check_fetch_alignment(mode, fastmem);                 \
-  }                                                       \
-  TEST(InstructionFetch, name##_cached_word_needs_no_bus) \
-  {                                                       \
-    check_cached_fetch(mode, fastmem);                    \
+#define FETCH_CASES(name, mode, fastmem)                    \
+  TEST(InstructionFetch, name##_scratchpad) {               \
+    check_fetch_fault(mode, fastmem, 0x1F800000);           \
+  }                                                         \
+  TEST(InstructionFetch, name##_mdec) {                     \
+    check_fetch_fault(mode, fastmem, 0x1F801820);           \
+  }                                                         \
+  TEST(InstructionFetch, name##_interrupts) {               \
+    check_fetch_fault(mode, fastmem, 0x1F801070);           \
+  }                                                         \
+  TEST(InstructionFetch, name##_ram) {                      \
+    check_fetch_device(mode, fastmem, 0x00040000);          \
+  }                                                         \
+  TEST(InstructionFetch, name##_spu) {                      \
+    check_fetch_device(mode, fastmem, 0x1F801C00);          \
+  }                                                         \
+  TEST(InstructionFetch, name##_dma_channel) {              \
+    check_fetch_device(mode, fastmem, 0x1F801084);          \
+  }                                                         \
+  TEST(InstructionFetch, name##_dma_control) {              \
+    check_fetch_device(mode, fastmem, 0x1F8010F0);          \
+  }                                                         \
+  TEST(InstructionFetch, name##_faulting_delay_slot) {      \
+    check_fetch_delay_slot(mode, fastmem);                  \
+  }                                                         \
+  TEST(InstructionFetch, name##_unaligned_target) {         \
+    check_fetch_alignment(mode, fastmem);                   \
+  }                                                         \
+  TEST(InstructionFetch, name##_cached_word_needs_no_bus) { \
+    check_cached_fetch(mode, fastmem);                      \
   }
 
 FETCH_CASES(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED)
@@ -246,14 +226,12 @@ FETCH_CASES(cached, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISA
 FETCH_CASES(native, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED)
 FETCH_CASES(mmap, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP)
 
-#define FETCH_CONTEXT_CASES(name, mode, fastmem)                       \
-  TEST(InstructionFetch, name##_unaligned_compiled_lut_slot)           \
-  {                                                                    \
-    check_compiled_alignment(mode, fastmem);                           \
-  }                                                                    \
-  TEST(InstructionFetch, name##_delay_exception_precedes_target_fault) \
-  {                                                                    \
-    check_delay_exception_priority(mode, fastmem);                     \
+#define FETCH_CONTEXT_CASES(name, mode, fastmem)                         \
+  TEST(InstructionFetch, name##_unaligned_compiled_lut_slot) {           \
+    check_compiled_alignment(mode, fastmem);                             \
+  }                                                                      \
+  TEST(InstructionFetch, name##_delay_exception_precedes_target_fault) { \
+    check_delay_exception_priority(mode, fastmem);                       \
   }
 
 FETCH_CONTEXT_CASES(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED)
@@ -261,8 +239,7 @@ FETCH_CONTEXT_CASES(cached, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_M
 FETCH_CONTEXT_CASES(native, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED)
 FETCH_CONTEXT_CASES(mmap, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP)
 
-static void check_queued_fetch_fault(bool restore)
-{
+static void check_queued_fetch_fault(bool restore) {
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0x10020, fetch_program, FETCH_COUNT(fetch_program));
   install_fetch_handler();
   g_cpu_state.regs.r[8] = 0x1F800000;
@@ -294,17 +271,14 @@ static void check_queued_fetch_fault(bool restore)
   finish_cpu();
 }
 
-TEST(InstructionFetch, queued_fault_survives_cache_write)
-{
+TEST(InstructionFetch, queued_fault_survives_cache_write) {
   check_queued_fetch_fault(false);
 }
-TEST(InstructionFetch, queued_fault_survives_state_restore)
-{
+TEST(InstructionFetch, queued_fault_survives_state_restore) {
   check_queued_fetch_fault(true);
 }
 
-TEST(InstructionFetch, queued_fault_survives_execution_mode_change)
-{
+TEST(InstructionFetch, queued_fault_survives_execution_mode_change) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < FETCH_COUNT(modes); mode++) {
     start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0x10020, fetch_program, FETCH_COUNT(fetch_program));
@@ -327,8 +301,7 @@ TEST(InstructionFetch, queued_fault_survives_execution_mode_change)
   }
 }
 
-TEST(InstructionFetch, mode_change_delivers_faulting_branch_delay_slot)
-{
+TEST(InstructionFetch, mode_change_delivers_faulting_branch_delay_slot) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < FETCH_COUNT(modes); mode++) {
     const u32 loop[] = {0x1000FFFF, 0};
@@ -353,8 +326,7 @@ TEST(InstructionFetch, mode_change_delivers_faulting_branch_delay_slot)
   }
 }
 
-TEST(InstructionFetch, version_84_state_has_no_pending_fetch_exception)
-{
+TEST(InstructionFetch, version_84_state_has_no_pending_fetch_exception) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0x10020, loop, FETCH_COUNT(loop));
   install_fetch_handler();
@@ -375,8 +347,7 @@ TEST(InstructionFetch, version_84_state_has_no_pending_fetch_exception)
   finish_cpu();
 }
 
-TEST(InstructionFetch, state_rejects_invalid_fetch_exception)
-{
+TEST(InstructionFetch, state_rejects_invalid_fetch_exception) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0x10020, loop, FETCH_COUNT(loop));
   u8              data[16384];
@@ -392,15 +363,13 @@ TEST(InstructionFetch, state_rejects_invalid_fetch_exception)
 }
 
 static u32 speculative_fetch_reads;
-static u32 count_speculative_fetch(u32 address)
-{
+static u32 count_speculative_fetch(u32 address) {
   (void)address;
   speculative_fetch_reads++;
   return 0;
 }
 
-TEST(InstructionFetch, safe_decoder_does_not_read_device_registers)
-{
+TEST(InstructionFetch, safe_decoder_does_not_read_device_registers) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0x10020, loop, FETCH_COUNT(loop));
   bus_memory_read_handler_t* handlers =

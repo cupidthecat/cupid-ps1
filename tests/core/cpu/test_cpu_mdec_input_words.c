@@ -1,7 +1,6 @@
 #include "tests/core/mdec/mdec_input_fixture.h"
 
-static void check_cpu_dma_input(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_cpu_dma_input(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 rooms[] = {66, 67}, requests[] = {1, 33}, patterns[] = {0xCAFE1357, 0x89ABCDEF};
   u32       observations = 0, failures = 0;
   for (u32 old = 0; old < 2; old++) {
@@ -73,8 +72,7 @@ static void check_cpu_dma_input(cpu_execution_mode_t mode, cpu_fastmem_mode_t fa
 }
 
 #define MDEC_INPUT_CPU_CASE(name, mode, fastmem, linking) \
-  TEST(MdecInputDmaCpu, name)                             \
-  {                                                       \
+  TEST(MdecInputDmaCpu, name) {                           \
     check_cpu_dma_input(mode, fastmem, linking);          \
   }
 MDEC_INPUT_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)
@@ -86,8 +84,7 @@ MDEC_INPUT_CPU_CASE(native_mmap_unlinked, CPU_EXECUTION_MODE_RECOMPILER, CPU_FAS
 MDEC_INPUT_CPU_CASE(native_lut, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true)
 MDEC_INPUT_CPU_CASE(native_lut_unlinked, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, false)
 
-static void check_cpu_mmio_input(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_cpu_mmio_input(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 rooms[] = {0, 1, 2, 3}, patterns[] = {0xCAFE1357, 0x89ABCDEF};
   u32       observations = 0, failures = 0;
   for (u32 old = 0; old < 2; old++) {
@@ -138,8 +135,7 @@ static void check_cpu_mmio_input(cpu_execution_mode_t mode, cpu_fastmem_mode_t f
 }
 
 #define MDEC_INPUT_MMIO_CPU_CASE(name, mode, fastmem, linking) \
-  TEST(MdecInputMmioCpu, name)                                 \
-  {                                                            \
+  TEST(MdecInputMmioCpu, name) {                               \
     check_cpu_mmio_input(mode, fastmem, linking);              \
   }
 MDEC_INPUT_MMIO_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

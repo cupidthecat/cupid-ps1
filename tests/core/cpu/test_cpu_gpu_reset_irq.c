@@ -6,8 +6,7 @@
 #include "core/interrupts/interrupt_controller.h"
 #include "core/timers/timers.h"
 
-static void check_cpu_gpu_reset_irq(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_cpu_gpu_reset_irq(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   u32 failures = 0, observations = 0;
   for (u32 alias = 0; alias < 4; alias++) {
     for (u32 partial = 0; partial < 2; partial++) {
@@ -100,8 +99,7 @@ static void check_cpu_gpu_reset_irq(cpu_execution_mode_t mode, cpu_fastmem_mode_
 }
 
 #define GPU_RESET_CPU_CASE(name, mode, fastmem, linking) \
-  TEST(GpuResetCpu, name)                                \
-  {                                                      \
+  TEST(GpuResetCpu, name) {                              \
     check_cpu_gpu_reset_irq(mode, fastmem, linking);     \
   }
 GPU_RESET_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

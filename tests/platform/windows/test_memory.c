@@ -21,8 +21,7 @@ static bool         s_last_write;
 static unsigned     s_faults, s_chained;
 static volatile u8* s_nested_address;
 
-static void check_named_memory(void)
-{
+static void check_named_memory(void) {
   Error error = ERROR_INIT;
   char  name[128];
   CHECK(snprintf(name, sizeof(name), "cupid-platform-%lu-\xCE\xBB", (unsigned long)GetCurrentProcessId()) > 0);
@@ -43,8 +42,7 @@ static void check_named_memory(void)
   Error_destroy(&error);
 }
 
-static page_fault_handler_result_t fix_fault(void* pc, void* address, bool write)
-{
+static page_fault_handler_result_t fix_fault(void* pc, void* address, bool write) {
   if (address != s_expected_address) return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
   s_faults++;
   s_last_pc    = pc;
@@ -55,8 +53,7 @@ static page_fault_handler_result_t fix_fault(void* pc, void* address, bool write
   return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
 }
 
-static LONG CALLBACK chained_handler(PEXCEPTION_POINTERS exception)
-{
+static LONG CALLBACK chained_handler(PEXCEPTION_POINTERS exception) {
   if (exception->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION) return EXCEPTION_CONTINUE_SEARCH;
   void* address = (void*)exception->ExceptionRecord->ExceptionInformation[1];
   if (address != (const void*)s_nested_address && address != s_expected_address) return EXCEPTION_CONTINUE_SEARCH;
@@ -66,8 +63,7 @@ static LONG CALLBACK chained_handler(PEXCEPTION_POINTERS exception)
   return EXCEPTION_CONTINUE_EXECUTION;
 }
 
-static void check_arena(void)
-{
+static void check_arena(void) {
   Error error  = ERROR_INIT;
   void* handle = memmap_create_shared_memory(NULL, 8u * 1024u * 1024u, &error);
   CHECK(handle);
@@ -116,8 +112,7 @@ static void check_arena(void)
   Error_destroy(&error);
 }
 
-static void check_faults_and_jit(void)
-{
+static void check_faults_and_jit(void) {
   Error error  = ERROR_INIT;
   void* handle = memmap_create_shared_memory(NULL, 65536, &error);
   CHECK(handle);
@@ -166,8 +161,7 @@ static void check_faults_and_jit(void)
   Error_destroy(&error);
 }
 
-static void check_unhandled_child(const char* executable)
-{
+static void check_unhandled_child(const char* executable) {
   char command[32768];
   CHECK(snprintf(command, sizeof(command), "\"%s\" --unhandled", executable) > 0);
   wchar_t* wide = windows_utf8_to_wide(command, NULL);
@@ -183,8 +177,7 @@ static void check_unhandled_child(const char* executable)
   CloseHandle(process.hProcess);
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
   if (argc == 2 && strcmp(argv[1], "--unhandled") == 0) {
     CHECK(page_fault_handler_install(NULL));

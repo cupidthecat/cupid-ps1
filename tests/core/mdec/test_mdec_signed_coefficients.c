@@ -1,15 +1,13 @@
 #include "tests/core/mdec/mdec_decode_fixture.h"
 
-static void write_coefficients(bool dma, u32 word)
-{
+static void write_coefficients(bool dma, u32 word) {
   if (dma)
     mdec_dma_write(&word, 1);
   else
     mdec_write_register(0, word);
 }
 
-static void check_signed_coefficients(bool ac, bool scaled)
-{
+static void check_signed_coefficients(bool ac, bool scaled) {
   const s16 values[]        = {-512, -1, 0, 1, 511};
   const s16 unscaled[]      = {-16384, -32, 0, 32, 16352};
   const s16 dc_scaled[2][5] = {{-8184, -8, 0, 8, 8168}, {-16384, -4072, 0, 4072, 16383}};
@@ -58,19 +56,15 @@ static void check_signed_coefficients(bool ac, bool scaled)
   end_decode();
 }
 
-TEST(MdecSigned, dc_unscaled)
-{
+TEST(MdecSigned, dc_unscaled) {
   check_signed_coefficients(false, false);
 }
-TEST(MdecSigned, dc_scaled)
-{
+TEST(MdecSigned, dc_scaled) {
   check_signed_coefficients(false, true);
 }
-TEST(MdecSigned, ac_unscaled)
-{
+TEST(MdecSigned, ac_unscaled) {
   check_signed_coefficients(true, false);
 }
-TEST(MdecSigned, ac_scaled)
-{
+TEST(MdecSigned, ac_scaled) {
   check_signed_coefficients(true, true);
 }

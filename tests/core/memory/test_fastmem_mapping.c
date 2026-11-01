@@ -2,8 +2,7 @@
 #include "tests/core/cpu/cpu_execution_fixture.h"
 #include "common/memmap.h"
 
-static u32 mapping_permissions(const void* address)
-{
+static u32 mapping_permissions(const void* address) {
   FILE* maps = fopen("/proc/self/maps", "r");
   EXPECT_NOT_NULL(maps);
   const uintptr_t    target = (uintptr_t)address;
@@ -23,8 +22,7 @@ static u32 mapping_permissions(const void* address)
   return result;
 }
 
-TEST(FastmemMapping, code_pages_protect_every_mmap_alias)
-{
+TEST(FastmemMapping, code_pages_protect_every_mmap_alias) {
   const u32 words[] = {0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_MMAP, 0xA0010000, words, 2);
   const u32 offset = 0x10000;
@@ -81,8 +79,7 @@ TEST(FastmemMapping, code_pages_protect_every_mmap_alias)
   finish_cpu();
 }
 
-static void check_eight_mb_mapping(cpu_fastmem_mode_t mode)
-{
+static void check_eight_mb_mapping(cpu_fastmem_mode_t mode) {
   const u32 words[] = {0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_INTERPRETER, mode, 0xA0010000, words, 2);
   g_settings.cpu_enable_8mb_ram = true;
@@ -139,11 +136,9 @@ static void check_eight_mb_mapping(cpu_fastmem_mode_t mode)
   finish_cpu();
 }
 
-TEST(FastmemMapping, eight_mb_lut_chunks_and_holes)
-{
+TEST(FastmemMapping, eight_mb_lut_chunks_and_holes) {
   check_eight_mb_mapping(CPU_FASTMEM_MODE_LUT);
 }
-TEST(FastmemMapping, eight_mb_mmap_chunks_and_holes)
-{
+TEST(FastmemMapping, eight_mb_mmap_chunks_and_holes) {
   check_eight_mb_mapping(CPU_FASTMEM_MODE_MMAP);
 }

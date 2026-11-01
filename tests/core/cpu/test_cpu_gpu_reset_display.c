@@ -1,8 +1,7 @@
 /* cupid-ps1 guest GPU reset scanout coordinates. */
 #include "tests/core/gpu/gpu_reset_display_fixture.h"
 
-static void check_cpu_display_reset(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_cpu_display_reset(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u16 addresses[][2] = {{0, 0}, {64, 32}, {768, 300}, {1000, 500}};
   u32       failures = 0, observations = 0;
   for (u32 alias = 0; alias < 4; alias++) {
@@ -59,8 +58,7 @@ static void check_cpu_display_reset(cpu_execution_mode_t mode, cpu_fastmem_mode_
 }
 
 #define GPU_RESET_DISPLAY_CPU_CASE(name, mode, fastmem, linking) \
-  TEST(GpuResetDisplayCpu, name)                                 \
-  {                                                              \
+  TEST(GpuResetDisplayCpu, name) {                               \
     check_cpu_display_reset(mode, fastmem, linking);             \
   }
 GPU_RESET_DISPLAY_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

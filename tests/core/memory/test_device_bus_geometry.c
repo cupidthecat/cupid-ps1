@@ -1,8 +1,7 @@
 /* cupid-ps1 external device address-stepping regressions. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void check_bios_address_stepping(bool increment, bool fetch)
-{
+static void check_bios_address_stepping(bool increment, bool fetch) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, loop, 2);
   const u32 pattern = 0x44332211;
@@ -34,19 +33,15 @@ static void check_bios_address_stepping(bool increment, bool fetch)
   }
 }
 
-TEST(DeviceBusGeometry, bios_data_with_address_stepping)
-{
+TEST(DeviceBusGeometry, bios_data_with_address_stepping) {
   check_bios_address_stepping(true, false);
 }
-TEST(DeviceBusGeometry, bios_data_without_address_stepping)
-{
+TEST(DeviceBusGeometry, bios_data_without_address_stepping) {
   check_bios_address_stepping(false, false);
 }
-TEST(DeviceBusGeometry, bios_fetch_with_address_stepping)
-{
+TEST(DeviceBusGeometry, bios_fetch_with_address_stepping) {
   check_bios_address_stepping(true, true);
 }
-TEST(DeviceBusGeometry, bios_fetch_without_address_stepping)
-{
+TEST(DeviceBusGeometry, bios_fetch_without_address_stepping) {
   check_bios_address_stepping(false, true);
 }

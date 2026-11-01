@@ -28,28 +28,29 @@ typedef struct multitap {
   multitap_transfer_state_t transfer_state;
   u8                        selected_slot;
 
-  u32  controller_transfer_step;
+  u32 controller_transfer_step;
 
   bool invalid_transfer_all_command;
   bool transfer_all_controllers;
   bool current_controller_done;
 
-  u8   transfer_buffer[32];
+  u8 transfer_buffer[32];
 
   u32  base_index;
   bool enabled;
 } multitap_t;
 
-void multitap_init (multitap_t* m);
+void multitap_init(multitap_t* m);
 void multitap_reset(multitap_t* m);
 
 /* Plug/unplug the multitap.  When enabled, the controller / memcard slots
  * referenced via base_index, +1, +2, +3 become its multiplexed children. */
 void multitap_set_enable(multitap_t* m, bool enable, u32 base_index);
 
-ALWAYS_INLINE bool multitap_is_enabled(const multitap_t* m) { return m->enabled; }
-ALWAYS_INLINE bool multitap_is_reading_memory_card(const multitap_t* m)
-{
+ALWAYS_INLINE bool multitap_is_enabled(const multitap_t* m) {
+  return m->enabled;
+}
+ALWAYS_INLINE bool multitap_is_reading_memory_card(const multitap_t* m) {
   return m->enabled && m->transfer_state == MULTITAP_TRANSFER_MEMORY_CARD;
 }
 

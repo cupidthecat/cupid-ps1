@@ -16,8 +16,7 @@
     }                                                                                              \
   } while (0)
 
-int main(void)
-{
+int main(void) {
   wchar_t             wide_name[128];
   char                utf8_name[128];
   const unsigned long pid = (unsigned long)GetCurrentProcessId();

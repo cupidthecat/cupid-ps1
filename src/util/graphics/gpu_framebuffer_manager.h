@@ -23,22 +23,19 @@ typedef struct {
   u32            flags;
 } gpu_framebuffer_key_t;
 
-ALWAYS_INLINE bool gpu_framebuffer_key_eq(const gpu_framebuffer_key_t* a, const gpu_framebuffer_key_t* b)
-{
+ALWAYS_INLINE bool gpu_framebuffer_key_eq(const gpu_framebuffer_key_t* a, const gpu_framebuffer_key_t* b) {
   return memcmp(a, b, sizeof(*a)) == 0;
 }
 
-ALWAYS_INLINE bool gpu_framebuffer_key_contains_rt(const gpu_framebuffer_key_t* k, const gpu_texture_t* tex)
-{
+ALWAYS_INLINE bool gpu_framebuffer_key_contains_rt(const gpu_framebuffer_key_t* k, const gpu_texture_t* tex) {
   for (u32 i = 0; i < k->num_rts; ++i)
     if (k->rts[i] == tex) return true;
   return false;
 }
 
-ALWAYS_INLINE u64 gpu_framebuffer_key_hash(const gpu_framebuffer_key_t* k)
-{
+ALWAYS_INLINE u64 gpu_framebuffer_key_hash(const gpu_framebuffer_key_t* k) {
   const u8* b = (const u8*)k;
-  u64 h = 1469598103934665603ULL;
+  u64       h = 1469598103934665603ULL;
   for (u32 i = 0; i < sizeof(*k); ++i)
     h = (h ^ b[i]) * 1099511628211ULL;
   return h;

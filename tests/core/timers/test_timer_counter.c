@@ -7,22 +7,19 @@
 
 #include <limits.h>
 
-static void begin_timers(void)
-{
+static void begin_timers(void) {
   const u32 words[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, words, 2);
   interrupt_controller_reset();
   timers_initialize();
 }
 
-static void end_timers(void)
-{
+static void end_timers(void) {
   timers_shutdown();
   finish_cpu();
 }
 
-static size_t save_counters(u8* bytes, size_t capacity, u32 version)
-{
+static size_t save_counters(u8* bytes, size_t capacity, u32 version) {
   state_wrapper_t state;
   state_wrapper_init_write(&state, bytes, capacity, version);
   EXPECT_TRUE(timers_do_state(&state));
@@ -30,8 +27,7 @@ static size_t save_counters(u8* bytes, size_t capacity, u32 version)
   return state_wrapper_get_position(&state);
 }
 
-static void load_counters(const u8* bytes, size_t size, u32 version)
-{
+static void load_counters(const u8* bytes, size_t size, u32 version) {
   state_wrapper_t state;
   state_wrapper_init_read(&state, bytes, size, version);
   EXPECT_TRUE(timers_do_state(&state));
@@ -39,8 +35,7 @@ static void load_counters(const u8* bytes, size_t size, u32 version)
   EXPECT_EQ(state_wrapper_get_position(&state), size);
 }
 
-TEST(TimerCounter, system_target_readback)
-{
+TEST(TimerCounter, system_target_readback) {
   const u32 after_target[] = {0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 0, 0, 1};
   u32       failures = 0, observed = 0;
   for (u32 timer = 0; timer < 3; timer++) {
@@ -73,8 +68,7 @@ TEST(TimerCounter, system_target_readback)
   EXPECT_EQ(observed, 45);
 }
 
-TEST(TimerCounter, full_16bit_period)
-{
+TEST(TimerCounter, full_16bit_period) {
   const u32 increments[] = {0xFFFE, 1, 1, 0x10000, 0x10001};
   const u32 expected[]   = {0xFFFE, 0xFFFF, 0, 0, 1};
   u32       failures     = 0;
@@ -93,8 +87,7 @@ TEST(TimerCounter, full_16bit_period)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(TimerCounter, timer2_sync_clocks)
-{
+TEST(TimerCounter, timer2_sync_clocks) {
   u32 failures = 0;
   for (u32 divided = 0; divided < 2; divided++) {
     for (u32 sync = 0; sync < 4; sync++) {
@@ -113,8 +106,7 @@ TEST(TimerCounter, timer2_sync_clocks)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(TimerCounter, reset_clock_state)
-{
+TEST(TimerCounter, reset_clock_state) {
   u8 cold[512], warm[512];
   begin_timers();
   const size_t size = save_counters(cold, sizeof(cold), SAVE_STATE_VERSION);
@@ -126,8 +118,7 @@ TEST(TimerCounter, reset_clock_state)
   EXPECT_TRUE(equal);
 }
 
-TEST(TimerCounter, phase_state_and_legacy)
-{
+TEST(TimerCounter, phase_state_and_legacy) {
   u8 current[512], legacy[512];
   begin_timers();
   timers_write_register(0x28, 10);
@@ -167,8 +158,7 @@ TEST(TimerCounter, phase_state_and_legacy)
   EXPECT_EQ(legacy_one, 1);
 }
 
-TEST(TimerCounter, irq_deadlines)
-{
+TEST(TimerCounter, irq_deadlines) {
   u32 observations = 0;
   for (u32 timer = 0; timer < 3; timer++) {
     for (u32 external = 0; external < 2; external++) {
@@ -199,8 +189,7 @@ TEST(TimerCounter, irq_deadlines)
   EXPECT_EQ(observations, 36);
 }
 
-TEST(TimerCounter, irq_pulse_and_toggle)
-{
+TEST(TimerCounter, irq_pulse_and_toggle) {
   u32 failures = 0, observations = 0;
   for (u32 timer = 0; timer < 3; timer++) {
     for (u32 external = 0; external < 2; external++) {
@@ -240,8 +229,7 @@ TEST(TimerCounter, irq_pulse_and_toggle)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(TimerCounter, zero_and_maximum_targets)
-{
+TEST(TimerCounter, zero_and_maximum_targets) {
   for (u32 timer = 0; timer < 3; timer++) {
     begin_timers();
     const u32 bit = 1u << (INTERRUPT_CONTROLLER_IRQ_TMR0 + timer);
@@ -285,8 +273,7 @@ typedef struct {
   u32    irq_edges;
 } timer_observation_t;
 
-static timer_observation_t observe_counters(u32 timer, u32 initial_edges)
-{
+static timer_observation_t observe_counters(u32 timer, u32 initial_edges) {
   timer_observation_t result = {0};
   state_wrapper_t     state;
   state_wrapper_init_write(&state, result.bytes, sizeof(result.bytes), SAVE_STATE_VERSION);
@@ -298,8 +285,7 @@ static timer_observation_t observe_counters(u32 timer, u32 initial_edges)
   return result;
 }
 
-TEST(TimerCounter, bulk_matches_single_ticks)
-{
+TEST(TimerCounter, bulk_matches_single_ticks) {
   const u32 targets[]    = {0, 1, 10, 0xFFFE, 0xFFFF};
   const u32 modes[]      = {0x58, 0xD8, 0x38, 0xF8};
   const u32 increments[] = {0, 1, 2, 3, 0x10000, 7};
@@ -347,14 +333,12 @@ TEST(TimerCounter, bulk_matches_single_ticks)
   EXPECT_EQ(failures, 0);
 }
 
-static void advance_system_clock(tick_count_t ticks)
-{
+static void advance_system_clock(tick_count_t ticks) {
   cpu_add_pending_ticks(ticks);
   timing_events_run_events();
 }
 
-TEST(TimerCounter, gpu_gate_modes)
-{
+TEST(TimerCounter, gpu_gate_modes) {
   const u32 expected[2][4][3] = {{{63, 63, 127}, {63, 127, 64}, {0, 63, 63}, {0, 63, 127}},
                                  {{64, 64, 128}, {64, 128, 64}, {0, 64, 64}, {0, 64, 128}}};
   u32       failures = 0, observations = 0;
@@ -386,8 +370,7 @@ TEST(TimerCounter, gpu_gate_modes)
   EXPECT_EQ(failures, 0);
 }
 
-static timing_event_t* counter_event(void)
-{
+static timing_event_t* counter_event(void) {
   timing_event_t* event = *timing_events_get_head_event_ptr();
   while (event && strncmp(event->name_data, "Timer SysClk Interrupt", event->name_len) != 0)
     event = event->next;
@@ -395,8 +378,7 @@ static timing_event_t* counter_event(void)
   return event;
 }
 
-TEST(TimerCounter, divided_clock_carry_restore)
-{
+TEST(TimerCounter, divided_clock_carry_restore) {
   u8 counters[128], cpu[16384], timing[4096];
   begin_timers();
   /* The CPU fixture leaves the system slice unset. Initialize the clock
@@ -440,8 +422,7 @@ TEST(TimerCounter, divided_clock_carry_restore)
   end_timers();
 }
 
-TEST(TimerCounter, reject_invalid_phase_state)
-{
+TEST(TimerCounter, reject_invalid_phase_state) {
   u8 valid[128], invalid[128];
   begin_timers();
   const size_t size = save_counters(valid, sizeof(valid), SAVE_STATE_VERSION);
@@ -466,8 +447,7 @@ TEST(TimerCounter, reject_invalid_phase_state)
   end_timers();
 }
 
-TEST(TimerCounter, write_comparison_edges)
-{
+TEST(TimerCounter, write_comparison_edges) {
   for (u32 timer = 0; timer < 3; timer++) {
     begin_timers();
     const u32 bit = 1u << (INTERRUPT_CONTROLLER_IRQ_TMR0 + timer);
@@ -508,8 +488,7 @@ TEST(TimerCounter, write_comparison_edges)
   fflush(stdout);
 }
 
-TEST(TimerCounter, phase_restore_matrix)
-{
+TEST(TimerCounter, phase_restore_matrix) {
   u32 failures = 0, observations = 0;
   for (u32 timer = 0; timer < 3; timer++) {
     for (u32 external = 0; external < 2; external++) {

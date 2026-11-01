@@ -58,7 +58,7 @@ typedef enum {
 } fs_file_share_mode_t;
 
 typedef struct {
-  time_t creation_time;     /* inode change time on linux */
+  time_t creation_time; /* inode change time on linux */
   time_t modification_time;
   s64    size;
   u32    attributes;
@@ -67,18 +67,17 @@ typedef struct {
 typedef struct {
   time_t creation_time;
   time_t modification_time;
-  char*  file_name;         /* heap, owned by struct */
+  char*  file_name; /* heap, owned by struct */
   s64    size;
   u32    attributes;
 } fs_find_data_t;
 
- /* Returns a heap array of NUL-terminated paths.  Free with
+/* Returns a heap array of NUL-terminated paths.  Free with
  * fs_free_root_directory_list(arr, count). */
 bool fs_get_root_directory_list(char*** out_paths, size_t* out_count);
 void fs_free_root_directory_list(char** paths, size_t count);
 
-bool fs_find_files(const char* path, const char* pattern, u32 flags,
-                   fs_find_data_t** out_results, size_t* out_count);
+bool fs_find_files(const char* path, const char* pattern, u32 flags, fs_find_data_t** out_results, size_t* out_count);
 void fs_free_find_data_array(fs_find_data_t* arr, size_t count);
 
 bool fs_stat_path(const char* path, fs_native_stat_t* st, Error* error);
@@ -87,8 +86,8 @@ bool fs_stat_path_data(const char* path, fs_stat_data_t* sd, Error* error);
 bool fs_stat_file_data(FILE* fp, fs_stat_data_t* sd, Error* error);
 s64  fs_get_path_file_size(const char* path);
 
-bool fs_file_exists      (const char* path);
-bool fs_directory_exists (const char* path);
+bool fs_file_exists(const char* path);
+bool fs_directory_exists(const char* path);
 bool fs_is_real_directory(const char* path); /* false for symlinks */
 bool fs_is_directory_empty(const char* path);
 
@@ -104,16 +103,14 @@ FILE* fs_open_anonymous_file(Error* error);
 /* Read-only binary stream. Keep data alive until fclose. */
 FILE* fs_open_readonly_buffer(const void* data, size_t size, Error* error);
 
-FILE* fs_open_shared_file(const char* path, const char* mode,
-                          fs_file_share_mode_t share_mode, Error* error);
+FILE* fs_open_shared_file(const char* path, const char* mode, fs_file_share_mode_t share_mode, Error* error);
 
 /* Opens a temporary file based on base_path.  If out_path is non-NULL, it
  * receives the heap-allocated path string (caller frees with free()).
  * Returns NULL on failure. */
-FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len,
-                             char** out_path, Error* error);
+FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len, char** out_path, Error* error);
 
- /* Opens existing file r+b; if missing, creates it (raced with w+bx fallback).
+/* Opens existing file r+b; if missing, creates it (raced with w+bx fallback).
  * retry_ms is ignored on Linux (no Win32 sharing-violation retry needed). */
 FILE* fs_open_existing_or_create_file(const char* path, s32 retry_ms, Error* error);
 
@@ -128,16 +125,16 @@ bool fs_ftruncate64(FILE* fp, s64 size, Error* error);
 /* Flush the stream and synchronize its file data with the host filesystem. */
 bool fs_flush_file(FILE* fp, Error* error);
 
- /* Read whole file as bytes; allocates *out_data on heap (caller frees with
+/* Read whole file as bytes; allocates *out_data on heap (caller frees with
  * free()).  *out_len receives byte count.  Returns false on error. */
 bool fs_read_binary_file_path(const char* path, u8** out_data, size_t* out_len, Error* error);
-bool fs_read_binary_file     (FILE* fp,         u8** out_data, size_t* out_len, Error* error);
+bool fs_read_binary_file(FILE* fp, u8** out_data, size_t* out_len, Error* error);
 
- /* Read whole file as text.  *out_data is NUL-terminated; *out_len is byte
+/* Read whole file as text.  *out_data is NUL-terminated; *out_len is byte
  * length excluding the NUL.  Strips a leading UTF-8 BOM.  Caller frees
  * *out_data with free(). */
 bool fs_read_file_to_string_path(const char* path, char** out_data, size_t* out_len, Error* error);
-bool fs_read_file_to_string     (FILE* fp,         char** out_data, size_t* out_len, Error* error);
+bool fs_read_file_to_string(FILE* fp, char** out_data, size_t* out_len, Error* error);
 
 bool fs_write_binary_file(const char* path, const void* data, size_t data_length, Error* error);
 /* Publish a complete, synchronized sibling temporary file by replacement.
@@ -146,12 +143,12 @@ bool fs_write_binary_file_atomic(const char* path, const void* data, size_t data
 bool fs_write_string_to_file_view(const char* path, const char* data, u32 len, Error* error);
 bool fs_write_string_to_file_cstr(const char* path, const char* str, Error* error);
 
-bool fs_create_directory       (const char* path, bool recursive, Error* error);
+bool fs_create_directory(const char* path, bool recursive, Error* error);
 bool fs_ensure_directory_exists(const char* path, bool recursive, Error* error);
-bool fs_copy_file_path         (const char* source, const char* destination, bool replace, Error* error);
+bool fs_copy_file_path(const char* source, const char* destination, bool replace, Error* error);
 
 /* Returns heap-allocated absolute path (caller frees with free()). */
-char* fs_get_program_path   (Error* error);
+char* fs_get_program_path(Error* error);
 char* fs_get_working_directory(void);
 bool  fs_set_working_directory(const char* path);
 

@@ -1,16 +1,14 @@
 /* cupid-ps1 expansion read timing and control restoration regressions. */
 #include "tests/core/memory/device_bus_execution_fixture.h"
 
-static u32 read_expansion(u32 address, memory_access_size_t size, u32 expected_ticks)
-{
+static u32 read_expansion(u32 address, memory_access_size_t size, u32 expected_ticks) {
   const u32 before = g_cpu_state.pending_ticks;
   const u32 value  = cpu_get_memory_read_handler(address, size)(address);
   EXPECT_EQ(g_cpu_state.pending_ticks - before, expected_ticks);
   return value;
 }
 
-static void check_expansion_widths(const u32 ticks[3])
-{
+static void check_expansion_widths(const u32 ticks[3]) {
   const u32 aliases[] = {0x1F802060, 0x9F802060, 0xBF802060};
   for (u32 i = 0; i < sizeof(aliases) / sizeof(aliases[0]); i++) {
     for (u32 size = 0; size < 3; size++) {
@@ -20,8 +18,7 @@ static void check_expansion_widths(const u32 ticks[3])
   }
 }
 
-TEST(ExpansionTiming, reset_and_control_changes)
-{
+TEST(ExpansionTiming, reset_and_control_changes) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, loop, 2);
   const u32 defaults[]       = {14, 28, 56};
@@ -44,8 +41,7 @@ TEST(ExpansionTiming, reset_and_control_changes)
   finish_cpu();
 }
 
-TEST(ExpansionTiming, restore_derived_delays)
-{
+TEST(ExpansionTiming, restore_derived_delays) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, loop, 2);
   set_device_control(0x1F80101C, 0x00070707);
@@ -71,13 +67,11 @@ TEST(ExpansionTiming, restore_derived_delays)
   finish_cpu();
 }
 
-static global_ticks_t execution_ticks(void)
-{
+static global_ticks_t execution_ticks(void) {
   return timing_events_get_global_tick_counter() + g_cpu_state.pending_ticks;
 }
 
-static void check_expansion_cpu(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_expansion_cpu(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 size = 0; size < 3; size++) {
     for (u32 restore = 0; restore < 2; restore++) {
       global_ticks_t elapsed[2];
@@ -114,8 +108,7 @@ static void check_expansion_cpu(cpu_execution_mode_t mode, cpu_fastmem_mode_t fa
 }
 
 #define EXPANSION_CPU_CASE(name, mode, fastmem, linking) \
-  TEST(ExpansionTimingCPU, name)                         \
-  {                                                      \
+  TEST(ExpansionTimingCPU, name) {                       \
     check_expansion_cpu(mode, fastmem, linking);         \
   }
 EXPANSION_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

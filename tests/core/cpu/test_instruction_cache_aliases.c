@@ -3,8 +3,7 @@
 
 static const u32 alias_loop[] = {0x24080001, 0x01200008, 0, 0};
 
-static void start_alias_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 entry)
-{
+static void start_alias_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 entry) {
   start_cpu_with_fastmem(mode, fastmem, entry, alias_loop, 4);
   g_settings.cpu_recompiler_icache        = true;
   g_settings.cpu_recompiler_block_linking = linking;
@@ -16,8 +15,7 @@ static void start_alias_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastm
   EXPECT_EQ(g_cpu_state.regs.r[8], 1);
 }
 
-static void write_alias_instruction(u32 word)
-{
+static void write_alias_instruction(u32 word) {
   const u32                   address = 0xA0010000;
   bus_memory_write_handler_t* handlers =
       bus_offset_write_handler_array(bus_get_memory_handlers(false, false), MEMORY_ACCESS_SIZE_WORD);
@@ -25,15 +23,13 @@ static void write_alias_instruction(u32 word)
   EXPECT_EQ(*(const u32*)(bus_get_unprotected_ram_pointer() + 0x10000), word);
 }
 
-static void expect_alias_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u64 before)
-{
+static void expect_alias_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u64 before) {
   if (mode == CPU_EXECUTION_MODE_RECOMPILER) EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed > before);
   if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
 static void cross_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 first, u32 second,
-                        bool keep_cached)
-{
+                        bool keep_cached) {
   start_alias_loop(mode, fastmem, linking, first);
   u32       cached[CPU_ICACHE_WORDS_PER_LINE];
   const u32 line = cpu_get_icache_line(first);
@@ -61,24 +57,19 @@ static void cross_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, b
 }
 
 #define ALIAS_CASES(name, first, second, keep)                                                                \
-  TEST(InstructionCacheAliases, name##_interpreter)                                                           \
-  {                                                                                                           \
+  TEST(InstructionCacheAliases, name##_interpreter) {                                                         \
     cross_alias(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, first, second, keep);        \
   }                                                                                                           \
-  TEST(InstructionCacheAliases, name##_cached)                                                                \
-  {                                                                                                           \
+  TEST(InstructionCacheAliases, name##_cached) {                                                              \
     cross_alias(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, first, second, keep); \
   }                                                                                                           \
-  TEST(InstructionCacheAliases, name##_native)                                                                \
-  {                                                                                                           \
+  TEST(InstructionCacheAliases, name##_native) {                                                              \
     cross_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, first, second, keep);         \
   }                                                                                                           \
-  TEST(InstructionCacheAliases, name##_mmap)                                                                  \
-  {                                                                                                           \
+  TEST(InstructionCacheAliases, name##_mmap) {                                                                \
     cross_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true, first, second, keep);             \
   }                                                                                                           \
-  TEST(InstructionCacheAliases, name##_unlinked)                                                              \
-  {                                                                                                           \
+  TEST(InstructionCacheAliases, name##_unlinked) {                                                            \
     cross_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false, first, second, keep);        \
   }
 
@@ -88,8 +79,7 @@ ALIAS_CASES(same_address_keeps_stale_code, 0x80010000, 0x80010000, true)
 ALIAS_CASES(uncached_target_observes_ram, 0x80010000, 0xA0010000, false)
 ALIAS_CASES(distinct_physical_mirror_refills, 0x80010000, 0x80210000, false)
 
-static void restore_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 version)
-{
+static void restore_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 version) {
   const u32 first = 0x80010000;
   start_alias_loop(mode, fastmem, linking, first);
   const u32 line = cpu_get_icache_line(first);
@@ -119,24 +109,19 @@ static void restore_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem,
 }
 
 #define RESTORE_CASES(name, version)                                                                \
-  TEST(InstructionCacheAliases, name##_interpreter)                                                 \
-  {                                                                                                 \
+  TEST(InstructionCacheAliases, name##_interpreter) {                                               \
     restore_alias(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, version);        \
   }                                                                                                 \
-  TEST(InstructionCacheAliases, name##_cached)                                                      \
-  {                                                                                                 \
+  TEST(InstructionCacheAliases, name##_cached) {                                                    \
     restore_alias(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, version); \
   }                                                                                                 \
-  TEST(InstructionCacheAliases, name##_native)                                                      \
-  {                                                                                                 \
+  TEST(InstructionCacheAliases, name##_native) {                                                    \
     restore_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, version);         \
   }                                                                                                 \
-  TEST(InstructionCacheAliases, name##_mmap)                                                        \
-  {                                                                                                 \
+  TEST(InstructionCacheAliases, name##_mmap) {                                                      \
     restore_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true, version);             \
   }                                                                                                 \
-  TEST(InstructionCacheAliases, name##_unlinked)                                                    \
-  {                                                                                                 \
+  TEST(InstructionCacheAliases, name##_unlinked) {                                                  \
     restore_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false, version);        \
   }
 
@@ -144,8 +129,7 @@ RESTORE_CASES(version84_migrates_virtual_tags, 84)
 RESTORE_CASES(version85_migrates_virtual_tags, 85)
 RESTORE_CASES(version86_preserves_full_tag_comparison, 86)
 
-static void fault_at_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 first, u32 second)
-{
+static void fault_at_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 first, u32 second) {
   const u32 words[4]   = {0x0000000C, 0, 0, 0};
   const u32 handler[2] = {0x1000FFFF, 0};
   start_cpu_with_fastmem(mode, fastmem, first, words, 4);
@@ -170,24 +154,19 @@ static void fault_at_alias(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem
 }
 
 #define FAULT_CASES(name, first, second)                                                                   \
-  TEST(InstructionCacheAliases, name##_interpreter)                                                        \
-  {                                                                                                        \
+  TEST(InstructionCacheAliases, name##_interpreter) {                                                      \
     fault_at_alias(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, first, second);        \
   }                                                                                                        \
-  TEST(InstructionCacheAliases, name##_cached)                                                             \
-  {                                                                                                        \
+  TEST(InstructionCacheAliases, name##_cached) {                                                           \
     fault_at_alias(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, first, second); \
   }                                                                                                        \
-  TEST(InstructionCacheAliases, name##_native)                                                             \
-  {                                                                                                        \
+  TEST(InstructionCacheAliases, name##_native) {                                                           \
     fault_at_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, first, second);         \
   }                                                                                                        \
-  TEST(InstructionCacheAliases, name##_mmap)                                                               \
-  {                                                                                                        \
+  TEST(InstructionCacheAliases, name##_mmap) {                                                             \
     fault_at_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true, first, second);             \
   }                                                                                                        \
-  TEST(InstructionCacheAliases, name##_unlinked)                                                           \
-  {                                                                                                        \
+  TEST(InstructionCacheAliases, name##_unlinked) {                                                         \
     fault_at_alias(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false, first, second);        \
   }
 

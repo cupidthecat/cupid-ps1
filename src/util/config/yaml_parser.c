@@ -57,19 +57,18 @@ typedef struct {
 } ctn_t;
 
 typedef struct {
-  const char*         p;          /* current cursor */
-  const char*         end;        /* one past last byte */
-  u32                 line;       /* current 1-based line */
+  const char*         p;    /* current cursor */
+  const char*         end;  /* one past last byte */
+  u32                 line; /* current 1-based line */
   ctn_t               stack[MAX_DEPTH];
   u32                 depth;
   yaml_event_cb_t     cb;
   void*               user;
   yaml_parse_error_t* err;
-  bool                aborted;    /* callback returned false */
+  bool                aborted; /* callback returned false */
 } parser_t;
 
-static bool fail(parser_t* p, const char* msg)
-{
+static bool fail(parser_t* p, const char* msg) {
   if (p->err) {
     p->err->message = msg;
     p->err->line    = p->line;
@@ -77,8 +76,7 @@ static bool fail(parser_t* p, const char* msg)
   return false;
 }
 
-static bool emit(parser_t* p, yaml_event_kind_t k, const char* s, size_t n, bool quoted)
-{
+static bool emit(parser_t* p, yaml_event_kind_t k, const char* s, size_t n, bool quoted) {
   yaml_event_t ev;
   ev.kind   = k;
   ev.str    = s;
@@ -92,31 +90,25 @@ static bool emit(parser_t* p, yaml_event_kind_t k, const char* s, size_t n, bool
   return true;
 }
 
-static bool push_ctn(parser_t* p, ctn_kind_t k, u32 indent)
-{
-  if (p->depth >= MAX_DEPTH)
-    return fail(p, "container nesting too deep");
+static bool push_ctn(parser_t* p, ctn_kind_t k, u32 indent) {
+  if (p->depth >= MAX_DEPTH) return fail(p, "container nesting too deep");
   p->stack[p->depth].kind   = k;
   p->stack[p->depth].indent = indent;
   p->depth++;
   return emit(p, k == CTN_MAP ? YAML_EVENT_MAP_BEGIN : YAML_EVENT_SEQ_BEGIN, NULL, 0, false);
 }
 
-static bool pop_ctn(parser_t* p)
-{
-  if (p->depth == 0)
-    return true;
+static bool pop_ctn(parser_t* p) {
+  if (p->depth == 0) return true;
   p->depth--;
   const ctn_kind_t k = p->stack[p->depth].kind;
   return emit(p, k == CTN_MAP ? YAML_EVENT_MAP_END : YAML_EVENT_SEQ_END, NULL, 0, false);
 }
 
 /* Pop frames whose indent is strictly greater than `indent`. */
-static bool pop_to(parser_t* p, u32 indent)
-{
+static bool pop_to(parser_t* p, u32 indent) {
   while (p->depth > 0 && p->stack[p->depth - 1].indent > indent) {
-    if (!pop_ctn(p))
-      return false;
+    if (!pop_ctn(p)) return false;
   }
   return true;
 }
@@ -125,18 +117,15 @@ static bool pop_to(parser_t* p, u32 indent)
  * opening quote).  Stores raw inner bytes in out_str/out_len (excluding
  * quotes).  Advances p->p past the closing quote.  Returns false on
  * unterminated input. */
-static bool read_quoted(parser_t* p, const char** out_str, size_t* out_len)
-{
-  if (p->p >= p->end || *p->p != '"')
-    return fail(p, "expected '\"'");
+static bool read_quoted(parser_t* p, const char** out_str, size_t* out_len) {
+  if (p->p >= p->end || *p->p != '"') return fail(p, "expected '\"'");
   p->p++; /* past opening quote */
   const char* start = p->p;
   while (p->p < p->end) {
     const char c = *p->p;
     if (c == '\\') {
       /* Skip escape: backslash + next byte (any). */
-      if (p->p + 1 >= p->end)
-        return fail(p, "unterminated escape in quoted string");
+      if (p->p + 1 >= p->end) return fail(p, "unterminated escape in quoted string");
       p->p += 2;
       continue;
     }
@@ -146,8 +135,7 @@ static bool read_quoted(parser_t* p, const char** out_str, size_t* out_len)
       p->p++; /* past closing quote */
       return true;
     }
-    if (c == '\n')
-      return fail(p, "newline inside quoted string");
+    if (c == '\n') return fail(p, "newline inside quoted string");
     p->p++;
   }
   return fail(p, "unterminated quoted string");
@@ -159,31 +147,28 @@ static bool read_quoted(parser_t* p, const char** out_str, size_t* out_len)
  * trimmed from the returned slice.  Advances p->p to the terminator (the
  * '#' or terminator byte) or end-of-line, but does NOT consume the
  * terminator itself.  Returns true; never reports a parse error. */
-static bool read_plain(parser_t* p, const char* terminators,
-                       const char** out_str, size_t* out_len)
-{
-  const char* start = p->p;
+static bool read_plain(parser_t* p, const char* terminators, const char** out_str, size_t* out_len) {
+  const char* start         = p->p;
   const char* last_nonspace = start; /* one past the last non-space char seen */
   while (p->p < p->end) {
     const char c = *p->p;
-    if (c == '\n' || c == '\r')
-      break;
+    if (c == '\n' || c == '\r') break;
     /* '#' starts a comment only when preceded by whitespace (or at start
      * of the scalar). YAML rule. */
-    if (c == '#' && (p->p == start || (p->p[-1] == ' ' || p->p[-1] == '\t')))
-      break;
+    if (c == '#' && (p->p == start || (p->p[-1] == ' ' || p->p[-1] == '\t'))) break;
     if (terminators) {
-      const char* t = terminators;
-      bool hit = false;
+      const char* t   = terminators;
+      bool        hit = false;
       while (*t) {
-        if (*t == c) { hit = true; break; }
+        if (*t == c) {
+          hit = true;
+          break;
+        }
         t++;
       }
-      if (hit)
-        break;
+      if (hit) break;
     }
-    if (c != ' ' && c != '\t')
-      last_nonspace = p->p + 1;
+    if (c != ' ' && c != '\t') last_nonspace = p->p + 1;
     p->p++;
   }
   *out_str = start;
@@ -192,15 +177,13 @@ static bool read_plain(parser_t* p, const char* terminators,
 }
 
 /* Skip spaces/tabs (but not newlines). */
-static void skip_inline_ws(parser_t* p)
-{
+static void skip_inline_ws(parser_t* p) {
   while (p->p < p->end && (*p->p == ' ' || *p->p == '\t'))
     p->p++;
 }
 
 /* Skip from current position to and past the next '\n', incrementing line. */
-static void skip_to_eol(parser_t* p)
-{
+static void skip_to_eol(parser_t* p) {
   while (p->p < p->end && *p->p != '\n')
     p->p++;
   if (p->p < p->end) {
@@ -212,9 +195,7 @@ static void skip_to_eol(parser_t* p)
 /* Parse a scalar (quoted or plain).  For plain, `terminators` lists extra
  * characters that end the scalar (e.g., ":" when reading a key, "" when
  * reading a value). */
-static bool read_scalar(parser_t* p, const char* terminators,
-                        const char** out_str, size_t* out_len, bool* out_quoted)
-{
+static bool read_scalar(parser_t* p, const char* terminators, const char** out_str, size_t* out_len, bool* out_quoted) {
   if (p->p < p->end && *p->p == '"') {
     *out_quoted = true;
     return read_quoted(p, out_str, out_len);
@@ -235,8 +216,7 @@ static bool process_value(parser_t* p, u32 indent);
  * Called from line-start (after indent measurement) and from within "- "
  * processing (where indent = column-after-"- ").
  */
-static bool process_value(parser_t* p, u32 indent)
-{
+static bool process_value(parser_t* p, u32 indent) {
   /* Speculatively read a scalar with ':' as a terminator.  If we land on
    * ':' followed by whitespace/EOL, this was a key.  Otherwise it's a
    * standalone scalar (sequence item).
@@ -246,17 +226,15 @@ static bool process_value(parser_t* p, u32 indent)
   const char* save_p    = p->p;
   const u32   save_line = p->line;
 
-  const char* tok_str = NULL;
-  size_t      tok_len = 0;
+  const char* tok_str    = NULL;
+  size_t      tok_len    = 0;
   bool        tok_quoted = false;
-  if (!read_scalar(p, ":", &tok_str, &tok_len, &tok_quoted))
-    return false;
+  if (!read_scalar(p, ":", &tok_str, &tok_len, &tok_quoted)) return false;
 
   /* Is this a key?  Need ':' next, then whitespace or EOL. */
   bool is_key = false;
   if (p->p < p->end && *p->p == ':') {
-    if (p->p + 1 >= p->end ||
-        p->p[1] == ' ' || p->p[1] == '\t' || p->p[1] == '\n' || p->p[1] == '\r') {
+    if (p->p + 1 >= p->end || p->p[1] == ' ' || p->p[1] == '\t' || p->p[1] == '\n' || p->p[1] == '\r') {
       is_key = true;
     }
   }
@@ -270,8 +248,7 @@ static bool process_value(parser_t* p, u32 indent)
       p->line = save_line;
       return fail(p, "scalar value outside any sequence");
     }
-    if (!emit(p, YAML_EVENT_SCALAR, tok_str, tok_len, tok_quoted))
-      return false;
+    if (!emit(p, YAML_EVENT_SCALAR, tok_str, tok_len, tok_quoted)) return false;
     /* Skip trailing whitespace + comment to end of line. */
     skip_inline_ws(p);
     if (p->p < p->end && *p->p == '#') {
@@ -283,22 +260,18 @@ static bool process_value(parser_t* p, u32 indent)
   }
 
   /* It's a key.  Open a MAP at this indent if not already on one. */
-  if (p->depth == 0 || p->stack[p->depth - 1].kind != CTN_MAP ||
-      p->stack[p->depth - 1].indent != indent) {
-    if (!push_ctn(p, CTN_MAP, indent))
-      return false;
+  if (p->depth == 0 || p->stack[p->depth - 1].kind != CTN_MAP || p->stack[p->depth - 1].indent != indent) {
+    if (!push_ctn(p, CTN_MAP, indent)) return false;
   }
 
-  if (!emit(p, YAML_EVENT_KEY, tok_str, tok_len, tok_quoted))
-    return false;
+  if (!emit(p, YAML_EVENT_KEY, tok_str, tok_len, tok_quoted)) return false;
 
   /* Consume the ':'. */
   p->p++;
   skip_inline_ws(p);
 
   /* What follows? */
-  if (p->p >= p->end || *p->p == '\n' || *p->p == '\r' ||
-      (*p->p == '#' /* comment after key with no value */)) {
+  if (p->p >= p->end || *p->p == '\n' || *p->p == '\r' || (*p->p == '#' /* comment after key with no value */)) {
     /* Empty value; expect a nested container on a deeper indented line.
      * Skip to EOL; the main loop will detect the deeper indent. */
     while (p->p < p->end && *p->p != '\n')
@@ -308,13 +281,11 @@ static bool process_value(parser_t* p, u32 indent)
 
   /* Inline value: read one scalar to end of line (no terminators; ':' in
    * a value is fine). */
-  const char* val_str = NULL;
-  size_t      val_len = 0;
+  const char* val_str    = NULL;
+  size_t      val_len    = 0;
   bool        val_quoted = false;
-  if (!read_scalar(p, NULL, &val_str, &val_len, &val_quoted))
-    return false;
-  if (!emit(p, YAML_EVENT_SCALAR, val_str, val_len, val_quoted))
-    return false;
+  if (!read_scalar(p, NULL, &val_str, &val_len, &val_quoted)) return false;
+  if (!emit(p, YAML_EVENT_SCALAR, val_str, val_len, val_quoted)) return false;
 
   /* Trailing whitespace + optional comment. */
   skip_inline_ws(p);
@@ -325,9 +296,7 @@ static bool process_value(parser_t* p, u32 indent)
   return true;
 }
 
-bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
-                yaml_parse_error_t* out_err)
-{
+bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user, yaml_parse_error_t* out_err) {
   if (out_err) {
     out_err->message = NULL;
     out_err->line    = 0;
@@ -341,14 +310,14 @@ bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
   }
 
   parser_t st;
-  st.p       = input;
-  st.end     = input + len;
-  st.line    = 1;
-  st.depth   = 0;
-  st.cb      = cb;
-  st.user    = user;
-  st.err     = out_err;
-  st.aborted = false;
+  st.p        = input;
+  st.end      = input + len;
+  st.line     = 1;
+  st.depth    = 0;
+  st.cb       = cb;
+  st.user     = user;
+  st.err      = out_err;
+  st.aborted  = false;
   parser_t* p = &st;
 
   while (p->p < p->end) {
@@ -378,12 +347,9 @@ bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
     }
     if (*p->p == '-' && (p->p + 1 == p->end || p->p[1] == ' ' || p->p[1] == '\n' || p->p[1] == '\t')) {
       /* Sequence-item line.  Ensure SEQ at this indent. */
-      if (!pop_to(p, indent))
-        return false;
-      if (p->depth == 0 || p->stack[p->depth - 1].kind != CTN_SEQ ||
-          p->stack[p->depth - 1].indent != indent) {
-        if (!push_ctn(p, CTN_SEQ, indent))
-          return false;
+      if (!pop_to(p, indent)) return false;
+      if (p->depth == 0 || p->stack[p->depth - 1].kind != CTN_SEQ || p->stack[p->depth - 1].indent != indent) {
+        if (!push_ctn(p, CTN_SEQ, indent)) return false;
       }
       /* Consume "- " (or "-" at EOL meaning nested container next line). */
       p->p++; /* past '-' */
@@ -396,8 +362,7 @@ bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
           /* The inner item starts at the column of the current cursor.
            * For nested map indent we use the actual column. */
           const u32 inner_indent = (u32)(p->p - line_start);
-          if (!process_value(p, inner_indent))
-            return false;
+          if (!process_value(p, inner_indent)) return false;
         }
       }
       /* Skip to EOL. */
@@ -410,10 +375,8 @@ bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
       continue;
     }
 
-    if (!pop_to(p, indent))
-      return false;
-    if (!process_value(p, indent))
-      return false;
+    if (!pop_to(p, indent)) return false;
+    if (!process_value(p, indent)) return false;
 
     /* Advance past EOL. */
     while (p->p < p->end && *p->p != '\n')
@@ -426,21 +389,18 @@ bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
 
   /* Close all open containers. */
   while (p->depth > 0) {
-    if (!pop_ctn(p))
-      return false;
+    if (!pop_ctn(p)) return false;
   }
   return !p->aborted;
 }
 
-size_t yaml_unescape_scalar(const char* src, size_t src_len, char* out, size_t out_size)
-{
-  if (out_size == 0)
-    return 0;
+size_t yaml_unescape_scalar(const char* src, size_t src_len, char* out, size_t out_size) {
+  if (out_size == 0) return 0;
   if (!src || src_len == 0) {
     out[0] = '\0';
     return 0;
   }
-  size_t w = 0;
+  size_t       w   = 0;
   const size_t cap = out_size - 1;
   for (size_t i = 0; i < src_len && w < cap; i++) {
     char c = src[i];

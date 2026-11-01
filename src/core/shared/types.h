@@ -253,8 +253,8 @@ typedef enum : u8 {
 } multitap_mode_t;
 
 enum {
-  NUM_CONTROLLER_AND_CARD_PORTS = 8,
-  NUM_MULTITAPS = 2,
+  NUM_CONTROLLER_AND_CARD_PORTS              = 8,
+  NUM_MULTITAPS                              = 2,
   NUM_CONTROLLER_AND_CARD_PORTS_PER_MULTITAP = NUM_CONTROLLER_AND_CARD_PORTS / NUM_MULTITAPS,
 };
 
@@ -315,27 +315,22 @@ typedef struct {
   s16 denominator;
 } display_aspect_ratio_t;
 
-ALWAYS_INLINE display_aspect_ratio_t display_aspect_ratio_auto(void)
-{
+ALWAYS_INLINE display_aspect_ratio_t display_aspect_ratio_auto(void) {
   display_aspect_ratio_t r = {0, 0};
   return r;
 }
-ALWAYS_INLINE display_aspect_ratio_t display_aspect_ratio_stretch(void)
-{
+ALWAYS_INLINE display_aspect_ratio_t display_aspect_ratio_stretch(void) {
   display_aspect_ratio_t r = {-1, -1};
   return r;
 }
-ALWAYS_INLINE display_aspect_ratio_t display_aspect_ratio_par1_1(void)
-{
+ALWAYS_INLINE display_aspect_ratio_t display_aspect_ratio_par1_1(void) {
   display_aspect_ratio_t r = {-1, 0};
   return r;
 }
-ALWAYS_INLINE bool display_aspect_ratio_equals(const display_aspect_ratio_t* a, const display_aspect_ratio_t* b)
-{
+ALWAYS_INLINE bool display_aspect_ratio_equals(const display_aspect_ratio_t* a, const display_aspect_ratio_t* b) {
   return memcmp(a, b, sizeof(display_aspect_ratio_t)) == 0;
 }
-ALWAYS_INLINE bool display_aspect_ratio_is_valid(const display_aspect_ratio_t* a)
-{
+ALWAYS_INLINE bool display_aspect_ratio_is_valid(const display_aspect_ratio_t* a) {
   return a->numerator > 0 && a->denominator > 0;
 }
 

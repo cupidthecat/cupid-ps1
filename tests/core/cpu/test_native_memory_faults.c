@@ -15,16 +15,14 @@ static bus_memory_write_handler_t saved_write[3];
 static u32                        reads_observed, writes_observed;
 static bool                       fail_read, fail_write;
 
-static u32 observe_read(u32 size, u32 address)
-{
+static u32 observe_read(u32 size, u32 address) {
   reads_observed++;
   const u32 value = saved_read[size](address);
   if (fail_read) g_cpu_state.bus_error = true;
   return value;
 }
 
-static void observe_write(u32 size, u32 address, u32 value)
-{
+static void observe_write(u32 size, u32 address, u32 value) {
   writes_observed++;
   if (fail_write)
     g_cpu_state.bus_error = true;
@@ -32,33 +30,26 @@ static void observe_write(u32 size, u32 address, u32 value)
     saved_write[size](address, value);
 }
 
-static u32 read_byte(u32 address)
-{
+static u32 read_byte(u32 address) {
   return observe_read(0, address);
 }
-static u32 read_halfword(u32 address)
-{
+static u32 read_halfword(u32 address) {
   return observe_read(1, address);
 }
-static u32 read_word(u32 address)
-{
+static u32 read_word(u32 address) {
   return observe_read(2, address);
 }
-static void write_byte(u32 address, u32 value)
-{
+static void write_byte(u32 address, u32 value) {
   observe_write(0, address, value);
 }
-static void write_halfword(u32 address, u32 value)
-{
+static void write_halfword(u32 address, u32 value) {
   observe_write(1, address, value);
 }
-static void write_word(u32 address, u32 value)
-{
+static void write_word(u32 address, u32 value) {
   observe_write(2, address, value);
 }
 
-static void check_memory_fault(u32 op, u32 fault, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_memory_fault(u32 op, u32 fault, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const bool store = op == CPU_OP_SB || op == CPU_OP_SH || op == CPU_OP_SW || op == CPU_OP_SWL || op == CPU_OP_SWR ||
                      op == CPU_OP_SWC2;
   const bool merge     = op == CPU_OP_LWL || op == CPU_OP_LWR || op == CPU_OP_SWL || op == CPU_OP_SWR;
@@ -179,28 +170,22 @@ static void check_memory_fault(u32 op, u32 fault, cpu_execution_mode_t mode, cpu
 }
 
 #define MEMORY_FAULT_CASES(name, op, fault)                                                                \
-  TEST(NativeMemoryFault, name##_interpreter)                                                              \
-  {                                                                                                        \
+  TEST(NativeMemoryFault, name##_interpreter) {                                                            \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);        \
   }                                                                                                        \
-  TEST(NativeMemoryFault, name##_cached)                                                                   \
-  {                                                                                                        \
+  TEST(NativeMemoryFault, name##_cached) {                                                                 \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true); \
   }                                                                                                        \
-  TEST(NativeMemoryFault, name##_native)                                                                   \
-  {                                                                                                        \
+  TEST(NativeMemoryFault, name##_native) {                                                                 \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
   }                                                                                                        \
-  TEST(NativeMemoryFault, name##_lut)                                                                      \
-  {                                                                                                        \
+  TEST(NativeMemoryFault, name##_lut) {                                                                    \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                                        \
-  TEST(NativeMemoryFault, name##_mmap)                                                                     \
-  {                                                                                                        \
+  TEST(NativeMemoryFault, name##_mmap) {                                                                   \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);             \
   }                                                                                                        \
-  TEST(NativeMemoryFault, name##_unlinked)                                                                 \
-  {                                                                                                        \
+  TEST(NativeMemoryFault, name##_unlinked) {                                                               \
     check_memory_fault(op, fault, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);        \
   }
 
@@ -230,8 +215,7 @@ ALIGNMENT_CASES(sw, CPU_OP_SW)
 ALIGNMENT_CASES(lwc2, CPU_OP_LWC2)
 ALIGNMENT_CASES(swc2, CPU_OP_SWC2)
 
-static void check_fault_deadlines(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_fault_deadlines(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 memory = 0; memory < 2; memory++) {
     const u32 words[] = {0x01AE001A, 0x4A000030, 0x8D090000, 0x26100001, 0x1000FFFF, 0};
     start_cpu_with_fastmem(mode, fastmem, 0x10000, words, 6);
@@ -272,28 +256,22 @@ static void check_fault_deadlines(cpu_execution_mode_t mode, cpu_fastmem_mode_t 
   }
 }
 
-TEST(NativeMemoryFault, deadlines_interpreter)
-{
+TEST(NativeMemoryFault, deadlines_interpreter) {
   check_fault_deadlines(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativeMemoryFault, deadlines_cached)
-{
+TEST(NativeMemoryFault, deadlines_cached) {
   check_fault_deadlines(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativeMemoryFault, deadlines_native)
-{
+TEST(NativeMemoryFault, deadlines_native) {
   check_fault_deadlines(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativeMemoryFault, deadlines_mmap)
-{
+TEST(NativeMemoryFault, deadlines_mmap) {
   check_fault_deadlines(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);
 }
-TEST(NativeMemoryFault, deadlines_unlinked)
-{
+TEST(NativeMemoryFault, deadlines_unlinked) {
   check_fault_deadlines(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);
 }
 
-TEST(NativeMemoryFault, deadlines_lut)
-{
+TEST(NativeMemoryFault, deadlines_lut) {
   check_fault_deadlines(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);
 }

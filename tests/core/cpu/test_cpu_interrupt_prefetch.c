@@ -4,8 +4,7 @@
 typedef enum { IRQ_PLAIN, IRQ_TAKEN_SLOT, IRQ_UNTAKEN_SLOT } irq_position_t;
 
 static void check_interrupt_prefetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking,
-                                     irq_position_t position)
-{
+                                     irq_position_t position) {
   for (u32 cached = 0; cached < 2; cached++) {
     for (u32 command = 0; command < 2; command++) {
       for (u32 changed = 0; changed < 2; changed++) {
@@ -121,16 +120,13 @@ static void check_interrupt_prefetch(cpu_execution_mode_t mode, cpu_fastmem_mode
 }
 
 #define IRQ_POSITION_CASES(name, mode, fastmem, linking)                \
-  TEST(InterruptPrefetch, name##_plain)                                 \
-  {                                                                     \
+  TEST(InterruptPrefetch, name##_plain) {                               \
     check_interrupt_prefetch(mode, fastmem, linking, IRQ_PLAIN);        \
   }                                                                     \
-  TEST(InterruptPrefetch, name##_taken_slot)                            \
-  {                                                                     \
+  TEST(InterruptPrefetch, name##_taken_slot) {                          \
     check_interrupt_prefetch(mode, fastmem, linking, IRQ_TAKEN_SLOT);   \
   }                                                                     \
-  TEST(InterruptPrefetch, name##_untaken_slot)                          \
-  {                                                                     \
+  TEST(InterruptPrefetch, name##_untaken_slot) {                        \
     check_interrupt_prefetch(mode, fastmem, linking, IRQ_UNTAKEN_SLOT); \
   }
 

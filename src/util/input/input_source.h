@@ -15,8 +15,8 @@
 /* Pulls in input_binding_key_t, input_source_type_t, etc. */
 #include "input_manager.h"
 
-typedef struct settings_interface settings_interface_t;
-typedef struct input_source       input_source_t;
+typedef struct settings_interface  settings_interface_t;
+typedef struct input_source        input_source_t;
 typedef struct input_source_vtable input_source_vtable_t;
 
 /* Returned from enumerate_devices(). Each entry has an identifier ("SDL-0"),
@@ -50,8 +50,8 @@ void input_effect_list_free(input_effect_list_t* list);
 
 /* GetGenericBindingMapping result. (generic_id, binding string) pairs. */
 typedef struct {
-  u8    generic;        /* GENERIC_INPUT_BINDING_* */
-  char* binding;        /* heap; free()'d by free_generic_binding_mapping */
+  u8    generic; /* GENERIC_INPUT_BINDING_* */
+  char* binding; /* heap; free()'d by free_generic_binding_mapping */
 } generic_binding_entry_t;
 
 typedef struct {
@@ -80,8 +80,7 @@ struct input_source_vtable {
   bool (*contains_device)(const input_source_t* self, const char* device);
 
   /* Parses (device, binding) into *out_key. Returns false if not handled. */
-  bool (*parse_key_string)(input_source_t* self, const char* device, const char* binding,
-                           input_binding_key_t* out_key);
+  bool (*parse_key_string)(input_source_t* self, const char* device, const char* binding, input_binding_key_t* out_key);
 
   /* Writes a human key string into *out (e.g. "SDL-0/Cross"). */
   void (*convert_key_to_string)(input_source_t* self, input_binding_key_t key, small_string_t* out);
@@ -91,18 +90,16 @@ struct input_source_vtable {
 
   /* type < 0 means "any". for_device is matched by source_type+source_index
    * when has_for_device is true. */
-  void (*enumerate_effects)(input_source_t* self, int type, bool has_for_device,
-                            input_binding_key_t for_device, input_effect_list_t* out);
+  void (*enumerate_effects)(input_source_t* self, int type, bool has_for_device, input_binding_key_t for_device,
+                            input_effect_list_t* out);
 
   u32 (*get_pollable_device_count)(const input_source_t* self);
 
-  bool (*get_generic_binding_mapping)(input_source_t* self, const char* device,
-                                      generic_binding_mapping_t* mapping);
+  bool (*get_generic_binding_mapping)(input_source_t* self, const char* device, generic_binding_mapping_t* mapping);
 
   void (*update_motor_state)(input_source_t* self, input_binding_key_t key, float intensity);
-  void (*update_motor_state_pair)(input_source_t* self, input_binding_key_t large_key,
-                                  input_binding_key_t small_key, float large_intensity,
-                                  float small_intensity);
+  void (*update_motor_state_pair)(input_source_t* self, input_binding_key_t large_key, input_binding_key_t small_key,
+                                  float large_intensity, float small_intensity);
   void (*update_led_state)(input_source_t* self, input_binding_key_t key, float intensity);
 };
 
@@ -110,83 +107,68 @@ struct input_source {
   const input_source_vtable_t* vtbl;
 };
 
-ALWAYS_INLINE bool input_source_initialize(input_source_t* s, const settings_interface_t* si)
-{
+ALWAYS_INLINE bool input_source_initialize(input_source_t* s, const settings_interface_t* si) {
   return s->vtbl->initialize(s, si);
 }
-ALWAYS_INLINE void input_source_update_settings(input_source_t* s, const settings_interface_t* si)
-{
+ALWAYS_INLINE void input_source_update_settings(input_source_t* s, const settings_interface_t* si) {
   s->vtbl->update_settings(s, si);
 }
-ALWAYS_INLINE bool input_source_reload_devices(input_source_t* s)
-{
+ALWAYS_INLINE bool input_source_reload_devices(input_source_t* s) {
   return s->vtbl->reload_devices(s);
 }
-ALWAYS_INLINE void input_source_shutdown(input_source_t* s)
-{
+ALWAYS_INLINE void input_source_shutdown(input_source_t* s) {
   s->vtbl->shutdown(s);
 }
-ALWAYS_INLINE void input_source_poll_events(input_source_t* s)
-{
+ALWAYS_INLINE void input_source_poll_events(input_source_t* s) {
   s->vtbl->poll_events(s);
 }
-ALWAYS_INLINE bool input_source_get_current_value(input_source_t* s, input_binding_key_t k, float* v)
-{
+ALWAYS_INLINE bool input_source_get_current_value(input_source_t* s, input_binding_key_t k, float* v) {
   return s->vtbl->get_current_value(s, k, v);
 }
-ALWAYS_INLINE bool input_source_contains_device(const input_source_t* s, const char* d)
-{
+ALWAYS_INLINE bool input_source_contains_device(const input_source_t* s, const char* d) {
   return s->vtbl->contains_device(s, d);
 }
 ALWAYS_INLINE bool input_source_parse_key_string(input_source_t* s, const char* d, const char* b,
-                                                 input_binding_key_t* out)
-{
+                                                 input_binding_key_t* out) {
   return s->vtbl->parse_key_string(s, d, b, out);
 }
-ALWAYS_INLINE void input_source_convert_key_to_string(input_source_t* s, input_binding_key_t k,
-                                                      small_string_t* out)
-{
+ALWAYS_INLINE void input_source_convert_key_to_string(input_source_t* s, input_binding_key_t k, small_string_t* out) {
   s->vtbl->convert_key_to_string(s, k, out);
 }
-ALWAYS_INLINE void input_source_enumerate_devices(input_source_t* s, input_device_list_t* out)
-{
+ALWAYS_INLINE void input_source_enumerate_devices(input_source_t* s, input_device_list_t* out) {
   s->vtbl->enumerate_devices(s, out);
 }
-ALWAYS_INLINE u32 input_source_get_pollable_device_count(const input_source_t* s)
-{
+ALWAYS_INLINE u32 input_source_get_pollable_device_count(const input_source_t* s) {
   return s->vtbl->get_pollable_device_count(s);
 }
-ALWAYS_INLINE void input_source_update_motor_state(input_source_t* s, input_binding_key_t k, float i)
-{
+ALWAYS_INLINE void input_source_update_motor_state(input_source_t* s, input_binding_key_t k, float i) {
   s->vtbl->update_motor_state(s, k, i);
 }
 ALWAYS_INLINE void input_source_update_motor_state_pair(input_source_t* s, input_binding_key_t lk,
-                                                        input_binding_key_t sk, float li, float si_)
-{
+                                                        input_binding_key_t sk, float li, float si_) {
   s->vtbl->update_motor_state_pair(s, lk, sk, li, si_);
 }
 
 input_binding_key_t input_source_make_generic_device_key(input_source_type_t clazz, u32 controller_index);
-input_binding_key_t input_source_make_generic_axis_key(input_source_type_t clazz, u32 controller_index,
-                                                       s32 axis_index);
+input_binding_key_t input_source_make_generic_axis_key(input_source_type_t clazz, u32 controller_index, s32 axis_index);
 input_binding_key_t input_source_make_generic_button_key(input_source_type_t clazz, u32 controller_index,
                                                          s32 button_index);
-input_binding_key_t input_source_make_generic_hat_key(input_source_type_t clazz, u32 controller_index,
-                                                      s32 hat_index, u8 hat_direction, u32 num_directions);
+input_binding_key_t input_source_make_generic_hat_key(input_source_type_t clazz, u32 controller_index, s32 hat_index,
+                                                      u8 hat_direction, u32 num_directions);
 input_binding_key_t input_source_make_generic_motor_key(input_source_type_t clazz, u32 controller_index,
                                                         s32 motor_index);
 
 /* Generic controller "{Source}{N}/Button{N}" / "{Source}-{N}/+Axis{N}" parser. */
-bool input_source_parse_generic_controller_key(input_source_type_t clazz, const char* source,
-                                               const char* sub_binding, input_binding_key_t* out_key);
+bool input_source_parse_generic_controller_key(input_source_type_t clazz, const char* source, const char* sub_binding,
+                                               input_binding_key_t* out_key);
 
- /* Default no-op vtable methods (suitable for sources that don't implement
+/* Default no-op vtable methods (suitable for sources that don't implement
  * specific entries). */
 bool input_source_stub_reload_devices(input_source_t* self);
 bool input_source_stub_get_current_value(input_source_t* self, input_binding_key_t key, float* v);
 void input_source_stub_update_motor_state(input_source_t* self, input_binding_key_t key, float intensity);
-void input_source_stub_update_motor_state_pair(input_source_t* self, input_binding_key_t lk,
-                                               input_binding_key_t sk, float li, float si_);
+void input_source_stub_update_motor_state_pair(input_source_t* self, input_binding_key_t lk, input_binding_key_t sk,
+                                               float li, float si_);
 void input_source_stub_update_led_state(input_source_t* self, input_binding_key_t key, float intensity);
 bool input_source_stub_get_generic_binding_mapping(input_source_t* self, const char* device,
                                                    generic_binding_mapping_t* mapping);

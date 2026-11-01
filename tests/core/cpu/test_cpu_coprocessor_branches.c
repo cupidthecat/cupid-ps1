@@ -15,8 +15,7 @@ enum {
 };
 
 static void check_coprocessor_branch(u32 cop, u32 scenario, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem,
-                                     bool linking)
-{
+                                     bool linking) {
   const bool status   = scenario == BRANCH_STATUS_ENABLE || scenario == BRANCH_STATUS_DISABLE;
   const bool backward = scenario == BRANCH_BACKWARD;
   const u32  prefix   = status ? 3 : 0;
@@ -108,28 +107,22 @@ static void check_coprocessor_branch(u32 cop, u32 scenario, cpu_execution_mode_t
 }
 
 #define COP_BRANCH_CASES(name, cop, scenario)                                                                        \
-  TEST(CpuCoprocessorBranch, name##_interpreter)                                                                     \
-  {                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_interpreter) {                                                                   \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);        \
   }                                                                                                                  \
-  TEST(CpuCoprocessorBranch, name##_cached)                                                                          \
-  {                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_cached) {                                                                        \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true); \
   }                                                                                                                  \
-  TEST(CpuCoprocessorBranch, name##_native)                                                                          \
-  {                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_native) {                                                                        \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
   }                                                                                                                  \
-  TEST(CpuCoprocessorBranch, name##_lut)                                                                             \
-  {                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_lut) {                                                                           \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                                                  \
-  TEST(CpuCoprocessorBranch, name##_mmap)                                                                            \
-  {                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_mmap) {                                                                          \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);             \
   }                                                                                                                  \
-  TEST(CpuCoprocessorBranch, name##_unlinked)                                                                        \
-  {                                                                                                                  \
+  TEST(CpuCoprocessorBranch, name##_unlinked) {                                                                      \
     check_coprocessor_branch(cop, scenario, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);        \
   }
 
@@ -160,8 +153,7 @@ COP_BRANCH_CASES(cop1_backward, 1, BRANCH_BACKWARD)
 COP_BRANCH_CASES(cop2_backward, 2, BRANCH_BACKWARD)
 COP_BRANCH_CASES(cop3_backward, 3, BRANCH_BACKWARD)
 
-TEST(CpuCoprocessorBranch, classification)
-{
+TEST(CpuCoprocessorBranch, classification) {
   for (u32 cop = 0; cop < 4; cop++) {
     for (u32 rt = 0; rt < 4; rt++) {
       const cpu_instruction_t branch = {.bits = ((CPU_OP_COP0 + cop) << 26) | (8u << 21) | (rt << 16) | 0xFFFE};
@@ -177,27 +169,23 @@ TEST(CpuCoprocessorBranch, classification)
 
 static u32 backend_fallback_calls;
 
-static void record_backend_fallback(cpu_recompiler_t* r)
-{
+static void record_backend_fallback(cpu_recompiler_t* r) {
   backend_fallback_calls++;
   r->block_ended = true;
 }
 
-static void unused_branch_hook(cpu_recompiler_t* r)
-{
+static void unused_branch_hook(cpu_recompiler_t* r) {
   (void)r;
 }
 
-static void forbid_partial_branch(cpu_recompiler_t* r, u32 value, const void* pointer)
-{
+static void forbid_partial_branch(cpu_recompiler_t* r, u32 value, const void* pointer) {
   (void)r;
   (void)value;
   (void)pointer;
   test_fail(__FILE__, __LINE__, "incomplete backend emitted a native branch target");
 }
 
-TEST(CpuCoprocessorBranch, incomplete_backend_keeps_fallback)
-{
+TEST(CpuCoprocessorBranch, incomplete_backend_keeps_fallback) {
   for (u32 missing = 0; missing < 3; missing++) {
     cpu_recompiler_vtable_t hooks = {
         .generate_instruction_fetch    = missing == 1 ? unused_branch_hook : NULL,

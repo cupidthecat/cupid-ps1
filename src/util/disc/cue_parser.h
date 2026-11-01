@@ -29,10 +29,10 @@ enum {
 };
 
 typedef enum {
-  CUE_PARSER_TRACK_FLAG_PRE_EMPHASIS         = (1u << 0),
-  CUE_PARSER_TRACK_FLAG_COPY_PERMITTED       = (1u << 1),
-  CUE_PARSER_TRACK_FLAG_FOUR_CHANNEL_AUDIO   = (1u << 2),
-  CUE_PARSER_TRACK_FLAG_SERIAL_COPY_MGMT     = (1u << 3),
+  CUE_PARSER_TRACK_FLAG_PRE_EMPHASIS       = (1u << 0),
+  CUE_PARSER_TRACK_FLAG_COPY_PERMITTED     = (1u << 1),
+  CUE_PARSER_TRACK_FLAG_FOUR_CHANNEL_AUDIO = (1u << 2),
+  CUE_PARSER_TRACK_FLAG_SERIAL_COPY_MGMT   = (1u << 3),
 } cue_parser_track_flag_t;
 
 typedef enum {
@@ -50,7 +50,7 @@ typedef struct {
   u8                       flags;
   cd_image_track_mode_t    mode;
   cue_parser_file_format_t file_format;
-  char*                    file;          /* heap, owned */
+  char*                    file; /* heap, owned */
 
   cue_parser_index_t* indices;
   u32                 index_count;
@@ -71,16 +71,16 @@ typedef struct {
   u32                 track_capacity;
 
   /* Most recent FILE statement. */
-  bool                       has_current_file;
-  char*                      current_file;          /* heap, owned */
-  cue_parser_file_format_t   current_file_format;
+  bool                     has_current_file;
+  char*                    current_file; /* heap, owned */
+  cue_parser_file_format_t current_file_format;
 
   /* Track currently being assembled (between TRACK and the next TRACK/EOF). */
   bool               has_current_track;
   cue_parser_track_t current_track;
 } cue_parser_file_t;
 
-void cue_parser_file_init   (cue_parser_file_t* f);
+void cue_parser_file_init(cue_parser_file_t* f);
 void cue_parser_file_destroy(cue_parser_file_t* f);
 
 /* Parses an opened file pointer (at offset 0). The fp is read until EOF;
@@ -96,8 +96,7 @@ const cue_parser_track_t* cue_parser_file_get_track(const cue_parser_file_t* f, 
 /* Index lookup on a track. */
 const cd_image_position_t* cue_parser_track_get_index(const cue_parser_track_t* t, u32 n);
 
-ALWAYS_INLINE bool cue_parser_track_has_flag(const cue_parser_track_t* t, cue_parser_track_flag_t flag)
-{
+ALWAYS_INLINE bool cue_parser_track_has_flag(const cue_parser_track_t* t, cue_parser_track_flag_t flag) {
   return (t->flags & (u8)flag) != 0;
 }
 

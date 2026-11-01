@@ -5,8 +5,7 @@
 #include "tests/core/cpu/cpu_execution_fixture.h"
 #include "core/spu/spu.h"
 
-static void advance_spu_clock(tick_count_t ticks)
-{
+static void advance_spu_clock(tick_count_t ticks) {
   if (ticks <= 0) {
     spu_execute(ticks);
     return;

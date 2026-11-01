@@ -8,8 +8,7 @@ typedef struct tty_capture {
   u32    lines;
 } tty_capture_t;
 
-static void capture_tty(void* user, u32 category, const char* function, const char* message, size_t size)
-{
+static void capture_tty(void* user, u32 category, const char* function, const char* message, size_t size) {
   (void)function;
   if (log_unpack_channel(category) != LOG_CHANNEL_TTY) return;
   tty_capture_t* capture = user;
@@ -21,8 +20,7 @@ static void capture_tty(void* user, u32 category, const char* function, const ch
   capture->lines++;
 }
 
-static void observe_tty(tty_capture_t* capture, bool enabled)
-{
+static void observe_tty(tty_capture_t* capture, bool enabled) {
   memset(capture, 0, sizeof(*capture));
   log_set_log_level(LOG_LEVEL_INFO);
   log_set_channel_enabled(LOG_CHANNEL_TTY, true);
@@ -30,14 +28,12 @@ static void observe_tty(tty_capture_t* capture, bool enabled)
   g_settings.bios_tty_logging = enabled;
 }
 
-static void finish_tty(tty_capture_t* capture)
-{
+static void finish_tty(tty_capture_t* capture) {
   log_unregister_callback(capture_tty, capture);
   finish_cpu();
 }
 
-static void start_call(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 segment, u32 entry, u32 function)
-{
+static void start_call(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 segment, u32 entry, u32 function) {
   const u32 words[] = {0x34090000 | function, 0x0C000000 | (entry >> 2), 0, 0x26100001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(mode, fastmem, segment | 0x10000, words, 6);
   const u32 trampoline[] = {0x03E00008, 0}; /* jr ra; nop */
@@ -45,8 +41,7 @@ static void start_call(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u3
   if (fastmem == CPU_FASTMEM_MODE_MMAP) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
-static void check_strings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_strings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   const u32 segments[] = {0, 0x80000000, 0xA0000000};
   for (size_t segment = 0; segment < sizeof(segments) / sizeof(segments[0]); segment++) {
     for (u32 entry = 0xA0; entry <= 0xB0; entry += 0x10) {
@@ -68,24 +63,20 @@ static void check_strings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
   }
 }
 
-TEST(BiosTty, interpreter_and_cached_capture_entry_mirrors)
-{
+TEST(BiosTty, interpreter_and_cached_capture_entry_mirrors) {
   check_strings(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
   check_strings(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(BiosTty, native_captures_entry_mirrors)
-{
+TEST(BiosTty, native_captures_entry_mirrors) {
   check_strings(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED);
 }
 
-TEST(BiosTty, mmap_captures_entry_mirrors)
-{
+TEST(BiosTty, mmap_captures_entry_mirrors) {
   check_strings(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP);
 }
 
-TEST(BiosTty, logging_changes_without_recompilation)
-{
+TEST(BiosTty, logging_changes_without_recompilation) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -118,8 +109,7 @@ TEST(BiosTty, logging_changes_without_recompilation)
   }
 }
 
-TEST(BiosTty, in_block_observation_preserves_load_delay_and_cpu_state)
-{
+TEST(BiosTty, in_block_observation_preserves_load_delay_and_cpu_state) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -156,8 +146,7 @@ TEST(BiosTty, in_block_observation_preserves_load_delay_and_cpu_state)
   }
 }
 
-TEST(BiosTty, delay_slot_observes_branch_link)
-{
+TEST(BiosTty, delay_slot_observes_branch_link) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -180,8 +169,7 @@ TEST(BiosTty, delay_slot_observes_branch_link)
   }
 }
 
-TEST(BiosTty, interpreter_fallback_does_not_duplicate_output)
-{
+TEST(BiosTty, interpreter_fallback_does_not_duplicate_output) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -204,8 +192,7 @@ TEST(BiosTty, interpreter_fallback_does_not_duplicate_output)
   }
 }
 
-TEST(BiosTty, conditional_delay_slot_keeps_branch_outcome)
-{
+TEST(BiosTty, conditional_delay_slot_keeps_branch_outcome) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -233,8 +220,7 @@ TEST(BiosTty, conditional_delay_slot_keeps_branch_outcome)
   }
 }
 
-TEST(BiosTty, counted_stdout_write_respects_descriptor_and_length)
-{
+TEST(BiosTty, counted_stdout_write_respects_descriptor_and_length) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -255,8 +241,7 @@ TEST(BiosTty, counted_stdout_write_respects_descriptor_and_length)
   }
 }
 
-TEST(BiosTty, counted_write_continues_after_zero_byte)
-{
+TEST(BiosTty, counted_write_continues_after_zero_byte) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -274,8 +259,7 @@ TEST(BiosTty, counted_write_continues_after_zero_byte)
   }
 }
 
-TEST(BiosTty, puts_stops_at_observation_limit)
-{
+TEST(BiosTty, puts_stops_at_observation_limit) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -297,8 +281,7 @@ TEST(BiosTty, puts_stops_at_observation_limit)
   }
 }
 
-TEST(BiosTty, string_reads_stop_at_unmapped_memory)
-{
+TEST(BiosTty, string_reads_stop_at_unmapped_memory) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -321,8 +304,7 @@ TEST(BiosTty, string_reads_stop_at_unmapped_memory)
   }
 }
 
-TEST(BiosTty, zero_length_write_has_no_output)
-{
+TEST(BiosTty, zero_length_write_has_no_output) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {
@@ -340,8 +322,7 @@ TEST(BiosTty, zero_length_write_has_no_output)
   }
 }
 
-TEST(BiosTty, character_functions_respect_stdout_descriptor)
-{
+TEST(BiosTty, character_functions_respect_stdout_descriptor) {
   const cpu_execution_mode_t modes[]    = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                            CPU_EXECUTION_MODE_RECOMPILER};
   const u32                  calls[][2] = {{0xA0, 0x09}, {0xA0, 0x3C}, {0xB0, 0x3B}, {0xB0, 0x3D}};
@@ -365,15 +346,13 @@ TEST(BiosTty, character_functions_respect_stdout_descriptor)
 
 static u32 device_reads;
 
-static u32 read_tty_device(u32 address)
-{
+static u32 read_tty_device(u32 address) {
   (void)address;
   device_reads++;
   return 'x';
 }
 
-TEST(BiosTty, observation_does_not_read_mmio)
-{
+TEST(BiosTty, observation_does_not_read_mmio) {
   const cpu_execution_mode_t modes[] = {CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_CACHED_INTERPRETER,
                                         CPU_EXECUTION_MODE_RECOMPILER};
   for (size_t mode = 0; mode < sizeof(modes) / sizeof(modes[0]); mode++) {

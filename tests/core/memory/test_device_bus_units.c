@@ -12,8 +12,7 @@ typedef struct {
 
 static observed_bus_t observed;
 
-static u32 read_sequence(u32 address, u32 unit_bytes)
-{
+static u32 read_sequence(u32 address, u32 unit_bytes) {
   const u32 index = observed.count++;
   EXPECT_TRUE(index < 8);
   observed.address[index] = address;
@@ -21,8 +20,7 @@ static u32 read_sequence(u32 address, u32 unit_bytes)
   return unit_bytes == 1 ? 0xA0 + index : 0x1100 + index;
 }
 
-static void record_write(u32 address, u32 value, u32 unit_bytes, u32 enabled_bytes)
-{
+static void record_write(u32 address, u32 value, u32 unit_bytes, u32 enabled_bytes) {
   const u32 index = observed.count++;
   EXPECT_TRUE(index < 8);
   observed.address[index] = address;
@@ -31,8 +29,7 @@ static void record_write(u32 address, u32 value, u32 unit_bytes, u32 enabled_byt
   observed.enabled[index] = enabled_bytes;
 }
 
-static void check_fifo_read(bool wide, bool increment, memory_access_size_t size)
-{
+static void check_fifo_read(bool wide, bool increment, memory_access_size_t size) {
   memset(&observed, 0, sizeof(observed));
   const u32 control       = (wide ? DEVICE_BUS_16BIT : 0) | (increment ? DEVICE_BUS_INCREMENT : 0);
   const u32 value         = device_bus_read(0x20, size, control, read_sequence);
@@ -47,8 +44,7 @@ static void check_fifo_read(bool wide, bool increment, memory_access_size_t size
   }
 }
 
-static void check_word_write(bool wide, bool increment)
-{
+static void check_word_write(bool wide, bool increment) {
   memset(&observed, 0, sizeof(observed));
   const u32 control = (wide ? DEVICE_BUS_16BIT : 0) | (increment ? DEVICE_BUS_INCREMENT : 0);
   device_bus_write(0x20, 0x44332211, MEMORY_ACCESS_SIZE_WORD, control, record_write);
@@ -66,8 +62,7 @@ static void check_word_write(bool wide, bool increment)
 }
 
 #define READ_CASE(name, wide, increment, size) \
-  TEST(DeviceBusUnits, name)                   \
-  {                                            \
+  TEST(DeviceBusUnits, name) {                 \
     check_fifo_read(wide, increment, size);    \
   }
 READ_CASE(fifo8_half_hold, false, false, MEMORY_ACCESS_SIZE_HALFWORD)
@@ -78,8 +73,7 @@ READ_CASE(fifo16_word_hold, true, false, MEMORY_ACCESS_SIZE_WORD)
 READ_CASE(fifo16_word_increment, true, true, MEMORY_ACCESS_SIZE_WORD)
 
 #define WRITE_CASE(name, wide, increment) \
-  TEST(DeviceBusUnits, name)              \
-  {                                       \
+  TEST(DeviceBusUnits, name) {            \
     check_word_write(wide, increment);    \
   }
 WRITE_CASE(write8_word_hold, false, false)
@@ -87,8 +81,7 @@ WRITE_CASE(write8_word_increment, false, true)
 WRITE_CASE(write16_word_hold, true, false)
 WRITE_CASE(write16_word_increment, true, true)
 
-static void check_byte_lane(bool odd, bool write)
-{
+static void check_byte_lane(bool odd, bool write) {
   memset(&observed, 0, sizeof(observed));
   if (write) {
     device_bus_write(0x20 + odd, 0x44332211, MEMORY_ACCESS_SIZE_BYTE, DEVICE_BUS_16BIT, record_write);
@@ -102,24 +95,19 @@ static void check_byte_lane(bool odd, bool write)
   EXPECT_EQ(observed.width[0], 2);
 }
 
-TEST(DeviceBusUnits, read16_even_byte)
-{
+TEST(DeviceBusUnits, read16_even_byte) {
   check_byte_lane(false, false);
 }
-TEST(DeviceBusUnits, read16_odd_byte)
-{
+TEST(DeviceBusUnits, read16_odd_byte) {
   check_byte_lane(true, false);
 }
-TEST(DeviceBusUnits, write16_even_byte)
-{
+TEST(DeviceBusUnits, write16_even_byte) {
   check_byte_lane(false, true);
 }
-TEST(DeviceBusUnits, write16_odd_byte)
-{
+TEST(DeviceBusUnits, write16_odd_byte) {
   check_byte_lane(true, true);
 }
-TEST(DeviceBusUnits, write8_odd_byte)
-{
+TEST(DeviceBusUnits, write8_odd_byte) {
   memset(&observed, 0, sizeof(observed));
   device_bus_write(0x21, 0x44332211, MEMORY_ACCESS_SIZE_BYTE, 0, record_write);
   EXPECT_EQ(observed.count, 1);
@@ -128,8 +116,7 @@ TEST(DeviceBusUnits, write8_odd_byte)
   EXPECT_EQ(observed.enabled[0], 1);
   EXPECT_EQ(observed.value[0], 0x11);
 }
-TEST(DeviceBusUnits, write16_halfword)
-{
+TEST(DeviceBusUnits, write16_halfword) {
   memset(&observed, 0, sizeof(observed));
   device_bus_write(0x20, 0x44332211, MEMORY_ACCESS_SIZE_HALFWORD, DEVICE_BUS_16BIT, record_write);
   EXPECT_EQ(observed.count, 1);
@@ -139,19 +126,18 @@ TEST(DeviceBusUnits, write16_halfword)
   EXPECT_EQ(observed.value[0], 0x2211);
 }
 
-static void check_masked_write(bool wide, bool increment)
-{
-  const u32 masks[] = {1, 3, 7, 8, 14, 12, 15};
-  const u32 counts8[] = {1, 2, 3, 1, 3, 2, 4};
-  const u32 starts8[] = {0, 0, 0, 3, 1, 2, 0};
-  const u32 counts16[] = {1, 1, 1, 1, 1, 1, 2};
-  const u32 starts16[] = {0, 0, 0, 2, 0, 2, 0};
+static void check_masked_write(bool wide, bool increment) {
+  const u32 masks[]     = {1, 3, 7, 8, 14, 12, 15};
+  const u32 counts8[]   = {1, 2, 3, 1, 3, 2, 4};
+  const u32 starts8[]   = {0, 0, 0, 3, 1, 2, 0};
+  const u32 counts16[]  = {1, 1, 1, 1, 1, 1, 2};
+  const u32 starts16[]  = {0, 0, 0, 2, 0, 2, 0};
   const u32 enables16[] = {1, 3, 3, 2, 3, 3, 3};
-  const u32 bytes[] = {0x11, 0x22, 0x33, 0x44};
+  const u32 bytes[]     = {0x11, 0x22, 0x33, 0x44};
   for (u32 row = 0; row < countof(masks); row++) {
     memset(&observed, 0, sizeof(observed));
     device_bus_write_masked(0x20, 0x44332211, masks[row],
-        (wide ? DEVICE_BUS_16BIT : 0) | (increment ? DEVICE_BUS_INCREMENT : 0), record_write);
+                            (wide ? DEVICE_BUS_16BIT : 0) | (increment ? DEVICE_BUS_INCREMENT : 0), record_write);
     const u32 start = wide ? starts16[row] : starts8[row];
     EXPECT_EQ(observed.count, wide ? counts16[row] : counts8[row]);
     for (u32 i = 0; i < observed.count; i++) {
@@ -162,12 +148,19 @@ static void check_masked_write(bool wide, bool increment)
     }
   }
 }
-TEST(DeviceBusUnits, masked8_increment) { check_masked_write(false, true); }
-TEST(DeviceBusUnits, masked8_hold) { check_masked_write(false, false); }
-TEST(DeviceBusUnits, masked16_increment) { check_masked_write(true, true); }
-TEST(DeviceBusUnits, masked16_hold) { check_masked_write(true, false); }
-TEST(DeviceBusUnits, invalid_mask_has_no_strobes)
-{
+TEST(DeviceBusUnits, masked8_increment) {
+  check_masked_write(false, true);
+}
+TEST(DeviceBusUnits, masked8_hold) {
+  check_masked_write(false, false);
+}
+TEST(DeviceBusUnits, masked16_increment) {
+  check_masked_write(true, true);
+}
+TEST(DeviceBusUnits, masked16_hold) {
+  check_masked_write(true, false);
+}
+TEST(DeviceBusUnits, invalid_mask_has_no_strobes) {
   memset(&observed, 0, sizeof(observed));
   device_bus_write_masked(0x20, 0x44332211, 0, 0, record_write);
   device_bus_write_masked(0x20, 0x44332211, 0x10, 0, record_write);

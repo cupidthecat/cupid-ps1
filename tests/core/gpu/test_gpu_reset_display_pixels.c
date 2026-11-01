@@ -6,8 +6,7 @@ typedef struct {
   u32* pixels;
 } reset_frame_t;
 
-static reset_frame_t read_reset_frame(void)
-{
+static reset_frame_t read_reset_frame(void) {
   gpu_update_display(false);
   reset_frame_t frame;
   const u32*    pixels = gpu_sw_get_display_buffer(&frame.width, &frame.height);
@@ -25,8 +24,7 @@ static reset_frame_t read_reset_frame(void)
   return frame;
 }
 
-static u32 count_frame_differences(const reset_frame_t* a, const reset_frame_t* b)
-{
+static u32 count_frame_differences(const reset_frame_t* a, const reset_frame_t* b) {
   EXPECT_EQ(a->width, b->width);
   EXPECT_EQ(a->height, b->height);
   u32 different = 0;
@@ -35,8 +33,7 @@ static u32 count_frame_differences(const reset_frame_t* a, const reset_frame_t* 
   return different;
 }
 
-static void save_reset_frame(const reset_frame_t* frame, bool restore, const char* name)
-{
+static void save_reset_frame(const reset_frame_t* frame, bool restore, const char* name) {
   const char* directory = getenv("CUPID_TEST_GPU_RESET_FRAMES");
   if (!directory || !*directory) return;
   char      path[1024];
@@ -52,8 +49,7 @@ static void save_reset_frame(const reset_frame_t* frame, bool restore, const cha
   EXPECT_EQ(fclose(stream), 0);
 }
 
-static void restore_pixel_display(void)
-{
+static void restore_pixel_display(void) {
   u8           cpu[16384], irq[16], counters[128], timing[4096];
   const size_t capacity = 2 * 1024 * 1024;
   u8*          gpu      = malloc(capacity);
@@ -86,8 +82,7 @@ static void restore_pixel_display(void)
   free(gpu);
 }
 
-static void check_reset_pixels(bool restore)
-{
+static void check_reset_pixels(bool restore) {
   const u16 addresses[][2] = {{0, 0}, {512, 0}, {0, 256}, {512, 256}};
   const u16 colors[]       = {0x001F, 0x03E0, 0x7C00, 0x7FFF};
   u16*      vram           = malloc(1024 * 512 * sizeof(u16));
@@ -152,11 +147,9 @@ static void check_reset_pixels(bool restore)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(GpuResetDisplayPixels, fresh)
-{
+TEST(GpuResetDisplayPixels, fresh) {
   check_reset_pixels(false);
 }
-TEST(GpuResetDisplayPixels, restored)
-{
+TEST(GpuResetDisplayPixels, restored) {
   check_reset_pixels(true);
 }

@@ -21,8 +21,7 @@ typedef struct {
   u16 bit_readback[16];
 } serial_mode_device_t;
 
-static bool pad_mode_state(state_wrapper_t* sw)
-{
+static bool pad_mode_state(state_wrapper_t* sw) {
   return pad_do_state(sw, false);
 }
 
@@ -45,20 +44,17 @@ static const serial_mode_device_t sio_mode_device = {sio_initialize,
                                                      0x0078,
                                                      {1, 2, 4, 8, 0x10, 0x20, 0x40, 0x80, 0, 0, 0, 0, 0, 0, 0, 0}};
 
-static void mode_begin(const serial_mode_device_t* device)
-{
+static void mode_begin(const serial_mode_device_t* device) {
   timing_events_initialize();
   device->initialize();
 }
 
-static void mode_finish(const serial_mode_device_t* device)
-{
+static void mode_finish(const serial_mode_device_t* device) {
   device->shutdown();
   timing_events_shutdown();
 }
 
-static void mode_check_bits(const serial_mode_device_t* device)
-{
+static void mode_check_bits(const serial_mode_device_t* device) {
   mode_begin(device);
   device->write(0x0A, 0x0100);
   device->write(0x0E, 0x1357);
@@ -73,8 +69,7 @@ static void mode_check_bits(const serial_mode_device_t* device)
   mode_finish(device);
 }
 
-static void mode_check_replacement(const serial_mode_device_t* device)
-{
+static void mode_check_replacement(const serial_mode_device_t* device) {
   mode_begin(device);
   device->write(0x08, 0xFFFFFFFF);
   EXPECT_EQ(device->read(0x08), device->retained_bits);
@@ -88,8 +83,7 @@ static void mode_check_replacement(const serial_mode_device_t* device)
   mode_finish(device);
 }
 
-static void mode_check_resets(const serial_mode_device_t* device)
-{
+static void mode_check_resets(const serial_mode_device_t* device) {
   mode_begin(device);
   device->write(0x08, device->retained_bits);
   EXPECT_EQ(device->read(0x08), device->retained_bits);
@@ -101,8 +95,7 @@ static void mode_check_resets(const serial_mode_device_t* device)
   mode_finish(device);
 }
 
-static size_t mode_save(const serial_mode_device_t* device, u8* data, size_t capacity)
-{
+static size_t mode_save(const serial_mode_device_t* device, u8* data, size_t capacity) {
   state_wrapper_t sw;
   state_wrapper_init_write(&sw, data, capacity, SAVE_STATE_VERSION);
   EXPECT_TRUE(device->state(&sw));
@@ -110,8 +103,7 @@ static size_t mode_save(const serial_mode_device_t* device, u8* data, size_t cap
   return state_wrapper_get_position(&sw);
 }
 
-static void mode_load(const serial_mode_device_t* device, const u8* data, size_t size)
-{
+static void mode_load(const serial_mode_device_t* device, const u8* data, size_t size) {
   state_wrapper_t sw;
   state_wrapper_init_read(&sw, data, size, SAVE_STATE_VERSION);
   EXPECT_TRUE(device->state(&sw));
@@ -119,8 +111,7 @@ static void mode_load(const serial_mode_device_t* device, const u8* data, size_t
   EXPECT_EQ(state_wrapper_get_position(&sw), size);
 }
 
-static void mode_check_roundtrip(const serial_mode_device_t* device)
-{
+static void mode_check_roundtrip(const serial_mode_device_t* device) {
   mode_begin(device);
   u8 saved[4096], restored[4096];
   device->write(0x08, 0x12345678);
@@ -133,8 +124,7 @@ static void mode_check_roundtrip(const serial_mode_device_t* device)
   mode_finish(device);
 }
 
-static void mode_check_legacy_state(const serial_mode_device_t* device)
-{
+static void mode_check_legacy_state(const serial_mode_device_t* device) {
   mode_begin(device);
   u8           zero[4096], one[4096], valid[4096], restored[4096];
   const size_t size = mode_save(device, zero, sizeof(zero));

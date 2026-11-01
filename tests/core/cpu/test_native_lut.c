@@ -4,8 +4,7 @@
 #include "core/gte/gte.h"
 #include "util/platform/page_fault_handler.h"
 
-static void check_lut_widths(bool linking)
-{
+static void check_lut_widths(bool linking) {
   const u32 aliases[] = {0,          0x00200000, 0x00400000, 0x00600000, 0x80000000, 0x80200000,
                          0x80400000, 0x80600000, 0xA0000000, 0xA0200000, 0xA0400000, 0xA0600000};
   for (u32 constant = 0; constant < 2; constant++) {
@@ -48,18 +47,15 @@ static void check_lut_widths(bool linking)
   }
 }
 
-TEST(NativeLut, widths_and_signs_through_all_ram_aliases)
-{
+TEST(NativeLut, widths_and_signs_through_all_ram_aliases) {
   check_lut_widths(true);
 }
 
-TEST(NativeLut, unlinked_widths_and_signs)
-{
+TEST(NativeLut, unlinked_widths_and_signs) {
   check_lut_widths(false);
 }
 
-TEST(NativeLut, mmio_recovery_does_not_count_as_a_direct_access)
-{
+TEST(NativeLut, mmio_recovery_does_not_count_as_a_direct_access) {
   const u32 words[] = {0x8DE80000, 0, 0xAD090000, 0x8D0A0000, 0, 0x26100001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, 0xA0010000, words, 8);
   dma_initialize();
@@ -80,8 +76,7 @@ TEST(NativeLut, mmio_recovery_does_not_count_as_a_direct_access)
   finish_cpu();
 }
 
-static void check_lut_code_write(bool cached)
-{
+static void check_lut_code_write(bool cached) {
   const u32 entry   = cached ? 0x80010000 : 0xA0010000;
   const u32 words[] = {0xAD090008, 0, 0x24100001, 0x26310001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, entry, words, 6);
@@ -101,18 +96,15 @@ static void check_lut_code_write(bool cached)
   finish_cpu();
 }
 
-TEST(NativeLut, cached_code_write_preserves_instruction_cache)
-{
+TEST(NativeLut, cached_code_write_preserves_instruction_cache) {
   check_lut_code_write(true);
 }
 
-TEST(NativeLut, uncached_code_write_observes_replacement)
-{
+TEST(NativeLut, uncached_code_write_observes_replacement) {
   check_lut_code_write(false);
 }
 
-TEST(NativeLut, fault_classifier_rejects_unrelated_addresses_and_reads)
-{
+TEST(NativeLut, fault_classifier_rejects_unrelated_addresses_and_reads) {
   const u32 words[] = {0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, 0xA0010000, words, 2);
   run_slice(1000);
@@ -134,8 +126,7 @@ TEST(NativeLut, fault_classifier_rejects_unrelated_addresses_and_reads)
   finish_cpu();
 }
 
-TEST(NativeLut, checked_memory_path_reports_fastmem_disabled)
-{
+TEST(NativeLut, checked_memory_path_reports_fastmem_disabled) {
   const u32 words[] = {0xAD090000, 0x8D0A0000, 0, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, 0xA0010000, words, 5);
   g_settings.cpu_recompiler_memory_exceptions = true;
@@ -150,8 +141,7 @@ TEST(NativeLut, checked_memory_path_reports_fastmem_disabled)
   finish_cpu();
 }
 
-TEST(NativeLut, disabled_counters_preserve_execution)
-{
+TEST(NativeLut, disabled_counters_preserve_execution) {
   const u32 words[] = {0xAD090000, 0x8D0A0000, 0, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, 0xA0010000, words, 5);
   cpu_execution_stats_initialize(false);
@@ -167,8 +157,7 @@ TEST(NativeLut, disabled_counters_preserve_execution)
   finish_cpu();
 }
 
-TEST(NativeLut, merges_and_coprocessor_transfers_use_direct_accesses)
-{
+TEST(NativeLut, merges_and_coprocessor_transfers_use_direct_accesses) {
   const u32 words[] = {0xC9000000, 0xE9000008, 0xC5090004, 0x890A0004, 0x990A0001, 0, 0xA90B0014,
                        0xB90B0011, 0x8D0C0008, 0,          0x26100001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, 0xA0010000, words, 13);
@@ -197,8 +186,7 @@ TEST(NativeLut, merges_and_coprocessor_transfers_use_direct_accesses)
   finish_cpu();
 }
 
-TEST(NativeLut, guest_isolation_switch_restores_the_normal_table)
-{
+TEST(NativeLut, guest_isolation_switch_restores_the_normal_table) {
   for (u32 constant = 0; constant < 2; constant++) {
     const u32 words[] = {constant ? 0x3C0A0001 : 0,
                          0xAD090000,
@@ -233,8 +221,7 @@ TEST(NativeLut, guest_isolation_switch_restores_the_normal_table)
   }
 }
 
-TEST(NativeLut, return_from_exception_preserves_isolation_knowledge)
-{
+TEST(NativeLut, return_from_exception_preserves_isolation_knowledge) {
   const u32 words[] = {0x42000010, 0xAD090000, 0x400A6000, 0, 0x26100001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, 0xA0010000, words, 7);
   g_settings.cpu_recompiler_memory_exceptions = false;
@@ -258,8 +245,7 @@ TEST(NativeLut, return_from_exception_preserves_isolation_knowledge)
   finish_cpu();
 }
 
-TEST(NativeLut, configured_eight_mb_backing_keeps_distinct_native_accesses)
-{
+TEST(NativeLut, configured_eight_mb_backing_keeps_distinct_native_accesses) {
   const u32 segments[] = {0, 0x80000000, 0xA0000000};
   const u32 words[]    = {0xAD090000, 0x8D0A0000, 0, 0x26100001, 0x1000FFFF, 0};
   for (u32 chunk = 0; chunk < 4; chunk++) {

@@ -34,7 +34,7 @@ bool cpu_pc_trigger_is_active(void);
 
 /* Latched target PC, or 0 if not active.  Public so the JIT can compile-
  * time-compare r->block->pc against it without a per-block C call. */
-u32  cpu_pc_trigger_target_pc(void);
+u32 cpu_pc_trigger_target_pc(void);
 
 /* One-shot setup.  Parses CUPID_PC_TRIGGER_PC / _LOG / _LIMIT once and
  * opens the log file.  Idempotent.  Called during system boot. */

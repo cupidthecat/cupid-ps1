@@ -2,20 +2,17 @@
 #include "tests/core/memory/device_bus_execution_fixture.h"
 #include "core/cdrom/cdrom.h"
 
-static void emit_constant(u32* words, u32* count, u32 reg, u32 value)
-{
+static void emit_constant(u32* words, u32* count, u32 reg, u32 value) {
   words[(*count)++] = 0x3C000000 | (reg << 16) | (value >> 16);
   words[(*count)++] = 0x34000000 | (reg << 21) | (reg << 16) | (value & 0xFFFF);
 }
 
-static void emit_cd_control(u32* words, u32* count, bool increment)
-{
+static void emit_cd_control(u32* words, u32* count, bool increment) {
   emit_constant(words, count, 14, 0x00020943 | (increment ? 0x2000 : 0));
   words[(*count)++] = 0xAD8E0018;
 }
 
-static void emit_acknowledge(u32* words, u32* count)
-{
+static void emit_acknowledge(u32* words, u32* count) {
   words[(*count)++] = 0x240F0001;
   words[(*count)++] = 0xA1AF0000;
   words[(*count)++] = 0x240F005F;
@@ -23,8 +20,7 @@ static void emit_acknowledge(u32* words, u32* count)
   words[(*count)++] = 0xA1A00000;
 }
 
-static void emit_wait_for_command(u32* words, u32* count)
-{
+static void emit_wait_for_command(u32* words, u32* count) {
   words[(*count)++] = 0x91AE0000;
   words[(*count)++] = 0;
   words[(*count)++] = 0x31CE0080;
@@ -32,8 +28,7 @@ static void emit_wait_for_command(u32* words, u32* count)
   words[(*count)++] = 0;
 }
 
-static void restore_cd_execution(u32 scratch_pc)
-{
+static void restore_cd_execution(u32 scratch_pc) {
   const size_t capacity = 512u * 1024u;
   u8*          bytes    = malloc(capacity);
   EXPECT_NOT_NULL(bytes);
@@ -52,8 +47,7 @@ static void restore_cd_execution(u32 scratch_pc)
   free(bytes);
 }
 
-static void check_cd_cpu_controls(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_cd_cpu_controls(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 constant = 0; constant < 2; constant++) {
     for (u32 restore = 0; restore < 2; restore++) {
       const u32 base = 0xA0011000;
@@ -154,8 +148,7 @@ static void check_cd_cpu_controls(cpu_execution_mode_t mode, cpu_fastmem_mode_t 
 }
 
 #define CD_CPU_CASE(name, mode, fastmem, linking)  \
-  TEST(DeviceBusCDCPU, name)                       \
-  {                                                \
+  TEST(DeviceBusCDCPU, name) {                     \
     check_cd_cpu_controls(mode, fastmem, linking); \
   }
 CD_CPU_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

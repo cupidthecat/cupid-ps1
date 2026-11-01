@@ -12,8 +12,7 @@ typedef struct {
   u16  halfwords[512];
 } input_snapshot_t;
 
-static input_snapshot_t read_input_raw(void)
-{
+static input_snapshot_t read_input_raw(void) {
   u8              bytes[8192];
   state_wrapper_t state;
   state_wrapper_init_write(&state, bytes, sizeof(bytes), SAVE_STATE_VERSION);
@@ -34,8 +33,7 @@ static input_snapshot_t read_input_raw(void)
   return result;
 }
 
-static void restore_input(void)
-{
+static void restore_input(void) {
   u8 cpu[16384], decoder[8192], dmac[4096], events[4096];
   struct {
     bool (*do_state)(state_wrapper_t*);
@@ -62,15 +60,14 @@ static void restore_input(void)
   }
 }
 
-static input_snapshot_t read_input(void)
-{
+static input_snapshot_t read_input(void) {
   input_snapshot_t result = read_input_raw();
   EXPECT_TRUE(result.size <= 512);
   return result;
 }
 
-static bool input_matches(const input_snapshot_t* before, const input_snapshot_t* after, const u32* words, u32 accepted)
-{
+static bool input_matches(const input_snapshot_t* before, const input_snapshot_t* after, const u32* words,
+                          u32 accepted) {
   EXPECT_TRUE(before->size <= 512);
   bool equal = after->head == before->head && after->size == before->size + 2 * accepted &&
                after->tail == (before->tail + 2 * accepted) % 512;
@@ -82,8 +79,7 @@ static bool input_matches(const input_snapshot_t* before, const input_snapshot_t
 }
 
 static void begin_input(bool old, u32 room, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, const u32* program,
-                        size_t count)
-{
+                        size_t count) {
   start_cpu_with_fastmem(mode, fastmem, 0xA0010000, program, count);
   g_settings.mdec_use_old_routines      = old;
   g_settings.mdec_disable_cdrom_speedup = false;
@@ -104,8 +100,7 @@ static void begin_input(bool old, u32 room, cpu_execution_mode_t mode, cpu_fastm
   EXPECT_EQ(read_input().size, 512 - room);
 }
 
-static void end_input(void)
-{
+static void end_input(void) {
   mdec_shutdown();
   dma_shutdown();
   finish_cpu();

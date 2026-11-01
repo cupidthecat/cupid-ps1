@@ -1,8 +1,7 @@
 /* cupid-ps1 cache-control tests using generated RAM programs. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void control_write(u32 value)
-{
+static void control_write(u32 value) {
   const u32                   address = 0xFFFE0130;
   bus_memory_write_handler_t* handlers =
       bus_offset_write_handler_array(bus_get_memory_handlers(false, false), MEMORY_ACCESS_SIZE_WORD);
@@ -10,16 +9,14 @@ static void control_write(u32 value)
   EXPECT_EQ(g_cpu_state.cache_control.bits, value);
 }
 
-static void code_write(u32 address, u32 value)
-{
+static void code_write(u32 address, u32 value) {
   address = (address & 0x1FFFFFFFu) | 0xA0000000u;
   bus_memory_write_handler_t* handlers =
       bus_offset_write_handler_array(bus_get_memory_handlers(false, false), MEMORY_ACCESS_SIZE_WORD);
   handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT](address, value);
 }
 
-static void control_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u64 before)
-{
+static void control_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u64 before) {
   if (mode == CPU_EXECUTION_MODE_RECOMPILER && cpu_execution_stats_get()->native_blocks_completed < before + 10)
     test_fail(__FILE__, __LINE__, "native progress before=%llu after=%llu interpreted=%llu control=%08X pc=%08X",
               (unsigned long long)before, (unsigned long long)cpu_execution_stats_get()->native_blocks_completed,
@@ -28,8 +25,7 @@ static void control_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastm
   if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
-static void control_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario)
-{
+static void control_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario) {
   const u32 entry    = 0x80010000;
   const u32 words[4] = {0x24080001, 0x01200008, 0, 0};
   start_cpu_with_fastmem(mode, fastmem, entry, words, 4);
@@ -92,8 +88,7 @@ static void control_loop(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, 
   finish_cpu();
 }
 
-static void guest_control_write(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario)
-{
+static void guest_control_write(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario) {
   const bool enable   = scenario == 4 || scenario == 6;
   const bool uncached = scenario >= 5;
   const u32  entry    = uncached ? 0xA0010000 : 0x80010000;
@@ -119,8 +114,7 @@ static void guest_control_write(cpu_execution_mode_t mode, cpu_fastmem_mode_t fa
   finish_cpu();
 }
 
-static void cache_control_case(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario)
-{
+static void cache_control_case(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 scenario) {
   if (scenario < 3)
     control_loop(mode, fastmem, linking, scenario);
   else
@@ -128,28 +122,22 @@ static void cache_control_case(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
 }
 
 #define CONTROL_CASES(name, scenario)                                                                     \
-  TEST(CacheControl, name##_interpreter)                                                                  \
-  {                                                                                                       \
+  TEST(CacheControl, name##_interpreter) {                                                                \
     cache_control_case(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, scenario);        \
   }                                                                                                       \
-  TEST(CacheControl, name##_cached)                                                                       \
-  {                                                                                                       \
+  TEST(CacheControl, name##_cached) {                                                                     \
     cache_control_case(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, scenario); \
   }                                                                                                       \
-  TEST(CacheControl, name##_native)                                                                       \
-  {                                                                                                       \
+  TEST(CacheControl, name##_native) {                                                                     \
     cache_control_case(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, scenario);         \
   }                                                                                                       \
-  TEST(CacheControl, name##_lut)                                                                          \
-  {                                                                                                       \
+  TEST(CacheControl, name##_lut) {                                                                        \
     cache_control_case(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true, scenario);              \
   }                                                                                                       \
-  TEST(CacheControl, name##_mmap)                                                                         \
-  {                                                                                                       \
+  TEST(CacheControl, name##_mmap) {                                                                       \
     cache_control_case(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true, scenario);             \
   }                                                                                                       \
-  TEST(CacheControl, name##_unlinked)                                                                     \
-  {                                                                                                       \
+  TEST(CacheControl, name##_unlinked) {                                                                   \
     cache_control_case(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false, scenario);        \
   }
 

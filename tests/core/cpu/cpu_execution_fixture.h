@@ -16,8 +16,7 @@
 
 #include <unistd.h>
 
-static void stop_cpu(void* user, tick_count_t ticks, tick_count_t late)
-{
+static void stop_cpu(void* user, tick_count_t ticks, tick_count_t late) {
   (void)user;
   (void)ticks;
   (void)late;
@@ -26,8 +25,7 @@ static void stop_cpu(void* user, tick_count_t ticks, tick_count_t late)
 }
 
 static void start_cpu_with_fastmem(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, u32 pc, const u32* words,
-                                   size_t count)
-{
+                                   size_t count) {
   alarm(10);
   memset(&g_cpu_state, 0, sizeof(g_cpu_state));
   settings_init(&g_settings);
@@ -52,13 +50,11 @@ static void start_cpu_with_fastmem(cpu_execution_mode_t mode, cpu_fastmem_mode_t
   Error_destroy(&error);
 }
 
-static void start_cpu(cpu_execution_mode_t mode, u32 pc, const u32* words, size_t count)
-{
+static void start_cpu(cpu_execution_mode_t mode, u32 pc, const u32* words, size_t count) {
   start_cpu_with_fastmem(mode, CPU_FASTMEM_MODE_DISABLED, pc, words, count);
 }
 
-static void run_slice(tick_count_t duration)
-{
+static void run_slice(tick_count_t duration) {
   timing_event_t stop;
   timing_event_init(&stop, "transition-stop", 15, duration, duration, stop_cpu, NULL);
   timing_event_activate(&stop);
@@ -73,8 +69,7 @@ typedef struct {
   bool reached;
 } cpu_boundary_t;
 
-static void stop_at_pc(void* user, tick_count_t ticks, tick_count_t late)
-{
+static void stop_at_pc(void* user, tick_count_t ticks, tick_count_t late) {
   cpu_boundary_t* boundary = user;
   if (g_cpu_state.pc == boundary->pc) {
     boundary->reached = true;
@@ -85,8 +80,7 @@ static void stop_at_pc(void* user, tick_count_t ticks, tick_count_t late)
 }
 
 /* Observe the required instruction boundary without relying on block overshoot. */
-static void run_to_pc(u32 pc)
-{
+static void run_to_pc(u32 pc) {
   if (g_cpu_state.pc == pc) return;
   cpu_boundary_t boundary = {.pc = pc};
   timing_event_t stop;
@@ -99,8 +93,7 @@ static void run_to_pc(u32 pc)
   EXPECT_EQ(g_cpu_state.pc, pc);
 }
 
-static void finish_cpu(void)
-{
+static void finish_cpu(void) {
   cpu_code_cache_shutdown();
   cpu_code_cache_process_shutdown();
   cpu_shutdown();

@@ -3,15 +3,13 @@
 
 static const u32 cached_loop[] = {0x24080001, 0x1000FFFE, 0};
 
-static void replace_ram_instruction(u32 address, u32 instruction)
-{
+static void replace_ram_instruction(u32 address, u32 instruction) {
   const u32 physical = address & bus_get_ram_mask();
   memcpy(bus_get_unprotected_ram_pointer() + physical, &instruction, sizeof(instruction));
   cpu_code_cache_invalidate_blocks_with_page_index(bus_get_ram_code_page_index(physical));
 }
 
-static void start_cached_loop(cpu_execution_mode_t mode, u32 entry)
-{
+static void start_cached_loop(cpu_execution_mode_t mode, u32 entry) {
   start_cpu(mode, entry, cached_loop, sizeof(cached_loop) / sizeof(cached_loop[0]));
   g_settings.cpu_recompiler_icache = true;
   run_slice(100);
@@ -19,16 +17,14 @@ static void start_cached_loop(cpu_execution_mode_t mode, u32 entry)
   if (mode == CPU_EXECUTION_MODE_RECOMPILER) EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed > 0);
 }
 
-TEST(NativeInstructionCache, instruction_cache_is_enabled_by_default)
-{
+TEST(NativeInstructionCache, instruction_cache_is_enabled_by_default) {
   settings_t settings;
   settings_init(&settings);
   EXPECT_TRUE(settings.cpu_recompiler_icache);
   settings_destroy(&settings);
 }
 
-TEST(NativeInstructionCache, ram_write_keeps_cached_code_until_explicit_invalidation)
-{
+TEST(NativeInstructionCache, ram_write_keeps_cached_code_until_explicit_invalidation) {
   const u32 entry = 0x80010000;
   start_cached_loop(CPU_EXECUTION_MODE_RECOMPILER, entry);
   replace_ram_instruction(entry, 0x24080002);
@@ -40,8 +36,7 @@ TEST(NativeInstructionCache, ram_write_keeps_cached_code_until_explicit_invalida
   finish_cpu();
 }
 
-TEST(NativeInstructionCache, native_fill_retains_instruction_words)
-{
+TEST(NativeInstructionCache, native_fill_retains_instruction_words) {
   const u32 entry = 0x80010000;
   start_cached_loop(CPU_EXECUTION_MODE_RECOMPILER, entry);
   const u32 offset = cpu_get_icache_line(entry) * CPU_ICACHE_WORDS_PER_LINE;
@@ -50,8 +45,7 @@ TEST(NativeInstructionCache, native_fill_retains_instruction_words)
   finish_cpu();
 }
 
-TEST(NativeInstructionCache, partial_line_fill_keeps_prior_words_invalid)
-{
+TEST(NativeInstructionCache, partial_line_fill_keeps_prior_words_invalid) {
   const u32 entry = 0x80010004;
   start_cached_loop(CPU_EXECUTION_MODE_RECOMPILER, entry);
   EXPECT_EQ(g_cpu_state.icache_tags[cpu_get_icache_line(entry)], cpu_get_icache_tag_for_address(entry) | 1u);
@@ -62,8 +56,7 @@ TEST(NativeInstructionCache, partial_line_fill_keeps_prior_words_invalid)
   finish_cpu();
 }
 
-static void stale_code_crosses_mode_change(cpu_execution_mode_t from, cpu_execution_mode_t to)
-{
+static void stale_code_crosses_mode_change(cpu_execution_mode_t from, cpu_execution_mode_t to) {
   const u32 entry = 0x80010000;
   start_cached_loop(from, entry);
   replace_ram_instruction(entry, 0x24080002);
@@ -74,28 +67,23 @@ static void stale_code_crosses_mode_change(cpu_execution_mode_t from, cpu_execut
   finish_cpu();
 }
 
-TEST(NativeInstructionCache, interpreter_to_native_keeps_cached_code)
-{
+TEST(NativeInstructionCache, interpreter_to_native_keeps_cached_code) {
   stale_code_crosses_mode_change(CPU_EXECUTION_MODE_INTERPRETER, CPU_EXECUTION_MODE_RECOMPILER);
 }
 
-TEST(NativeInstructionCache, cached_to_native_keeps_cached_code)
-{
+TEST(NativeInstructionCache, cached_to_native_keeps_cached_code) {
   stale_code_crosses_mode_change(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_EXECUTION_MODE_RECOMPILER);
 }
 
-TEST(NativeInstructionCache, native_to_interpreter_keeps_cached_code)
-{
+TEST(NativeInstructionCache, native_to_interpreter_keeps_cached_code) {
   stale_code_crosses_mode_change(CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_INTERPRETER);
 }
 
-TEST(NativeInstructionCache, native_to_cached_keeps_cached_code)
-{
+TEST(NativeInstructionCache, native_to_cached_keeps_cached_code) {
   stale_code_crosses_mode_change(CPU_EXECUTION_MODE_RECOMPILER, CPU_EXECUTION_MODE_CACHED_INTERPRETER);
 }
 
-TEST(NativeInstructionCache, uncached_execution_observes_ram_writes)
-{
+TEST(NativeInstructionCache, uncached_execution_observes_ram_writes) {
   const u32 entry = 0xA0010000;
   start_cached_loop(CPU_EXECUTION_MODE_RECOMPILER, entry);
   replace_ram_instruction(entry, 0x24080002);
@@ -105,8 +93,7 @@ TEST(NativeInstructionCache, uncached_execution_observes_ram_writes)
 }
 
 static void store_before_later_line(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking,
-                                    bool pending_load)
-{
+                                    bool pending_load) {
   u32 words[20] = {0x3C08A001, 0x40097800, 0, 0x01094021, 0x2508FFFE, 0xAD0A0040};
   words[6]      = 0x26310001;
   if (pending_load) {
@@ -133,33 +120,27 @@ static void store_before_later_line(cpu_execution_mode_t mode, cpu_fastmem_mode_
   finish_cpu();
 }
 
-TEST(NativeInstructionCache, interpreter_store_precedes_later_line_fill)
-{
+TEST(NativeInstructionCache, interpreter_store_precedes_later_line_fill) {
   store_before_later_line(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, false);
 }
 
-TEST(NativeInstructionCache, native_store_precedes_later_line_fill)
-{
+TEST(NativeInstructionCache, native_store_precedes_later_line_fill) {
   store_before_later_line(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, false);
 }
 
-TEST(NativeInstructionCache, mmap_store_precedes_later_line_fill)
-{
+TEST(NativeInstructionCache, mmap_store_precedes_later_line_fill) {
   store_before_later_line(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true, false);
 }
 
-TEST(NativeInstructionCache, unlinked_store_precedes_later_line_fill)
-{
+TEST(NativeInstructionCache, unlinked_store_precedes_later_line_fill) {
   store_before_later_line(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false, false);
 }
 
-TEST(NativeInstructionCache, changed_line_keeps_pending_load)
-{
+TEST(NativeInstructionCache, changed_line_keeps_pending_load) {
   store_before_later_line(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, true);
 }
 
-static void changed_delay_slot(bool taken, bool trap, bool interrupt_before_slot)
-{
+static void changed_delay_slot(bool taken, bool trap, bool interrupt_before_slot) {
   u32 words[24] = {0x3C08A001, 0x40097800, 0, 0x01094021, 0x2508FFFE, 0xAD0A0040, 0x26310001};
   words[15]     = 0x11800002;
   words[16]     = 0x24100001;
@@ -198,25 +179,21 @@ static void changed_delay_slot(bool taken, bool trap, bool interrupt_before_slot
   finish_cpu();
 }
 
-TEST(NativeInstructionCache, changed_delay_slot_keeps_branch_outcome)
-{
+TEST(NativeInstructionCache, changed_delay_slot_keeps_branch_outcome) {
   changed_delay_slot(false, false, false);
   changed_delay_slot(true, false, false);
 }
 
-TEST(NativeInstructionCache, changed_delay_slot_exception_keeps_branch_context)
-{
+TEST(NativeInstructionCache, changed_delay_slot_exception_keeps_branch_context) {
   changed_delay_slot(false, true, false);
   changed_delay_slot(true, true, false);
 }
 
-TEST(NativeInstructionCache, changed_delay_slot_resumes_after_event)
-{
+TEST(NativeInstructionCache, changed_delay_slot_resumes_after_event) {
   changed_delay_slot(true, false, true);
 }
 
-TEST(NativeInstructionCache, restored_cpu_cache_keeps_stale_instruction_words)
-{
+TEST(NativeInstructionCache, restored_cpu_cache_keeps_stale_instruction_words) {
   const u32 entry = 0x80010000;
   start_cached_loop(CPU_EXECUTION_MODE_RECOMPILER, entry);
   u8              buffer[16384];
@@ -240,8 +217,7 @@ TEST(NativeInstructionCache, restored_cpu_cache_keeps_stale_instruction_words)
   finish_cpu();
 }
 
-static void changed_line_keeps_busy_deadline(bool gte)
-{
+static void changed_line_keeps_busy_deadline(bool gte) {
   u32 words[24] = {0x3C08A001, 0x40097800, 0, 0x01094021, 0x2508FFFE, 0xAD0A0040};
   words[14]     = gte ? 0x4A000030 : 0x018D001A;
   words[16]     = 0x24100001;
@@ -265,12 +241,10 @@ static void changed_line_keeps_busy_deadline(bool gte)
   finish_cpu();
 }
 
-TEST(NativeInstructionCache, changed_line_keeps_outstanding_divide_deadline)
-{
+TEST(NativeInstructionCache, changed_line_keeps_outstanding_divide_deadline) {
   changed_line_keeps_busy_deadline(false);
 }
 
-TEST(NativeInstructionCache, changed_line_keeps_outstanding_gte_deadline)
-{
+TEST(NativeInstructionCache, changed_line_keeps_outstanding_gte_deadline) {
   changed_line_keeps_busy_deadline(true);
 }

@@ -18,23 +18,20 @@ typedef struct {
 static gpu_backend_update_display_cmd_t captured_display;
 static u32                              display_updates;
 
-static void capture_display(gpu_backend_t* backend, const gpu_backend_update_display_cmd_t* command)
-{
+static void capture_display(gpu_backend_t* backend, const gpu_backend_update_display_cmd_t* command) {
   (void)backend;
   captured_display = *command;
   display_updates++;
 }
 
-static gpu_backend_update_display_cmd_t read_display(void)
-{
+static gpu_backend_update_display_cmd_t read_display(void) {
   const u32 before = display_updates;
   gpu_update_display(false);
   EXPECT_EQ(display_updates, before + 1);
   return captured_display;
 }
 
-static bool display_equal(const gpu_backend_update_display_cmd_t* a, const gpu_backend_update_display_cmd_t* b)
-{
+static bool display_equal(const gpu_backend_update_display_cmd_t* a, const gpu_backend_update_display_cmd_t* b) {
   return a->display_width == b->display_width && a->display_height == b->display_height &&
          a->display_origin_left == b->display_origin_left && a->display_origin_top == b->display_origin_top &&
          a->display_vram_left == b->display_vram_left && a->display_vram_top == b->display_vram_top &&
@@ -48,8 +45,7 @@ static bool display_equal(const gpu_backend_update_display_cmd_t* a, const gpu_b
 }
 
 static void begin_display_cpu(display_fixture_t* fixture, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem,
-                              const u32* words, size_t count)
-{
+                              const u32* words, size_t count) {
   start_cpu_with_fastmem(mode, fastmem, 0xA0010000, words, count);
   interrupt_controller_reset();
   timers_initialize();
@@ -63,14 +59,12 @@ static void begin_display_cpu(display_fixture_t* fixture, cpu_execution_mode_t m
   gpu_reset(false);
 }
 
-static void begin_display(display_fixture_t* fixture)
-{
+static void begin_display(display_fixture_t* fixture) {
   const u32 words[] = {0x1000FFFF, 0};
   begin_display_cpu(fixture, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, words, 2);
 }
 
-static void end_display(display_fixture_t* fixture)
-{
+static void end_display(display_fixture_t* fixture) {
   gpu_shutdown();
   fixture->backend->vtable = fixture->original;
   gpu_backend_destroy(fixture->backend);
@@ -78,8 +72,7 @@ static void end_display(display_fixture_t* fixture)
   finish_cpu();
 }
 
-static void restore_display(void)
-{
+static void restore_display(void) {
   u8           cpu[16384], irq[16], counters[128], timing[4096];
   const size_t capacity = 2 * 1024 * 1024;
   u8*          gpu      = malloc(capacity);

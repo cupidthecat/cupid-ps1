@@ -20,30 +20,33 @@ LOG_CHANNEL(FileSystem);
 
 /* Heap-printf wrapper.  Returns NULL on failure. */
 static char* xasprintf(const char* fmt, ...) PRINTFLIKE(1, 2);
-static char* xasprintf(const char* fmt, ...)
-{
+static char* xasprintf(const char* fmt, ...) {
   va_list ap;
   va_start(ap, fmt);
   va_list ap2;
   va_copy(ap2, ap);
   int n = vsnprintf(NULL, 0, fmt, ap2);
   va_end(ap2);
-  if (n < 0) { va_end(ap); return NULL; }
+  if (n < 0) {
+    va_end(ap);
+    return NULL;
+  }
   char* buf = (char*)malloc((size_t)n + 1);
-  if (!buf) { va_end(ap); return NULL; }
+  if (!buf) {
+    va_end(ap);
+    return NULL;
+  }
   vsnprintf(buf, (size_t)n + 1, fmt, ap);
   va_end(ap);
   return buf;
 }
 
-static u32 translate_stat_attributes(const struct stat* st, const struct stat* st_link)
-{
-  return (S_ISDIR(st->st_mode)        ? FS_FILE_ATTRIBUTE_DIRECTORY : 0u) |
-         (S_ISLNK(st_link->st_mode)   ? FS_FILE_ATTRIBUTE_LINK      : 0u);
+static u32 translate_stat_attributes(const struct stat* st, const struct stat* st_link) {
+  return (S_ISDIR(st->st_mode) ? FS_FILE_ATTRIBUTE_DIRECTORY : 0u) |
+         (S_ISLNK(st_link->st_mode) ? FS_FILE_ATTRIBUTE_LINK : 0u);
 }
 
-bool fs_get_root_directory_list(char*** out_paths, size_t* out_count)
-{
+bool fs_get_root_directory_list(char*** out_paths, size_t* out_count) {
   /* Up to 2 entries: $HOME (when set) plus "/". */
   char** paths = (char**)malloc(sizeof(char*) * 2);
   if (!paths) return false;
@@ -52,11 +55,19 @@ bool fs_get_root_directory_list(char*** out_paths, size_t* out_count)
   const char* home = getenv("HOME");
   if (home) {
     paths[n] = strdup(home);
-    if (!paths[n]) { free(paths); return false; }
+    if (!paths[n]) {
+      free(paths);
+      return false;
+    }
     n++;
   }
   paths[n] = strdup("/");
-  if (!paths[n]) { for (size_t i = 0; i < n; i++) free(paths[i]); free(paths); return false; }
+  if (!paths[n]) {
+    for (size_t i = 0; i < n; i++)
+      free(paths[i]);
+    free(paths);
+    return false;
+  }
   n++;
 
   *out_paths = paths;
@@ -64,51 +75,49 @@ bool fs_get_root_directory_list(char*** out_paths, size_t* out_count)
   return true;
 }
 
-
-
 /* Realpath wrapper used to detect symlink loops during recursive find.  We
  * don't have Path::RealPath ported because it requires SplitNativePath;
  * realpath(3) is sufficient when the path actually exists on disk. */
-static char* compute_realpath(const char* path)
-{
+static char* compute_realpath(const char* path) {
   return realpath(path, NULL);
 }
 
- /* Visited-paths stack used to break symlink loops in find_files_recursive.
+/* Visited-paths stack used to break symlink loops in find_files_recursive.
  * Realpath strings are owned. */
 typedef struct {
-  char**  data;
-  size_t  count;
-  size_t  capacity;
+  char** data;
+  size_t count;
+  size_t capacity;
 } visited_stack_t;
 
-static void visited_init(visited_stack_t* v)
-{
-  v->data = NULL; v->count = 0; v->capacity = 0;
+static void visited_init(visited_stack_t* v) {
+  v->data     = NULL;
+  v->count    = 0;
+  v->capacity = 0;
 }
 
-static void visited_destroy(visited_stack_t* v)
-{
-  for (size_t i = 0; i < v->count; i++) free(v->data[i]);
+static void visited_destroy(visited_stack_t* v) {
+  for (size_t i = 0; i < v->count; i++)
+    free(v->data[i]);
   free(v->data);
 }
 
-static bool visited_contains(const visited_stack_t* v, const char* path)
-{
+static bool visited_contains(const visited_stack_t* v, const char* path) {
   for (size_t i = 0; i < v->count; i++) {
-    if (strcmp(v->data[i], path) == 0)
-      return true;
+    if (strcmp(v->data[i], path) == 0) return true;
   }
   return false;
 }
 
-static bool visited_push(visited_stack_t* v, char* path /* takes ownership */)
-{
+static bool visited_push(visited_stack_t* v, char* path /* takes ownership */) {
   if (v->count == v->capacity) {
     size_t nc = v->capacity ? v->capacity * 2 : 8;
     char** np = (char**)realloc(v->data, sizeof(char*) * nc);
-    if (!np) { free(path); return false; }
-    v->data = np;
+    if (!np) {
+      free(path);
+      return false;
+    }
+    v->data     = np;
     v->capacity = nc;
   }
   v->data[v->count++] = path;
@@ -122,27 +131,29 @@ typedef struct {
   size_t          capacity;
 } find_array_t;
 
-static void find_array_init(find_array_t* a)
-{
-  a->data = NULL; a->count = 0; a->capacity = 0;
+static void find_array_init(find_array_t* a) {
+  a->data     = NULL;
+  a->count    = 0;
+  a->capacity = 0;
 }
 
-static bool find_array_push(find_array_t* a, fs_find_data_t entry /* takes ownership of file_name */)
-{
+static bool find_array_push(find_array_t* a, fs_find_data_t entry /* takes ownership of file_name */) {
   if (a->count == a->capacity) {
-    size_t nc = a->capacity ? a->capacity * 2 : 16;
+    size_t          nc = a->capacity ? a->capacity * 2 : 16;
     fs_find_data_t* np = (fs_find_data_t*)realloc(a->data, sizeof(fs_find_data_t) * nc);
-    if (!np) { free(entry.file_name); return false; }
-    a->data = np;
+    if (!np) {
+      free(entry.file_name);
+      return false;
+    }
+    a->data     = np;
     a->capacity = nc;
   }
   a->data[a->count++] = entry;
   return true;
 }
 
-static u32 find_files_recursive(const char* origin_path, const char* parent_path, const char* path,
-                                const char* pattern, u32 flags, find_array_t* results, visited_stack_t* visited)
-{
+static u32 find_files_recursive(const char* origin_path, const char* parent_path, const char* path, const char* pattern,
+                                u32 flags, find_array_t* results, visited_stack_t* visited) {
 
   char* search_dir = NULL;
   if (path) {
@@ -156,21 +167,22 @@ static u32 find_files_recursive(const char* origin_path, const char* parent_path
   if (!search_dir) return 0;
 
   DIR* dirp = opendir(search_dir);
-  if (!dirp) { free(search_dir); return 0; }
+  if (!dirp) {
+    free(search_dir);
+    return 0;
+  }
   free(search_dir);
 
   /* Single '*' pattern is a hot path that skips wildcard match. */
-  bool has_wildcards = (strpbrk(pattern, "*?") != NULL);
+  bool has_wildcards      = (strpbrk(pattern, "*?") != NULL);
   bool wildcard_match_all = has_wildcards && (strcmp(pattern, "*") == 0);
 
-  u32 n_files = 0;
+  u32            n_files = 0;
   struct dirent* ent;
   while ((ent = readdir(dirp)) != NULL) {
     if (ent->d_name[0] == '.') {
-      if (ent->d_name[1] == '\0' || (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))
-        continue;
-      if (!(flags & FS_FIND_HIDDEN_FILES))
-        continue;
+      if (ent->d_name[1] == '\0' || (ent->d_name[1] == '.' && ent->d_name[2] == '\0')) continue;
+      if (!(flags & FS_FIND_HIDDEN_FILES)) continue;
     }
 
     char* full_path = NULL;
@@ -190,7 +202,7 @@ static u32 find_files_recursive(const char* origin_path, const char* parent_path
 
     fs_find_data_t out_data;
     out_data.attributes = translate_stat_attributes(&sd, &sd_link);
-    out_data.file_name = NULL;
+    out_data.file_name  = NULL;
 
     if (S_ISDIR(sd.st_mode)) {
       if (flags & FS_FIND_RECURSIVE) {
@@ -199,7 +211,8 @@ static u32 find_files_recursive(const char* origin_path, const char* parent_path
         if (!real_recurse || !visited_contains(visited, real_recurse)) {
           if (real_recurse) {
             char* keep = real_recurse;
-            if (!visited_push(visited, keep)) { /* push consumes */ }
+            if (!visited_push(visited, keep)) { /* push consumes */
+            }
           }
 
           if (parent_path) {
@@ -227,8 +240,8 @@ static u32 find_files_recursive(const char* origin_path, const char* parent_path
       }
     }
 
-    out_data.size = (s64)sd.st_size;
-    out_data.creation_time = sd.st_ctime;
+    out_data.size              = (s64)sd.st_size;
+    out_data.creation_time     = sd.st_ctime;
     out_data.modification_time = sd.st_mtime;
 
     if (has_wildcards) {
@@ -258,8 +271,7 @@ static u32 find_files_recursive(const char* origin_path, const char* parent_path
       out_data.file_name = rel;
     }
 
-    if (!find_array_push(results, out_data))
-      continue;
+    if (!find_array_push(results, out_data)) continue;
     n_files++;
   }
 
@@ -267,21 +279,17 @@ static u32 find_files_recursive(const char* origin_path, const char* parent_path
   return n_files;
 }
 
-static int find_data_compare(const void* a, const void* b)
-{
+static int find_data_compare(const void* a, const void* b) {
   const fs_find_data_t* lhs = (const fs_find_data_t*)a;
   const fs_find_data_t* rhs = (const fs_find_data_t*)b;
   /* Directories first. */
   const u32 ldir = lhs->attributes & FS_FILE_ATTRIBUTE_DIRECTORY;
   const u32 rdir = rhs->attributes & FS_FILE_ATTRIBUTE_DIRECTORY;
-  if (ldir != rdir)
-    return ldir ? -1 : 1;
+  if (ldir != rdir) return ldir ? -1 : 1;
   return string_util_strcasecmp(lhs->file_name, rhs->file_name);
 }
 
-bool fs_find_files(const char* path, const char* pattern, u32 flags,
-                   fs_find_data_t** out_results, size_t* out_count)
-{
+bool fs_find_files(const char* path, const char* pattern, u32 flags, fs_find_data_t** out_results, size_t* out_count) {
   find_array_t results;
   if (flags & FS_FIND_KEEP_ARRAY) {
     /* Caller passes back a previously returned array via *out_results / *out_count. */
@@ -296,8 +304,7 @@ bool fs_find_files(const char* path, const char* pattern, u32 flags,
   visited_init(&visited);
   if (flags & FS_FIND_RECURSIVE) {
     char* real_path = compute_realpath(path);
-    if (real_path)
-      visited_push(&visited, real_path);
+    if (real_path) visited_push(&visited, real_path);
   }
 
   const u32 added = find_files_recursive(path, NULL, NULL, pattern, flags, &results, &visited);
@@ -328,8 +335,7 @@ bool fs_find_files(const char* path, const char* pattern, u32 flags,
   return true;
 }
 
-bool fs_stat_path(const char* path, fs_native_stat_t* st, Error* error)
-{
+bool fs_stat_path(const char* path, fs_native_stat_t* st, Error* error) {
   if (stat(path, st) != 0) {
     Error_set_errno_prefix(error, "stat() failed: ", errno);
     return false;
@@ -337,8 +343,7 @@ bool fs_stat_path(const char* path, fs_native_stat_t* st, Error* error)
   return true;
 }
 
-bool fs_stat_file(FILE* fp, fs_native_stat_t* st, Error* error)
-{
+bool fs_stat_file(FILE* fp, fs_native_stat_t* st, Error* error) {
   const int fd = fileno(fp);
   if (fd < 0) {
     Error_set_errno_prefix(error, "fileno() failed: ", errno);
@@ -351,8 +356,7 @@ bool fs_stat_file(FILE* fp, fs_native_stat_t* st, Error* error)
   return true;
 }
 
-bool fs_stat_path_data(const char* path, fs_stat_data_t* sd, Error* error)
-{
+bool fs_stat_path_data(const char* path, fs_stat_data_t* sd, Error* error) {
   struct stat ssd, ssd_link;
   if (stat(path, &ssd) < 0 || lstat(path, &ssd_link) < 0) {
     Error_set_errno_prefix(error, "stat() failed: ", errno);
@@ -365,8 +369,7 @@ bool fs_stat_path_data(const char* path, fs_stat_data_t* sd, Error* error)
   return true;
 }
 
-bool fs_stat_file_data(FILE* fp, fs_stat_data_t* sd, Error* error)
-{
+bool fs_stat_file_data(FILE* fp, fs_stat_data_t* sd, Error* error) {
   const int fd = fileno(fp);
   if (fd < 0) {
     Error_set_errno_prefix(error, "fileno() failed: ", errno);
@@ -384,45 +387,38 @@ bool fs_stat_file_data(FILE* fp, fs_stat_data_t* sd, Error* error)
   return true;
 }
 
-s64 fs_get_path_file_size(const char* path)
-{
+s64 fs_get_path_file_size(const char* path) {
   fs_stat_data_t sd;
-  if (!fs_stat_path_data(path, &sd, NULL))
-    return -1;
+  if (!fs_stat_path_data(path, &sd, NULL)) return -1;
   return sd.size;
 }
 
-bool fs_file_exists(const char* path)
-{
+bool fs_file_exists(const char* path) {
   struct stat st;
   if (stat(path, &st) < 0) return false;
   return !S_ISDIR(st.st_mode);
 }
 
-bool fs_directory_exists(const char* path)
-{
+bool fs_directory_exists(const char* path) {
   struct stat st;
   if (stat(path, &st) < 0) return false;
   return S_ISDIR(st.st_mode);
 }
 
-bool fs_is_real_directory(const char* path)
-{
+bool fs_is_real_directory(const char* path) {
   struct stat st;
   if (lstat(path, &st) < 0) return false;
   return (S_ISDIR(st.st_mode) && !S_ISLNK(st.st_mode));
 }
 
-bool fs_is_directory_empty(const char* path)
-{
+bool fs_is_directory_empty(const char* path) {
   DIR* dirp = opendir(path);
   if (!dirp) return true;
 
   struct dirent* ent;
   while ((ent = readdir(dirp)) != NULL) {
     if (ent->d_name[0] == '.') {
-      if (ent->d_name[1] == '\0' || (ent->d_name[1] == '.' && ent->d_name[2] == '\0'))
-        continue;
+      if (ent->d_name[1] == '\0' || (ent->d_name[1] == '.' && ent->d_name[2] == '\0')) continue;
     }
     closedir(dirp);
     return false;
@@ -431,8 +427,7 @@ bool fs_is_directory_empty(const char* path)
   return true;
 }
 
-bool fs_delete_file(const char* path, Error* error)
-{
+bool fs_delete_file(const char* path, Error* error) {
   struct stat sd;
   if (lstat(path, &sd) != 0 || (S_ISDIR(sd.st_mode) && !S_ISLNK(sd.st_mode))) {
     Error_set_string(error, "File does not exist.");
@@ -445,8 +440,7 @@ bool fs_delete_file(const char* path, Error* error)
   return true;
 }
 
-bool fs_rename_path(const char* old_path, const char* new_path, Error* error)
-{
+bool fs_rename_path(const char* old_path, const char* new_path, Error* error) {
   if (rename(old_path, new_path) != 0) {
     Error_set_errno_prefix(error, "rename() failed: ", errno);
     return false;
@@ -454,11 +448,9 @@ bool fs_rename_path(const char* old_path, const char* new_path, Error* error)
   return true;
 }
 
-bool fs_delete_directory(const char* path, Error* error)
-{
+bool fs_delete_directory(const char* path, Error* error) {
   struct stat sd;
-  if (stat(path, &sd) != 0 || !S_ISDIR(sd.st_mode))
-    return false;
+  if (stat(path, &sd) != 0 || !S_ISDIR(sd.st_mode)) return false;
   /* Symlinked dirs go through unlink, real ones through rmdir. */
   if (S_ISLNK(sd.st_mode)) {
     if (unlink(path) != 0) {
@@ -474,10 +466,9 @@ bool fs_delete_directory(const char* path, Error* error)
   return true;
 }
 
-bool fs_recursive_delete_directory(const char* path, Error* error)
-{
+bool fs_recursive_delete_directory(const char* path, Error* error) {
   fs_find_data_t* results = NULL;
-  size_t count = 0;
+  size_t          count   = 0;
   if (fs_find_files(path, "*", FS_FIND_FILES | FS_FIND_FOLDERS | FS_FIND_HIDDEN_FILES, &results, &count)) {
     for (size_t i = 0; i < count; i++) {
       const fs_find_data_t* fd = &results[i];
@@ -500,37 +491,31 @@ bool fs_recursive_delete_directory(const char* path, Error* error)
   return fs_delete_directory(path, error);
 }
 
-FILE* fs_open_file(const char* path, const char* mode, Error* error)
-{
+FILE* fs_open_file(const char* path, const char* mode, Error* error) {
   FILE* fp = fopen(path, mode);
-  if (!fp)
-    Error_set_errno(error, errno);
+  if (!fp) Error_set_errno(error, errno);
   return fp;
 }
 
-FILE* fs_open_anonymous_file(Error* error)
-{
+FILE* fs_open_anonymous_file(Error* error) {
   FILE* fp = tmpfile();
   if (!fp) Error_set_errno(error, errno);
   return fp;
 }
 
-FILE* fs_open_readonly_buffer(const void* data, size_t size, Error* error)
-{
+FILE* fs_open_readonly_buffer(const void* data, size_t size, Error* error) {
   FILE* fp = fmemopen((void*)data, size, "rb");
   if (!fp) Error_set_errno(error, errno);
   return fp;
 }
 
-FILE* fs_open_shared_file(const char* path, const char* mode, fs_file_share_mode_t share_mode, Error* error)
-{
+FILE* fs_open_shared_file(const char* path, const char* mode, fs_file_share_mode_t share_mode, Error* error) {
   /* share_mode is a no-op on Linux. */
   (void)share_mode;
   return fs_open_file(path, mode, error);
 }
 
-FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len, char** out_path, Error* error)
-{
+FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len, char** out_path, Error* error) {
   if (base_path_len == 0) {
     Error_set_string(error, "Base path is empty.");
     return NULL;
@@ -538,7 +523,7 @@ FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len, char
 
   /* Append ".XXXXXX" template for mkstemp. */
   const size_t name_buf_size = (size_t)base_path_len + 8;
-  char* name_buf = (char*)malloc(name_buf_size);
+  char*        name_buf      = (char*)malloc(name_buf_size);
   if (!name_buf) {
     Error_set_string(error, "Out of memory.");
     return NULL;
@@ -569,8 +554,7 @@ FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len, char
   return fp;
 }
 
-FILE* fs_open_existing_or_create_file(const char* path, s32 retry_ms, Error* error)
-{
+FILE* fs_open_existing_or_create_file(const char* path, s32 retry_ms, Error* error) {
   /* retry_ms is Win32-only sharing-violation backoff. */
   (void)retry_ms;
 
@@ -586,8 +570,7 @@ FILE* fs_open_existing_or_create_file(const char* path, s32 retry_ms, Error* err
   fp = fopen(path, "w+bx");
   if (fp) return fp;
 
-  if (errno == EEXIST)
-    fp = fopen(path, "r+b");
+  if (errno == EEXIST) fp = fopen(path, "r+b");
   if (!fp) {
     Error_set_errno(error, errno);
     return NULL;
@@ -595,31 +578,24 @@ FILE* fs_open_existing_or_create_file(const char* path, s32 retry_ms, Error* err
   return fp;
 }
 
-int fs_open_fd_file(const char* path, int flags, int mode, Error* error)
-{
+int fs_open_fd_file(const char* path, int flags, int mode, Error* error) {
   const int fd = open(path, flags, mode);
-  if (fd < 0)
-    Error_set_errno(error, errno);
+  if (fd < 0) Error_set_errno(error, errno);
   return fd;
 }
 
-int fs_fseek64(FILE* fp, s64 offset, int whence)
-{
+int fs_fseek64(FILE* fp, s64 offset, int whence) {
   /* off_t is 64-bit on Linux under _GNU_SOURCE (which we always define), so
    * fseeko handles the full s64 range and no truncation guard is needed. */
   _Static_assert(sizeof(off_t) == sizeof(s64), "off_t must be 64-bit");
   return fseeko(fp, (off_t)offset, whence);
 }
 
-
-s64 fs_ftell64(FILE* fp)
-{
+s64 fs_ftell64(FILE* fp) {
   return (s64)ftello(fp);
 }
 
-
-bool fs_ftruncate64(FILE* fp, s64 size, Error* error)
-{
+bool fs_ftruncate64(FILE* fp, s64 size, Error* error) {
   const int fd = fileno(fp);
   if (fd < 0) {
     Error_set_errno_prefix(error, "fileno() failed: ", errno);
@@ -632,8 +608,7 @@ bool fs_ftruncate64(FILE* fp, s64 size, Error* error)
   return true;
 }
 
-bool fs_flush_file(FILE* fp, Error* error)
-{
+bool fs_flush_file(FILE* fp, Error* error) {
   if (fflush(fp) != 0 || fsync(fileno(fp)) != 0) {
     Error_set_errno_prefix(error, "Synchronizing file failed: ", errno);
     return false;
@@ -641,27 +616,16 @@ bool fs_flush_file(FILE* fp, Error* error)
   return true;
 }
 
-
-
-
-
-
-
-
-bool fs_create_directory(const char* path, bool recursive, Error* error)
-{
+bool fs_create_directory(const char* path, bool recursive, Error* error) {
   const size_t path_length = strlen(path);
-  if (path_length == 0)
-    return false;
+  if (path_length == 0) return false;
 
-  if (mkdir(path, 0777) == 0)
-    return true;
+  if (mkdir(path, 0777) == 0) return true;
 
   int last_error = errno;
   if (last_error == EEXIST) {
     struct stat sd;
-    if (stat(path, &sd) == 0 && S_ISDIR(sd.st_mode))
-      return true;
+    if (stat(path, &sd) == 0 && S_ISDIR(sd.st_mode)) return true;
   }
 
   if (!recursive) {
@@ -712,9 +676,7 @@ bool fs_create_directory(const char* path, bool recursive, Error* error)
   return true;
 }
 
-
-bool fs_copy_file_path(const char* source, const char* destination, bool replace, Error* error)
-{
+bool fs_copy_file_path(const char* source, const char* destination, bool replace, Error* error) {
   if (!replace && fs_file_exists(destination)) {
     Error_set_string(error, "File already exists.");
     return false;
@@ -724,13 +686,15 @@ bool fs_copy_file_path(const char* source, const char* destination, bool replace
   if (!in_fp) return false;
 
   FILE* out_fp = fs_open_file(destination, "wb", error);
-  if (!out_fp) { fclose(in_fp); return false; }
+  if (!out_fp) {
+    fclose(in_fp);
+    return false;
+  }
 
   u8 buf[4096];
   while (!feof(in_fp)) {
     const size_t bytes_in = fread(buf, 1, sizeof(buf), in_fp);
-    if ((bytes_in == 0 && !feof(in_fp)) ||
-        (bytes_in > 0 && fwrite(buf, 1, bytes_in, out_fp) != bytes_in)) {
+    if ((bytes_in == 0 && !feof(in_fp)) || (bytes_in > 0 && fwrite(buf, 1, bytes_in, out_fp) != bytes_in)) {
       Error_set_errno_prefix(error, "fread() or fwrite() failed: ", errno);
       fclose(out_fp);
       fclose(in_fp);
@@ -752,13 +716,15 @@ bool fs_copy_file_path(const char* source, const char* destination, bool replace
   return true;
 }
 
-char* fs_get_program_path(Error* error)
-{
+char* fs_get_program_path(Error* error) {
   static const char* exe_path = "/proc/self/exe";
 
   size_t cur_size = PATH_MAX;
-  char* buffer = (char*)malloc(cur_size);
-  if (!buffer) { Error_set_string(error, "Out of memory."); return NULL; }
+  char*  buffer   = (char*)malloc(cur_size);
+  if (!buffer) {
+    Error_set_string(error, "Out of memory.");
+    return NULL;
+  }
 
   for (;;) {
     const ssize_t len = readlink(exe_path, buffer, cur_size);
@@ -781,35 +747,38 @@ char* fs_get_program_path(Error* error)
   }
 }
 
-char* fs_get_working_directory(void)
-{
+char* fs_get_working_directory(void) {
   size_t cap = PATH_MAX;
-  char* buf = (char*)malloc(cap);
+  char*  buf = (char*)malloc(cap);
   if (!buf) return NULL;
   while (!getcwd(buf, cap)) {
-    if (errno != ERANGE) { free(buf); return NULL; }
+    if (errno != ERANGE) {
+      free(buf);
+      return NULL;
+    }
     cap *= 2;
     char* nb = (char*)realloc(buf, cap);
-    if (!nb) { free(buf); return NULL; }
+    if (!nb) {
+      free(buf);
+      return NULL;
+    }
     buf = nb;
   }
   return buf;
 }
 
-bool fs_set_working_directory(const char* path)
-{
+bool fs_set_working_directory(const char* path) {
   return chdir(path) == 0;
 }
 
-bool fs_set_path_compression(const char* path, bool enable)
-{
+bool fs_set_path_compression(const char* path, bool enable) {
   /* NTFS-only flag; nothing to do on Linux. */
-  (void)path; (void)enable;
+  (void)path;
+  (void)enable;
   return false;
 }
 
-bool fs_set_path_executable(const char* path, bool executable, Error* error)
-{
+bool fs_set_path_executable(const char* path, bool executable, Error* error) {
   struct stat st;
   if (stat(path, &st) != 0) {
     Error_set_errno_prefix(error, "stat() failed: ", errno);
@@ -822,8 +791,7 @@ bool fs_set_path_executable(const char* path, bool executable, Error* error)
   else
     new_mode = st.st_mode & ~(mode_t)(S_IXUSR | S_IXGRP | S_IXOTH);
 
-  if (st.st_mode == new_mode)
-    return true;
+  if (st.st_mode == new_mode) return true;
 
   if (chmod(path, new_mode) != 0) {
     Error_set_errno_prefix(error, "chmod() failed: ", errno);

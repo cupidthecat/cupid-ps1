@@ -1,8 +1,7 @@
 /* cupid-ps1 native memory-access state regressions. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void check_consecutive_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_consecutive_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 isolated = 0; isolated < 2; isolated++) {
     const u32 words[] = {0xAD090000, 0xAD090004, 0x26100001, 0x1000FFFF, 0};
     start_cpu_with_fastmem(mode, fastmem, 0xA0010000, words, 5);
@@ -38,28 +37,22 @@ static void check_consecutive_stores(cpu_execution_mode_t mode, cpu_fastmem_mode
   }
 }
 
-TEST(NativeMemoryIsolation, consecutive_stores_interpreter)
-{
+TEST(NativeMemoryIsolation, consecutive_stores_interpreter) {
   check_consecutive_stores(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativeMemoryIsolation, consecutive_stores_cached)
-{
+TEST(NativeMemoryIsolation, consecutive_stores_cached) {
   check_consecutive_stores(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativeMemoryIsolation, consecutive_stores_native)
-{
+TEST(NativeMemoryIsolation, consecutive_stores_native) {
   check_consecutive_stores(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativeMemoryIsolation, consecutive_stores_mmap)
-{
+TEST(NativeMemoryIsolation, consecutive_stores_mmap) {
   check_consecutive_stores(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);
 }
-TEST(NativeMemoryIsolation, consecutive_stores_unlinked)
-{
+TEST(NativeMemoryIsolation, consecutive_stores_unlinked) {
   check_consecutive_stores(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);
 }
 
-TEST(NativeMemoryIsolation, consecutive_stores_lut)
-{
+TEST(NativeMemoryIsolation, consecutive_stores_lut) {
   check_consecutive_stores(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);
 }

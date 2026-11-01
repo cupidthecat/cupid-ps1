@@ -4,8 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 
-int main(void)
-{
+int main(void) {
   if (soundtouch_getVersionId() != 20303) return 1;
   ST_HANDLE handle = soundtouch_createInstance();
   if (!handle) return 2;

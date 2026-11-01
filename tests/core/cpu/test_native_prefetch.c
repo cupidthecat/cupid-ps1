@@ -1,8 +1,7 @@
 /* Native pipeline serialization and instruction-boundary regressions. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void restore_native_prefetch(u32 version, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void restore_native_prefetch(u32 version, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 entry   = 0xA0010000;
   const u32 words[] = {0x26100001, 0x26310001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, fastmem, entry, words, 4);
@@ -56,16 +55,13 @@ static void restore_native_prefetch(u32 version, cpu_fastmem_mode_t fastmem, boo
 }
 
 #define PREFETCH_STATE_CASES(name, version)                             \
-  TEST(NativePrefetch, name##_slow)                                     \
-  {                                                                     \
+  TEST(NativePrefetch, name##_slow) {                                   \
     restore_native_prefetch(version, CPU_FASTMEM_MODE_DISABLED, true);  \
   }                                                                     \
-  TEST(NativePrefetch, name##_mmap)                                     \
-  {                                                                     \
+  TEST(NativePrefetch, name##_mmap) {                                   \
     restore_native_prefetch(version, CPU_FASTMEM_MODE_MMAP, true);      \
   }                                                                     \
-  TEST(NativePrefetch, name##_unlinked)                                 \
-  {                                                                     \
+  TEST(NativePrefetch, name##_unlinked) {                               \
     restore_native_prefetch(version, CPU_FASTMEM_MODE_DISABLED, false); \
   }
 
@@ -74,8 +70,7 @@ PREFETCH_STATE_CASES(version85_rebuilds_legacy_native_fetch, 85)
 PREFETCH_STATE_CASES(version86_rebuilds_legacy_native_fetch, 86)
 PREFETCH_STATE_CASES(version87_retains_fetched_word, 87)
 
-static void long_native_block(cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void long_native_block(cpu_fastmem_mode_t fastmem, bool linking) {
   /* A full RAM page exercises near/far guard storage and page-boundary exits. */
   u32 words[1026];
   for (u32 i = 0; i < 1024; i++)
@@ -92,15 +87,12 @@ static void long_native_block(cpu_fastmem_mode_t fastmem, bool linking)
   finish_cpu();
 }
 
-TEST(NativePrefetch, long_block_slow)
-{
+TEST(NativePrefetch, long_block_slow) {
   long_native_block(CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(NativePrefetch, long_block_mmap)
-{
+TEST(NativePrefetch, long_block_mmap) {
   long_native_block(CPU_FASTMEM_MODE_MMAP, true);
 }
-TEST(NativePrefetch, long_block_unlinked)
-{
+TEST(NativePrefetch, long_block_unlinked) {
   long_native_block(CPU_FASTMEM_MODE_DISABLED, false);
 }

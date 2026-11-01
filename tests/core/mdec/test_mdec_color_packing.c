@@ -1,7 +1,6 @@
 #include "tests/core/mdec/mdec_decode_fixture.h"
 
-static void check_color_packing(bool signed_output)
-{
+static void check_color_packing(bool signed_output) {
   static const struct {
     s16 cr_dc, cb_dc, y_dc;
     s16 rgb[3];
@@ -102,11 +101,9 @@ static void check_color_packing(bool signed_output)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(MdecColorPacking, unsigned_control)
-{
+TEST(MdecColorPacking, unsigned_control) {
   check_color_packing(false);
 }
-TEST(MdecColorPacking, signed_channels)
-{
+TEST(MdecColorPacking, signed_channels) {
   check_color_packing(true);
 }

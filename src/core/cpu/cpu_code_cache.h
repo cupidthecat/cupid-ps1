@@ -18,9 +18,9 @@ extern "C" {
 typedef struct Error Error;
 
 enum {
-  CPU_CODE_CACHE_LUT_TABLE_COUNT  = 0x10000u,
-  CPU_CODE_CACHE_LUT_TABLE_SIZE   = 0x10000u / 4u, /* 16384 entries per page */
-  CPU_CODE_CACHE_LUT_TABLE_SHIFT  = 16u,
+  CPU_CODE_CACHE_LUT_TABLE_COUNT      = 0x10000u,
+  CPU_CODE_CACHE_LUT_TABLE_SIZE       = 0x10000u / 4u, /* 16384 entries per page */
+  CPU_CODE_CACHE_LUT_TABLE_SHIFT      = 16u,
   CPU_CODE_CACHE_MAX_BLOCK_EXIT_LINKS = 2u,
 };
 
@@ -32,39 +32,32 @@ typedef enum {
 
 typedef struct cpu_code_cache_inst_info {
   /* 9 1-bit fields packed for layout parity. */
-  u8 is_branch_instruction              : 1;
-  u8 is_direct_branch_instruction       : 1;
-  u8 is_unconditional_branch_instruction: 1;
-  u8 is_branch_delay_slot               : 1;
-  u8 is_load_instruction                : 1;
-  u8 is_store_instruction               : 1;
-  u8 is_load_delay_slot                 : 1;
-  u8 is_last_instruction                : 1;
-  u8 has_load_delay                     : 1;
+  u8 is_branch_instruction : 1;
+  u8 is_direct_branch_instruction : 1;
+  u8 is_unconditional_branch_instruction : 1;
+  u8 is_branch_delay_slot : 1;
+  u8 is_load_instruction : 1;
+  u8 is_store_instruction : 1;
+  u8 is_load_delay_slot : 1;
+  u8 is_last_instruction : 1;
+  u8 has_load_delay : 1;
 
-  u8 reg_flags[CPU_REG_COUNT];
+  u8        reg_flags[CPU_REG_COUNT];
   cpu_reg_t read_reg[3];
 } cpu_code_cache_inst_info_t;
 
 enum { CPU_CODE_CACHE_WRITE_DEAD_VALUES = 1 };
 
-ALWAYS_INLINE bool cpu_code_cache_inst_used_test(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r)
-{
-  return (ii->reg_flags[(u32)r] & (CPU_CODE_CACHE_RI_USED | CPU_CODE_CACHE_RI_LASTUSE))
-         == CPU_CODE_CACHE_RI_USED;
+ALWAYS_INLINE bool cpu_code_cache_inst_used_test(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r) {
+  return (ii->reg_flags[(u32)r] & (CPU_CODE_CACHE_RI_USED | CPU_CODE_CACHE_RI_LASTUSE)) == CPU_CODE_CACHE_RI_USED;
 }
-ALWAYS_INLINE bool cpu_code_cache_inst_live_test(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r)
-{
-  return CPU_CODE_CACHE_WRITE_DEAD_VALUES ||
-         ((ii->reg_flags[(u32)r] & CPU_CODE_CACHE_RI_LIVE) != 0u);
+ALWAYS_INLINE bool cpu_code_cache_inst_live_test(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r) {
+  return CPU_CODE_CACHE_WRITE_DEAD_VALUES || ((ii->reg_flags[(u32)r] & CPU_CODE_CACHE_RI_LIVE) != 0u);
 }
-ALWAYS_INLINE bool cpu_code_cache_inst_rename_test(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r)
-{
-  return (r == (cpu_reg_t)0) || !cpu_code_cache_inst_used_test(ii, r) ||
-         !cpu_code_cache_inst_live_test(ii, r);
+ALWAYS_INLINE bool cpu_code_cache_inst_rename_test(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r) {
+  return (r == (cpu_reg_t)0) || !cpu_code_cache_inst_used_test(ii, r) || !cpu_code_cache_inst_live_test(ii, r);
 }
-ALWAYS_INLINE bool cpu_code_cache_inst_reads_reg(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r)
-{
+ALWAYS_INLINE bool cpu_code_cache_inst_reads_reg(const cpu_code_cache_inst_info_t* ii, cpu_reg_t r) {
   return ii->read_reg[0] == r || ii->read_reg[1] == r || ii->read_reg[2] == r;
 }
 
@@ -76,13 +69,13 @@ typedef enum : u8 {
 } cpu_code_cache_block_state_t;
 
 typedef enum : u8 {
-  CPU_CODE_CACHE_BF_NONE                    = 0u,
-  CPU_CODE_CACHE_BF_CONTAINS_LOADSTORE      = (1u << 0),
-  CPU_CODE_CACHE_BF_SPANS_PAGES             = (1u << 1),
-  CPU_CODE_CACHE_BF_BRANCH_DELAY_SPANS_PAGES= (1u << 2),
-  CPU_CODE_CACHE_BF_IS_USING_ICACHE         = (1u << 3),
+  CPU_CODE_CACHE_BF_NONE                      = 0u,
+  CPU_CODE_CACHE_BF_CONTAINS_LOADSTORE        = (1u << 0),
+  CPU_CODE_CACHE_BF_SPANS_PAGES               = (1u << 1),
+  CPU_CODE_CACHE_BF_BRANCH_DELAY_SPANS_PAGES  = (1u << 2),
+  CPU_CODE_CACHE_BF_IS_USING_ICACHE           = (1u << 3),
   CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS = (1u << 4),
-  CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE       = (1u << 5),
+  CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE         = (1u << 5),
 } cpu_code_cache_block_flags_t;
 
 typedef enum : u8 {
@@ -94,53 +87,45 @@ typedef enum : u8 {
 /* Forward decl for block-link-map iterator handle (storage owned by 6.D.1). */
 typedef struct cpu_code_cache_block_link_entry cpu_code_cache_block_link_entry_t;
 
- /* Block storage record.  Native code emits behind `host_code`; followed in
+/* Block storage record.  Native code emits behind `host_code`; followed in
  * memory by `Instruction[size]` and then `InstructionInfo[size]` arrays
  * (allocated by the bump allocator in 6.D.1). */
 typedef struct cpu_code_cache_block {
-  u32 pc;
-  u32 size; /* in guest instructions */
+  u32         pc;
+  u32         size; /* in guest instructions */
   const void* host_code;
 
   struct cpu_code_cache_block* next_block_in_page;
 
   cpu_code_cache_block_link_entry_t* exit_links[CPU_CODE_CACHE_MAX_BLOCK_EXIT_LINKS];
-  u8 num_exit_links;
+  u8                                 num_exit_links;
 
   cpu_code_cache_block_state_t          state;
   cpu_code_cache_block_flags_t          flags;
   cpu_code_cache_page_protection_mode_t protection;
 
   tick_count_t uncached_fetch_ticks;
-  u32 icache_line_count;
+  u32          icache_line_count;
 
   u32 host_code_size;
   u32 compile_frame;
   u8  compile_count;
 } cpu_code_cache_block_t;
 
-ALWAYS_INLINE cpu_instruction_t* cpu_code_cache_block_instructions(cpu_code_cache_block_t* b)
-{
+ALWAYS_INLINE cpu_instruction_t* cpu_code_cache_block_instructions(cpu_code_cache_block_t* b) {
   return (cpu_instruction_t*)(b + 1);
 }
-ALWAYS_INLINE const cpu_instruction_t*
-cpu_code_cache_block_instructions_const(const cpu_code_cache_block_t* b)
-{
+ALWAYS_INLINE const cpu_instruction_t* cpu_code_cache_block_instructions_const(const cpu_code_cache_block_t* b) {
   return (const cpu_instruction_t*)(b + 1);
 }
-ALWAYS_INLINE cpu_code_cache_inst_info_t*
-cpu_code_cache_block_instructions_info(cpu_code_cache_block_t* b)
-{
+ALWAYS_INLINE cpu_code_cache_inst_info_t* cpu_code_cache_block_instructions_info(cpu_code_cache_block_t* b) {
   return (cpu_code_cache_inst_info_t*)(cpu_code_cache_block_instructions(b) + b->size);
 }
 ALWAYS_INLINE const cpu_code_cache_inst_info_t*
-cpu_code_cache_block_instructions_info_const(const cpu_code_cache_block_t* b)
-{
+cpu_code_cache_block_instructions_info_const(const cpu_code_cache_block_t* b) {
   return (const cpu_code_cache_inst_info_t*)(cpu_code_cache_block_instructions_const(b) + b->size);
 }
-ALWAYS_INLINE bool cpu_code_cache_block_has_flag(const cpu_code_cache_block_t* b,
-                                                 cpu_code_cache_block_flags_t f)
-{
+ALWAYS_INLINE bool cpu_code_cache_block_has_flag(const cpu_code_cache_block_t* b, cpu_code_cache_block_flags_t f) {
   return ((u32)b->flags & (u32)f) != 0u;
 }
 
@@ -188,13 +173,13 @@ void cpu_code_cache_invalidate_blocks_with_page_index(u32 page_index);
 void cpu_code_cache_invalidate_all_ram_blocks(void);
 
 /* JIT code-buffer allocator (used by backend during compile_block). */
-u8*  cpu_code_cache_get_free_code_pointer    (void);
-u32  cpu_code_cache_get_free_code_space      (void);
+u8*  cpu_code_cache_get_free_code_pointer(void);
+u32  cpu_code_cache_get_free_code_space(void);
 u8*  cpu_code_cache_get_free_far_code_pointer(void);
-u32  cpu_code_cache_get_free_far_code_space  (void);
-void cpu_code_cache_commit_code              (u32 length);
-void cpu_code_cache_commit_far_code          (u32 length);
-void cpu_code_cache_align_code               (u32 alignment);
+u32  cpu_code_cache_get_free_far_code_space(void);
+void cpu_code_cache_commit_code(u32 length);
+void cpu_code_cache_commit_far_code(u32 length);
+void cpu_code_cache_align_code(u32 alignment);
 
 /* Code-LUT entry table base (used by the dispatcher's PC→host lookup).
  * `g_code_lut[pc>>16][(pc&0xFFFF)>>2]` resolves to the host code pointer. */
@@ -212,12 +197,10 @@ extern const void* g_discard_and_recompile_block;
 const void* cpu_code_cache_dispatch_lookup(u32 pc);
 
 /* Block-link / dispatch entry points called by the dispatcher and backends. */
-void cpu_code_cache_compile_or_revalidate_block (u32 start_pc);
-void cpu_code_cache_discard_and_recompile_block (u32 start_pc);
-const void* cpu_code_cache_create_block_link    (cpu_code_cache_block_t* from_block,
-                                                 void* code, u32 newpc);
-const void* cpu_code_cache_create_self_block_link(cpu_code_cache_block_t* b, void* code,
-                                                  const void* block_start);
+void        cpu_code_cache_compile_or_revalidate_block(u32 start_pc);
+void        cpu_code_cache_discard_and_recompile_block(u32 start_pc);
+const void* cpu_code_cache_create_block_link(cpu_code_cache_block_t* from_block, void* code, u32 newpc);
+const void* cpu_code_cache_create_self_block_link(cpu_code_cache_block_t* b, void* code, const void* block_start);
 
 /* Backend registers this so backlink_blocks can rewrite jmp sites in place. */
 void cpu_code_cache_set_emit_jump(void (*fn)(void* site, const void* dst, bool flush_icache));
@@ -235,34 +218,30 @@ bool cpu_code_cache_has_previously_faulted_on_pc(u32 guest_pc);
  * faulting JIT site, marshal arguments to the slow C thunk, and patch the
  * site in place to a JMP rel32 to a far-code stub.  M2 wires the table;
  * M4a installs the actual SIGSEGV handler that consumes it. */
-void cpu_code_cache_add_load_store_info(void* code_address, u32 code_size,
-                                         u32 guest_pc, u32 guest_block,
-                                        tick_count_t cycles, u32 gpr_bitmask, 
-                                        u8 address_register, u8 data_register,
-                                        memory_access_size_t size,
-                                        bool is_signed, bool is_load);
+void cpu_code_cache_add_load_store_info(void* code_address, u32 code_size, u32 guest_pc, u32 guest_block,
+                                        tick_count_t cycles, u32 gpr_bitmask, u8 address_register, u8 data_register,
+                                        memory_access_size_t size, bool is_signed, bool is_load);
 
 /* Backpatch metadata for one fastmem load/store call site.  Sorted by
  * `code_address` in `s_fastmem_backpatch_info` for O(log n) lookup from
  * the SIGSEGV handler. */
 typedef struct {
-  void*               code_address;
-  u32                 code_size;
-  u32                 guest_pc;
-  u32                 guest_block;
-  tick_count_t        cycles;
-  u32                 gpr_bitmask;
+  void*                code_address;
+  u32                  code_size;
+  u32                  guest_pc;
+  u32                  guest_block;
+  tick_count_t         cycles;
+  u32                  gpr_bitmask;
   memory_access_size_t size;
-  u8                  address_register;
-  u8                  data_register;
-  u8                  is_signed;
-  u8                  is_load;
+  u8                   address_register;
+  u8                   data_register;
+  u8                   is_signed;
+  u8                   is_load;
 } cpu_code_cache_loadstore_backpatch_info_t;
 
 /* Look up the backpatch entry whose JIT site contains `host_pc`.  Returns
  * NULL if no recorded site overlaps that address.  Signal-safe. */
-const cpu_code_cache_loadstore_backpatch_info_t*
-cpu_code_cache_find_backpatch_info(const void* host_pc);
+const cpu_code_cache_loadstore_backpatch_info_t* cpu_code_cache_find_backpatch_info(const void* host_pc);
 
 /* Drop every backpatch entry whose `code_address` lies in `[start, start+size)`.
  * Called when a block is freed / reset so its entries don't dangle. */
@@ -273,7 +252,8 @@ void cpu_code_cache_remove_backpatch_info_for_range(const void* start, u32 size)
  * Returns CONTINUE_EXECUTION when the fault was a fastmem hit and we
  * patched the JIT site to the slow path; EXECUTE_NEXT otherwise so the
  * crash handler chain can produce a backtrace. */
-page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write);
+page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address,
+                                                                    bool is_write);
 
 /* Diagnostic ring: last 64 compiled blocks (pc, size, host_code).  Each
  * entry is logged in `create_block`.  Shows what the recompiler has been

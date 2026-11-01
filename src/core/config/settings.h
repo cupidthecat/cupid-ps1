@@ -28,20 +28,20 @@ typedef struct {
   bool                 stretch_use_aa_filter;
 } settings_audio_stream_parameters_t;
 
-#define SETTINGS_AUDIO_DEFAULT_STRETCH_MODE              AUDIO_STRETCH_MODE_TIME
-#define SETTINGS_AUDIO_DEFAULT_BUFFER_MS                 50
-#define SETTINGS_AUDIO_DEFAULT_OUTPUT_LATENCY_MS         20
-#define SETTINGS_AUDIO_DEFAULT_OUTPUT_LATENCY_MINIMAL    false
-#define SETTINGS_AUDIO_DEFAULT_STRETCH_SEQUENCE_LENGTH   30
-#define SETTINGS_AUDIO_DEFAULT_STRETCH_SEEKWINDOW        20
-#define SETTINGS_AUDIO_DEFAULT_STRETCH_OVERLAP           10
-#define SETTINGS_AUDIO_DEFAULT_STRETCH_USE_QUICKSEEK     false
-#define SETTINGS_AUDIO_DEFAULT_STRETCH_USE_AA_FILTER     false
+#define SETTINGS_AUDIO_DEFAULT_STRETCH_MODE            AUDIO_STRETCH_MODE_TIME
+#define SETTINGS_AUDIO_DEFAULT_BUFFER_MS               50
+#define SETTINGS_AUDIO_DEFAULT_OUTPUT_LATENCY_MS       20
+#define SETTINGS_AUDIO_DEFAULT_OUTPUT_LATENCY_MINIMAL  false
+#define SETTINGS_AUDIO_DEFAULT_STRETCH_SEQUENCE_LENGTH 30
+#define SETTINGS_AUDIO_DEFAULT_STRETCH_SEEKWINDOW      20
+#define SETTINGS_AUDIO_DEFAULT_STRETCH_OVERLAP         10
+#define SETTINGS_AUDIO_DEFAULT_STRETCH_USE_QUICKSEEK   false
+#define SETTINGS_AUDIO_DEFAULT_STRETCH_USE_AA_FILTER   false
 
 enum {
-  SETTINGS_TR_DEFAULT_MAX_HASH_CACHE_ENTRIES         = 1200,
-  SETTINGS_TR_DEFAULT_MAX_HASH_CACHE_VRAM_USAGE_MB   = 2048,
-  SETTINGS_TR_DEFAULT_MAX_REPLACEMENT_CACHE_VRAM_MB  = 512,
+  SETTINGS_TR_DEFAULT_MAX_HASH_CACHE_ENTRIES        = 1200,
+  SETTINGS_TR_DEFAULT_MAX_HASH_CACHE_VRAM_USAGE_MB  = 2048,
+  SETTINGS_TR_DEFAULT_MAX_REPLACEMENT_CACHE_VRAM_MB = 512,
 };
 
 typedef struct {
@@ -81,15 +81,15 @@ typedef struct {
   settings_texture_replacement_config_t config;
 } settings_texture_replacement_t;
 
-#define SETTINGS_DEFAULT_GPU_RENDERER                 GPU_RENDERER_SOFTWARE
-#define SETTINGS_DEFAULT_GPU_TEXTURE_FILTER           GPU_TEXTURE_FILTER_NEAREST
-#define SETTINGS_DEFAULT_GPU_DITHERING_MODE           GPU_DITHERING_MODE_TRUE_COLOR
-#define SETTINGS_DEFAULT_GPU_LINE_DETECT_MODE         GPU_LINE_DETECT_MODE_DISABLED
-#define SETTINGS_DEFAULT_GPU_DOWNSAMPLE_MODE          GPU_DOWNSAMPLE_MODE_DISABLED
-#define SETTINGS_DEFAULT_GPU_WIREFRAME_MODE           GPU_WIREFRAME_MODE_DISABLED
-#define SETTINGS_DEFAULT_GPU_DUMP_COMPRESSION_MODE    GPU_DUMP_COMPRESSION_MODE_ZST_DEFAULT
-#define SETTINGS_DEFAULT_GPU_PGXP_DEPTH_THRESHOLD     4096.0f
-#define SETTINGS_GPU_PGXP_DEPTH_THRESHOLD_SCALE       65536.0f
+#define SETTINGS_DEFAULT_GPU_RENDERER              GPU_RENDERER_SOFTWARE
+#define SETTINGS_DEFAULT_GPU_TEXTURE_FILTER        GPU_TEXTURE_FILTER_NEAREST
+#define SETTINGS_DEFAULT_GPU_DITHERING_MODE        GPU_DITHERING_MODE_TRUE_COLOR
+#define SETTINGS_DEFAULT_GPU_LINE_DETECT_MODE      GPU_LINE_DETECT_MODE_DISABLED
+#define SETTINGS_DEFAULT_GPU_DOWNSAMPLE_MODE       GPU_DOWNSAMPLE_MODE_DISABLED
+#define SETTINGS_DEFAULT_GPU_WIREFRAME_MODE        GPU_WIREFRAME_MODE_DISABLED
+#define SETTINGS_DEFAULT_GPU_DUMP_COMPRESSION_MODE GPU_DUMP_COMPRESSION_MODE_ZST_DEFAULT
+#define SETTINGS_DEFAULT_GPU_PGXP_DEPTH_THRESHOLD  4096.0f
+#define SETTINGS_GPU_PGXP_DEPTH_THRESHOLD_SCALE    65536.0f
 
 #define SETTINGS_DEFAULT_DISPLAY_DEINTERLACING_MODE   DISPLAY_DEINTERLACING_MODE_PROGRESSIVE
 #define SETTINGS_DEFAULT_DISPLAY_CROP_MODE            DISPLAY_CROP_MODE_OVERSCAN
@@ -106,16 +106,15 @@ typedef struct {
 #define SETTINGS_DEFAULT_OSD_MARGIN                   10.0f /* matches ImGuiManager::DEFAULT_SCREEN_MARGIN */
 #define SETTINGS_DEFAULT_OSD_MESSAGE_LOCATION         NOTIFICATION_LOCATION_TOP_LEFT
 
-#define SETTINGS_DEFAULT_ACHIEVEMENT_CHALLENGE_INDICATOR_MODE \
-        ACHIEVEMENT_CHALLENGE_INDICATOR_MODE_NOTIFICATION
+#define SETTINGS_DEFAULT_ACHIEVEMENT_CHALLENGE_INDICATOR_MODE ACHIEVEMENT_CHALLENGE_INDICATOR_MODE_NOTIFICATION
 #define SETTINGS_DEFAULT_ACHIEVEMENT_NOTIFICATION_LOCATION    NOTIFICATION_LOCATION_TOP_LEFT
 #define SETTINGS_DEFAULT_ACHIEVEMENT_INDICATOR_LOCATION       NOTIFICATION_LOCATION_BOTTOM_RIGHT
 #define SETTINGS_ACHIEVEMENT_NOTIFICATION_SCALE_OSD_SCALE     (-1)
 #define SETTINGS_ACHIEVEMENT_NOTIFICATION_SCALE_AUTO          0
 
-#define SETTINGS_DEFAULT_GPU_MAX_QUEUED_FRAMES        2
-#define SETTINGS_DEFAULT_GPU_PREFER_GLES_CONTEXT      false
-#define SETTINGS_DEFAULT_OPTIMAL_FRAME_PACING         true
+#define SETTINGS_DEFAULT_GPU_MAX_QUEUED_FRAMES   2
+#define SETTINGS_DEFAULT_GPU_PREFER_GLES_CONTEXT false
+#define SETTINGS_DEFAULT_OPTIMAL_FRAME_PACING    true
 
 enum {
   SETTINGS_DEFAULT_DMA_MAX_SLICE_TICKS = 1000,
@@ -123,61 +122,61 @@ enum {
   SETTINGS_DEFAULT_GPU_FIFO_SIZE       = 16,
   SETTINGS_DEFAULT_GPU_MAX_RUN_AHEAD   = 128,
 };
-#define SETTINGS_DEFAULT_CONSOLE_REGION             CONSOLE_REGION_AUTO
-#define SETTINGS_DEFAULT_FORCE_VIDEO_TIMING_MODE    FORCE_VIDEO_TIMING_MODE_DISABLED
+#define SETTINGS_DEFAULT_CONSOLE_REGION          CONSOLE_REGION_AUTO
+#define SETTINGS_DEFAULT_FORCE_VIDEO_TIMING_MODE FORCE_VIDEO_TIMING_MODE_DISABLED
 /* Request native execution by default. Use --cpu-mode interp for instruction
  * traces or hosts without a supported native backend. */
-#define SETTINGS_DEFAULT_CPU_EXECUTION_MODE         CPU_EXECUTION_MODE_RECOMPILER
+#define SETTINGS_DEFAULT_CPU_EXECUTION_MODE CPU_EXECUTION_MODE_RECOMPILER
 /* Mmap uses a guest-address arena. LUT uses page lookups and can run without
  * that 4 GiB reservation; select it with --fastmem lut. */
-#define SETTINGS_DEFAULT_CPU_FASTMEM_MODE           CPU_FASTMEM_MODE_MMAP
-#define SETTINGS_DEFAULT_CDROM_READAHEAD_SECTORS    8
+#define SETTINGS_DEFAULT_CPU_FASTMEM_MODE              CPU_FASTMEM_MODE_MMAP
+#define SETTINGS_DEFAULT_CDROM_READAHEAD_SECTORS       8
 #define SETTINGS_DEFAULT_CDROM_MAX_SEEK_SPEEDUP_CYCLES 30000u
 #define SETTINGS_DEFAULT_CDROM_MAX_READ_SPEEDUP_CYCLES 30000u
-#define SETTINGS_DEFAULT_CDROM_MECHACON_VERSION     CDROM_MECHACON_VERSION_VC1A
-#define SETTINGS_DEFAULT_CONTROLLER_1_TYPE          CONTROLLER_TYPE_ANALOG_CONTROLLER
-#define SETTINGS_DEFAULT_CONTROLLER_2_TYPE          CONTROLLER_TYPE_NONE
-#define SETTINGS_DEFAULT_MEMORY_CARD_1_TYPE         MEMORY_CARD_TYPE_PER_GAME_TITLE
-#define SETTINGS_DEFAULT_MEMORY_CARD_2_TYPE         MEMORY_CARD_TYPE_NONE
-#define SETTINGS_DEFAULT_MULTITAP_MODE              MULTITAP_MODE_DISABLED
-#define SETTINGS_DEFAULT_PIO_DEVICE_TYPE            PIO_DEVICE_TYPE_NONE
+#define SETTINGS_DEFAULT_CDROM_MECHACON_VERSION        CDROM_MECHACON_VERSION_VC1A
+#define SETTINGS_DEFAULT_CONTROLLER_1_TYPE             CONTROLLER_TYPE_ANALOG_CONTROLLER
+#define SETTINGS_DEFAULT_CONTROLLER_2_TYPE             CONTROLLER_TYPE_NONE
+#define SETTINGS_DEFAULT_MEMORY_CARD_1_TYPE            MEMORY_CARD_TYPE_PER_GAME_TITLE
+#define SETTINGS_DEFAULT_MEMORY_CARD_2_TYPE            MEMORY_CARD_TYPE_NONE
+#define SETTINGS_DEFAULT_MULTITAP_MODE                 MULTITAP_MODE_DISABLED
+#define SETTINGS_DEFAULT_PIO_DEVICE_TYPE               PIO_DEVICE_TYPE_NONE
 #define SETTINGS_DEFAULT_ACHIEVEMENT_NOTIFICATION_TIME 5
 #define SETTINGS_DEFAULT_LEADERBOARD_NOTIFICATION_TIME 10
 #define SETTINGS_DEFAULT_SAVE_STATE_COMPRESSION_MODE   SAVE_STATE_COMPRESSION_MODE_ZST_DEFAULT
-#define SETTINGS_DEFAULT_SAVE_STATE_BACKUPS         true
-#define SETTINGS_DEFAULT_FAST_BOOT_VALUE            false
-#define SETTINGS_DEFAULT_GDB_SERVER_PORT            2345
-#define SETTINGS_DEFAULT_ACHIEVEMENT_BADGE_PREFETCH true
+#define SETTINGS_DEFAULT_SAVE_STATE_BACKUPS            true
+#define SETTINGS_DEFAULT_FAST_BOOT_VALUE               false
+#define SETTINGS_DEFAULT_GDB_SERVER_PORT               2345
+#define SETTINGS_DEFAULT_ACHIEVEMENT_BADGE_PREFETCH    true
 
 typedef struct {
-  gpu_renderer_t                          gpu_renderer;
-  u8                                      gpu_resolution_scale;
-  u8                                      gpu_multisamples;
+  gpu_renderer_t gpu_renderer;
+  u8             gpu_resolution_scale;
+  u8             gpu_multisamples;
 
-  gpu_texture_filter_t                    gpu_texture_filter;
-  gpu_texture_filter_t                    gpu_sprite_texture_filter;
-  gpu_dithering_mode_t                    gpu_dithering_mode;
-  gpu_line_detect_mode_t                  gpu_line_detect_mode;
-  gpu_downsample_mode_t                   gpu_downsample_mode;
-  u8                                      gpu_downsample_scale;
-  gpu_wireframe_mode_t                    gpu_wireframe_mode;
-  display_aspect_ratio_t                  display_aspect_ratio;
-  display_deinterlacing_mode_t            display_deinterlacing_mode;
-  display_crop_mode_t                     display_crop_mode;
-  display_fine_crop_mode_t                display_fine_crop_mode;
-  display_alignment_t                     display_alignment;
-  display_rotation_t                      display_rotation;
-  display_scaling_mode_t                  display_scaling;
-  display_scaling_mode_t                  display_scaling_24bit;
-  display_exclusive_fullscreen_control_t  display_exclusive_fullscreen_control;
-  display_screenshot_mode_t               display_screenshot_mode;
-  display_screenshot_format_t             display_screenshot_format;
-  u8                                      display_screenshot_quality;
-  u8                                      gpu_max_queued_frames;
-  s16                                     display_active_start_offset;
-  s16                                     display_active_end_offset;
-  s8                                      display_line_start_offset;
-  s8                                      display_line_end_offset;
+  gpu_texture_filter_t                   gpu_texture_filter;
+  gpu_texture_filter_t                   gpu_sprite_texture_filter;
+  gpu_dithering_mode_t                   gpu_dithering_mode;
+  gpu_line_detect_mode_t                 gpu_line_detect_mode;
+  gpu_downsample_mode_t                  gpu_downsample_mode;
+  u8                                     gpu_downsample_scale;
+  gpu_wireframe_mode_t                   gpu_wireframe_mode;
+  display_aspect_ratio_t                 display_aspect_ratio;
+  display_deinterlacing_mode_t           display_deinterlacing_mode;
+  display_crop_mode_t                    display_crop_mode;
+  display_fine_crop_mode_t               display_fine_crop_mode;
+  display_alignment_t                    display_alignment;
+  display_rotation_t                     display_rotation;
+  display_scaling_mode_t                 display_scaling;
+  display_scaling_mode_t                 display_scaling_24bit;
+  display_exclusive_fullscreen_control_t display_exclusive_fullscreen_control;
+  display_screenshot_mode_t              display_screenshot_mode;
+  display_screenshot_format_t            display_screenshot_format;
+  u8                                     display_screenshot_quality;
+  u8                                     gpu_max_queued_frames;
+  s16                                    display_active_start_offset;
+  s16                                    display_active_end_offset;
+  s8                                     display_line_start_offset;
+  s8                                     display_line_end_offset;
 
   bool gpu_use_thread;
   bool gpu_use_software_renderer_for_readbacks;
@@ -252,7 +251,7 @@ typedef struct {
   float display_osd_margin;
 
   /* Indexed by OSDMessageType { Error, Warning, Info, Quick }. */
-  float display_osd_message_duration[4];
+  float                   display_osd_message_duration[4];
   notification_location_t display_osd_message_location;
 
   /* achievements presentation block (loaded with the rest, but the actual
@@ -276,18 +275,18 @@ typedef struct {
   u32          gpu_fifo_size;
   tick_count_t gpu_max_run_ahead;
 
-  console_region_t           region;
-  force_video_timing_mode_t  gpu_force_video_timing;
+  console_region_t          region;
+  force_video_timing_mode_t gpu_force_video_timing;
 
   cpu_execution_mode_t cpu_execution_mode;
   cpu_fastmem_mode_t   cpu_fastmem_mode;
-  bool cpu_overclock_enable;
-  bool cpu_overclock_active;
-  bool cpu_recompiler_memory_exceptions;
-  bool cpu_recompiler_block_linking;
-  bool cpu_recompiler_icache;
-  bool cpu_recompiler_compare_register_files; /* per-block recomp/interp diff */
-  bool cpu_enable_8mb_ram;
+  bool                 cpu_overclock_enable;
+  bool                 cpu_overclock_active;
+  bool                 cpu_recompiler_memory_exceptions;
+  bool                 cpu_recompiler_block_linking;
+  bool                 cpu_recompiler_icache;
+  bool                 cpu_recompiler_compare_register_files; /* per-block recomp/interp diff */
+  bool                 cpu_enable_8mb_ram;
 
   bool mdec_use_old_routines;
   bool mdec_disable_cdrom_speedup;
@@ -347,7 +346,7 @@ typedef struct {
   bool disable_background_input;
   bool save_state_on_exit;
   bool create_save_state_backups;
-  bool confim_power_off;          /* original misspelling preserved */
+  bool confim_power_off; /* original misspelling preserved */
   bool disable_all_enhancements;
   bool enable_discord_presence;
   bool export_shared_memory;
@@ -379,7 +378,7 @@ typedef struct {
   controller_type_t  controller_types[NUM_CONTROLLER_AND_CARD_PORTS];
   memory_card_type_t memory_card_types[NUM_CONTROLLER_AND_CARD_PORTS];
   /* Heap-owned strings; NULL means "no override". */
-  char*              memory_card_paths[NUM_CONTROLLER_AND_CARD_PORTS];
+  char* memory_card_paths[NUM_CONTROLLER_AND_CARD_PORTS];
 
   multitap_mode_t   multitap_mode;
   pio_device_type_t pio_device_type;
@@ -388,7 +387,7 @@ typedef struct {
   settings_audio_stream_parameters_t audio_stream_parameters;
 
   char* gpu_adapter;
-  char* gpu_sw_use_isa;     /* "" auto, "AVX2", "SCALAR".  Picked at startup. */
+  char* gpu_sw_use_isa; /* "" auto, "AVX2", "SCALAR".  Picked at startup. */
   char* audio_driver;
   char* audio_output_device;
 
@@ -409,8 +408,7 @@ void settings_destroy(settings_t* s);
 
 /* `controller_si` provides the controller type entries.  Pass the same
  * pointer as `si` if there's no separate input layer. */
-void settings_load(settings_t* s, settings_interface_t* si,
-                   settings_interface_t* controller_si);
+void settings_load(settings_t* s, settings_interface_t* si, settings_interface_t* controller_si);
 void settings_load_pgxp(settings_t* s, settings_interface_t* si);
 void settings_save(const settings_t* s, settings_interface_t* si, bool ignore_base);
 
@@ -538,8 +536,8 @@ bool        settings_parse_force_video_timing_name(const char* str, force_video_
 const char* settings_get_force_video_timing_name(force_video_timing_mode_t mode);
 const char* settings_get_force_video_timing_display_name(force_video_timing_mode_t mode);
 
-bool        settings_parse_display_exclusive_fullscreen_control_name(const char* str,
-                                                                      display_exclusive_fullscreen_control_t* out);
+bool        settings_parse_display_exclusive_fullscreen_control_name(const char*                             str,
+                                                                     display_exclusive_fullscreen_control_t* out);
 const char* settings_get_display_exclusive_fullscreen_control_name(display_exclusive_fullscreen_control_t mode);
 const char* settings_get_display_exclusive_fullscreen_control_display_name(display_exclusive_fullscreen_control_t mode);
 
@@ -551,15 +549,14 @@ bool        settings_parse_display_screenshot_format_name(const char* str, displ
 const char* settings_get_display_screenshot_format_name(display_screenshot_format_t format);
 const char* settings_get_display_screenshot_format_display_name(display_screenshot_format_t format);
 const char* settings_get_display_screenshot_format_extension(display_screenshot_format_t format);
-bool        settings_get_display_screenshot_format_from_filename(const char* filename,
-                                                                  display_screenshot_format_t* out);
+bool settings_get_display_screenshot_format_from_filename(const char* filename, display_screenshot_format_t* out);
 
 bool        settings_parse_notification_location_name(const char* str, notification_location_t* out);
 const char* settings_get_notification_location_name(notification_location_t location);
 const char* settings_get_notification_location_display_name(notification_location_t location);
 
-bool        settings_parse_achievement_challenge_indicator_mode_name(const char* str,
-                                                                      achievement_challenge_indicator_mode_t* out);
+bool        settings_parse_achievement_challenge_indicator_mode_name(const char*                             str,
+                                                                     achievement_challenge_indicator_mode_t* out);
 const char* settings_get_achievement_challenge_indicator_mode_name(achievement_challenge_indicator_mode_t mode);
 const char* settings_get_achievement_challenge_indicator_mode_display_name(achievement_challenge_indicator_mode_t mode);
 
@@ -575,8 +572,7 @@ bool        settings_parse_cdrom_mech_version_name(const char* str, cdrom_mechac
 const char* settings_get_cdrom_mech_version_name(cdrom_mechacon_version_t mode);
 const char* settings_get_cdrom_mech_version_display_name(cdrom_mechacon_version_t mode);
 
-bool        settings_parse_save_state_compression_mode_name(const char* str,
-                                                             save_state_compression_mode_t* out);
+bool        settings_parse_save_state_compression_mode_name(const char* str, save_state_compression_mode_t* out);
 const char* settings_get_save_state_compression_mode_name(save_state_compression_mode_t mode);
 const char* settings_get_save_state_compression_mode_display_name(save_state_compression_mode_t mode);
 

@@ -6,16 +6,14 @@
 
 enum { STATE_CAPACITY = 2 * 1024 * 1024 };
 
-static size_t save_gpu(u8* bytes)
-{
+static size_t save_gpu(u8* bytes) {
   state_wrapper_t state;
   state_wrapper_init_write(&state, bytes, STATE_CAPACITY, SAVE_STATE_VERSION);
   EXPECT_TRUE(gpu_do_state(&state));
   return state_wrapper_get_position(&state);
 }
 
-static bool load_gpu(const u8* bytes, size_t size, u32 version)
-{
+static bool load_gpu(const u8* bytes, size_t size, u32 version) {
   state_wrapper_t state;
   state_wrapper_init_read(&state, bytes, size, version);
   const bool result = gpu_do_state(&state);
@@ -24,27 +22,23 @@ static bool load_gpu(const u8* bytes, size_t size, u32 version)
   return result;
 }
 
-static void put_word(u8* bytes, size_t offset, u32 value)
-{
+static void put_word(u8* bytes, size_t offset, u32 value) {
   memcpy(bytes + offset, &value, sizeof(value));
 }
 
-static u32 get_word(const u8* bytes, size_t offset)
-{
+static u32 get_word(const u8* bytes, size_t offset) {
   u32 value;
   memcpy(&value, bytes + offset, sizeof(value));
   return value;
 }
 
-static void begin_pending(void)
-{
+static void begin_pending(void) {
   const u32 words[] = {0x480000FF, 32 | 24 << 16, 40 | 24 << 16, 40 | 32 << 16};
   for (u32 i = 0; i < sizeof(words) / sizeof(words[0]); i++)
     gpu_write_register(0, words[i]);
 }
 
-static void check_legacy(bool shaded, bool pending)
-{
+static void check_legacy(bool shaded, bool pending) {
   display_fixture_t fixture;
   begin_display(&fixture);
   begin_pending();
@@ -69,25 +63,20 @@ static void check_legacy(bool shaded, bool pending)
   end_display(&fixture);
 }
 
-TEST(GpuPolylineState, legacy_flat_idle)
-{
+TEST(GpuPolylineState, legacy_flat_idle) {
   check_legacy(false, false);
 }
-TEST(GpuPolylineState, legacy_shaded_idle)
-{
+TEST(GpuPolylineState, legacy_shaded_idle) {
   check_legacy(true, false);
 }
-TEST(GpuPolylineState, legacy_flat_pending_is_unrecoverable)
-{
+TEST(GpuPolylineState, legacy_flat_pending_is_unrecoverable) {
   check_legacy(false, true);
 }
-TEST(GpuPolylineState, legacy_shaded_pending_is_unrecoverable)
-{
+TEST(GpuPolylineState, legacy_shaded_pending_is_unrecoverable) {
   check_legacy(true, true);
 }
 
-TEST(GpuPolylineState, malformed_queue_counts)
-{
+TEST(GpuPolylineState, malformed_queue_counts) {
   for (u32 field = 0; field < 3; field++) {
     display_fixture_t fixture;
     begin_display(&fixture);
@@ -108,8 +97,7 @@ TEST(GpuPolylineState, malformed_queue_counts)
   }
 }
 
-TEST(GpuPolylineState, inconsistent_and_truncated_packets)
-{
+TEST(GpuPolylineState, inconsistent_and_truncated_packets) {
   for (u32 sample = 0; sample < 5; sample++) {
     display_fixture_t fixture;
     begin_display(&fixture);
@@ -140,8 +128,7 @@ TEST(GpuPolylineState, inconsistent_and_truncated_packets)
   }
 }
 
-TEST(GpuPolylineState, dma_source_addresses_survive_clobbered_restore)
-{
+TEST(GpuPolylineState, dma_source_addresses_survive_clobbered_restore) {
   display_fixture_t fixture;
   begin_display(&fixture);
   memset(g_vram, 0, sizeof(g_vram));

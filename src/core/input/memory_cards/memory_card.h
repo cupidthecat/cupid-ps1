@@ -17,7 +17,7 @@
 typedef struct state_wrapper state_wrapper_t;
 typedef struct Error         Error;
 
- /*
+/*
  * exactly so the FIXED_REPLY_STATE / ADDRESS_STATE_MSB tables stay readable
  * against the original.  Each card has its own copy. */
 typedef enum {
@@ -92,18 +92,24 @@ typedef struct memory_card {
 
 enum {
   MEMORY_CARD_LEGACY_STATE_SIZE = 1 + 1 + 2 + 1 + 1 + 1 + MEMORY_CARD_IMAGE_DATA_SIZE + 1,
-  MEMORY_CARD_STATE_SIZE = MEMORY_CARD_LEGACY_STATE_SIZE + MEMORY_CARD_IMAGE_FRAME_SIZE,
+  MEMORY_CARD_STATE_SIZE        = MEMORY_CARD_LEGACY_STATE_SIZE + MEMORY_CARD_IMAGE_FRAME_SIZE,
 };
 
 memory_card_t* memory_card_create(u32 index);
-memory_card_t* memory_card_open  (u32 index, const char* path);
+memory_card_t* memory_card_open(u32 index, const char* path);
 
 /* Flushes any pending write back to disk and frees the card. */
 void memory_card_destroy(memory_card_t* mc);
 
-static inline u8*         memory_card_get_data      (memory_card_t* mc)       { return mc->data; }
-static inline const u8*   memory_card_get_data_const(const memory_card_t* mc) { return mc->data; }
-static inline const char* memory_card_get_path      (const memory_card_t* mc) { return mc->path ? mc->path : ""; }
+static inline u8* memory_card_get_data(memory_card_t* mc) {
+  return mc->data;
+}
+static inline const u8* memory_card_get_data_const(const memory_card_t* mc) {
+  return mc->data;
+}
+static inline const char* memory_card_get_path(const memory_card_t* mc) {
+  return mc->path ? mc->path : "";
+}
 
 void memory_card_reset(memory_card_t* mc);
 bool memory_card_do_state(memory_card_t* mc, state_wrapper_t* sw);

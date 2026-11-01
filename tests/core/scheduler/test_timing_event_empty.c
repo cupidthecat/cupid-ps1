@@ -1,15 +1,13 @@
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void begin_empty_events(void)
-{
+static void begin_empty_events(void) {
   const u32 program[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, program, 2);
   EXPECT_TRUE(*timing_events_get_head_event_ptr() == NULL);
   EXPECT_FALSE(cpu_has_pending_interrupt());
 }
 
-static void restore_empty_events(void)
-{
+static void restore_empty_events(void) {
   u8              before[256], after[256];
   state_wrapper_t state;
   state_wrapper_init_write(&state, before, sizeof(before), SAVE_STATE_VERSION);
@@ -28,8 +26,7 @@ static void restore_empty_events(void)
   EXPECT_EQ(memcmp(before, after, size), 0);
 }
 
-TEST(TimingEventEmpty, idle_downcount)
-{
+TEST(TimingEventEmpty, idle_downcount) {
   begin_empty_events();
   timing_events_update_cpu_downcount();
   EXPECT_EQ(g_cpu_state.downcount, UINT32_MAX);
@@ -39,8 +36,7 @@ TEST(TimingEventEmpty, idle_downcount)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, empty_state_restore)
-{
+TEST(TimingEventEmpty, empty_state_restore) {
   begin_empty_events();
   restore_empty_events();
   EXPECT_TRUE(*timing_events_get_head_event_ptr() == NULL);
@@ -50,8 +46,7 @@ TEST(TimingEventEmpty, empty_state_restore)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, pending_interrupt)
-{
+TEST(TimingEventEmpty, pending_interrupt) {
   begin_empty_events();
   g_cpu_state.cop0_regs.sr.bits |= 0x101;
   g_cpu_state.cop0_regs.cause.bits |= 0x100;
@@ -67,8 +62,7 @@ TEST(TimingEventEmpty, pending_interrupt)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, commit_no_events)
-{
+TEST(TimingEventEmpty, commit_no_events) {
   begin_empty_events();
   const u32 pending_before = cpu_get_pending_ticks();
   cpu_add_pending_ticks(17);
@@ -85,8 +79,7 @@ TEST(TimingEventEmpty, commit_no_events)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, pending_interrupt_dispatch)
-{
+TEST(TimingEventEmpty, pending_interrupt_dispatch) {
   begin_empty_events();
   const u32 before_pc      = g_cpu_state.pc;
   const u32 pending_before = cpu_get_pending_ticks();
@@ -116,8 +109,7 @@ typedef struct {
   bool            exit_cpu;
 } empty_callback_t;
 
-static void finish_last_event(void* user, tick_count_t ticks, tick_count_t late)
-{
+static void finish_last_event(void* user, tick_count_t ticks, tick_count_t late) {
   empty_callback_t* result = user;
   result->calls++;
   result->when  = timing_events_get_global_tick_counter();
@@ -127,8 +119,7 @@ static void finish_last_event(void* user, tick_count_t ticks, tick_count_t late)
   if (result->exit_cpu) stop_cpu(NULL, ticks, late);
 }
 
-static void check_last_event(bool restore)
-{
+static void check_last_event(bool restore) {
   begin_empty_events();
   if (restore) restore_empty_events();
   timing_event_t   event;
@@ -155,12 +146,10 @@ static void check_last_event(bool restore)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, first_event_after_restore)
-{
+TEST(TimingEventEmpty, first_event_after_restore) {
   check_last_event(true);
 }
-TEST(TimingEventEmpty, last_event_callback)
-{
+TEST(TimingEventEmpty, last_event_callback) {
   begin_empty_events();
   const u32            pending_before = cpu_get_pending_ticks();
   const global_ticks_t expected_when  = timing_events_get_global_tick_counter() + pending_before + 23;
@@ -184,8 +173,7 @@ TEST(TimingEventEmpty, last_event_callback)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, deactivate_last_event)
-{
+TEST(TimingEventEmpty, deactivate_last_event) {
   begin_empty_events();
   timing_event_t   event;
   empty_callback_t result = {.event = &event};
@@ -207,8 +195,7 @@ TEST(TimingEventEmpty, deactivate_last_event)
   finish_cpu();
 }
 
-TEST(TimingEventEmpty, legacy_empty_restore)
-{
+TEST(TimingEventEmpty, legacy_empty_restore) {
   const u32 versions[] = {42, 43, 70};
   for (u32 index = 0; index < 3; index++) {
     begin_empty_events();

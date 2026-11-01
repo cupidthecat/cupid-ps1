@@ -1,7 +1,6 @@
 #include "tests/core/gpu/gpu_reset_display_fixture.h"
 
-static void check_display_reset(bool restore, bool controls)
-{
+static void check_display_reset(bool restore, bool controls) {
   const u16 addresses[][2] = {{0, 0}, {64, 32}, {768, 300}, {1000, 500}};
   u32       observations = 0, failures = 0;
   for (u32 command = 0; command < (controls ? 2u : 4u); command++) {
@@ -38,15 +37,12 @@ static void check_display_reset(bool restore, bool controls)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(GpuResetDisplay, fresh)
-{
+TEST(GpuResetDisplay, fresh) {
   check_display_reset(false, false);
 }
-TEST(GpuResetDisplay, restored)
-{
+TEST(GpuResetDisplay, restored) {
   check_display_reset(true, false);
 }
-TEST(GpuResetDisplay, acknowledge_and_fifo_controls)
-{
+TEST(GpuResetDisplay, acknowledge_and_fifo_controls) {
   check_display_reset(true, true);
 }

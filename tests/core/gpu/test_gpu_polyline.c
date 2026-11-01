@@ -2,8 +2,7 @@
 #include "tests/core/gpu/gpu_reset_display_fixture.h"
 #include "core/gpu/software/gpu_sw_rasterizer.h"
 
-static void setup_polyline(display_fixture_t* fixture)
-{
+static void setup_polyline(display_fixture_t* fixture) {
   begin_display(fixture);
   memset(g_vram, 0, sizeof(g_vram));
   gpu_write_register(0, 0xE3000000);
@@ -15,8 +14,7 @@ static void setup_polyline(display_fixture_t* fixture)
   run_slice(2000);
 }
 
-TEST(GpuPolyline, fresh_control)
-{
+TEST(GpuPolyline, fresh_control) {
   display_fixture_t fixture;
   setup_polyline(&fixture);
   gpu_write_register(0, 0x50005000);
@@ -26,8 +24,7 @@ TEST(GpuPolyline, fresh_control)
   end_display(&fixture);
 }
 
-TEST(GpuPolyline, minimum_two_vertices)
-{
+TEST(GpuPolyline, minimum_two_vertices) {
   display_fixture_t fixture;
   begin_display(&fixture);
   memset(g_vram, 0, sizeof(g_vram));
@@ -44,8 +41,7 @@ TEST(GpuPolyline, minimum_two_vertices)
   end_display(&fixture);
 }
 
-TEST(GpuPolyline, restored_pending_vertices)
-{
+TEST(GpuPolyline, restored_pending_vertices) {
   display_fixture_t fixture;
   setup_polyline(&fixture);
   const size_t capacity = 2 * 1024 * 1024;
@@ -72,8 +68,7 @@ TEST(GpuPolyline, restored_pending_vertices)
   end_display(&fixture);
 }
 
-TEST(GpuPolyline, reset_discards_pending_vertices)
-{
+TEST(GpuPolyline, reset_discards_pending_vertices) {
   display_fixture_t fixture;
   setup_polyline(&fixture);
   gpu_write_register(4, 0);
@@ -91,8 +86,7 @@ TEST(GpuPolyline, reset_discards_pending_vertices)
   end_display(&fixture);
 }
 
-TEST(GpuPolyline, all_six_hundred_vertices_render)
-{
+TEST(GpuPolyline, all_six_hundred_vertices_render) {
   display_fixture_t fixture;
   begin_display(&fixture);
   memset(g_vram, 0, sizeof(g_vram));
@@ -108,8 +102,7 @@ TEST(GpuPolyline, all_six_hundred_vertices_render)
   end_display(&fixture);
 }
 
-TEST(GpuPolyline, clear_fifo_discards_pending_vertices)
-{
+TEST(GpuPolyline, clear_fifo_discards_pending_vertices) {
   display_fixture_t fixture;
   setup_polyline(&fixture);
   gpu_write_register(4, 0x01000000);
@@ -124,8 +117,7 @@ TEST(GpuPolyline, clear_fifo_discards_pending_vertices)
   end_display(&fixture);
 }
 
-TEST(GpuPolyline, terminator_pattern_in_required_position)
-{
+TEST(GpuPolyline, terminator_pattern_in_required_position) {
   for (u32 shaded = 0; shaded < 2; shaded++) {
     display_fixture_t fixture;
     begin_display(&fixture);
@@ -145,8 +137,7 @@ TEST(GpuPolyline, terminator_pattern_in_required_position)
   }
 }
 
-TEST(GpuPolyline, shaded_position_is_not_a_terminator)
-{
+TEST(GpuPolyline, shaded_position_is_not_a_terminator) {
   display_fixture_t fixture;
   setup_polyline(&fixture);
   gpu_write_register(4, 0x01000000);

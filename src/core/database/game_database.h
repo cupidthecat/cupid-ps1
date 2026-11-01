@@ -31,13 +31,13 @@ struct cd_image;
 /* Compatibility rating                                                   */
 
 typedef enum {
-  GAME_DATABASE_COMPAT_RATING_UNKNOWN              = 0,
-  GAME_DATABASE_COMPAT_RATING_DOESNT_BOOT          = 1,
-  GAME_DATABASE_COMPAT_RATING_CRASHES_IN_INTRO     = 2,
-  GAME_DATABASE_COMPAT_RATING_CRASHES_IN_GAME      = 3,
+  GAME_DATABASE_COMPAT_RATING_UNKNOWN                = 0,
+  GAME_DATABASE_COMPAT_RATING_DOESNT_BOOT            = 1,
+  GAME_DATABASE_COMPAT_RATING_CRASHES_IN_INTRO       = 2,
+  GAME_DATABASE_COMPAT_RATING_CRASHES_IN_GAME        = 3,
   GAME_DATABASE_COMPAT_RATING_GRAPHICAL_AUDIO_ISSUES = 4,
-  GAME_DATABASE_COMPAT_RATING_NO_ISSUES            = 5,
-  GAME_DATABASE_COMPAT_RATING_COUNT                = 6,
+  GAME_DATABASE_COMPAT_RATING_NO_ISSUES              = 5,
+  GAME_DATABASE_COMPAT_RATING_COUNT                  = 6,
 } game_database_compat_rating_t;
 
 /* Trait                                                                  */
@@ -48,7 +48,7 @@ typedef enum {
   GAME_DATABASE_TRAIT_FORCE_INTERPRETER,
   GAME_DATABASE_TRAIT_FORCE_SOFTWARE_RENDERER,
   GAME_DATABASE_TRAIT_FORCE_SOFTWARE_RENDERER_FOR_READBACKS,
-     /*
+  /*
      but the YAML resource file uses the literal "ForceRoundTextureCoordinates"
      (see s_trait_names[]).  We keep the long, descriptive enum name for
      readability; the YAML <-> enum mapping is via the table, not the name. */
@@ -122,43 +122,57 @@ typedef enum {
 /* Bit set in `supported_controllers` to indicate the entry permits */
 #define GAME_DATABASE_SUPPORTS_MULTITAP_BIT ((u16)(1u << (u16)CONTROLLER_TYPE_COUNT))
 
-#define GAME_DATABASE_TRAIT_BYTES    (((GAME_DATABASE_TRAIT_COUNT)    + 7) / 8)
+#define GAME_DATABASE_TRAIT_BYTES    (((GAME_DATABASE_TRAIT_COUNT) + 7) / 8)
 #define GAME_DATABASE_LANGUAGE_BYTES (((GAME_DATABASE_LANGUAGE_COUNT) + 7) / 8)
 
 /* Disc set entry                                                         */
 
 typedef struct {
-  const char* title;            u32 title_len;
-  const char* sort_title;       u32 sort_title_len;
-  const char* localized_title;  u32 localized_title_len;
-  const char* save_title;       u32 save_title_len;
+  const char* title;
+  u32         title_len;
+  const char* sort_title;
+  u32         sort_title_len;
+  const char* localized_title;
+  u32         localized_title_len;
+  const char* save_title;
+  u32         save_title_len;
 
   /* Parallel arrays: `serials[i]` (length `serial_lens[i]`) names the i-th
      disc.  Both arrays have `serials_count` entries.  Both heap-owned by the
      loader. */
-  const char**  serials;
-  u32*          serial_lens;
-  u32           serials_count;
+  const char** serials;
+  u32*         serial_lens;
+  u32          serials_count;
 } game_database_disc_set_t;
 
 /* Entry                                                                  */
 
 typedef struct game_database_entry {
   /* Backing bytes live in s_state.db_data; do NOT free or NUL-terminate. */
-  const char* serial;                        u32 serial_len;
-  const char* title;                         u32 title_len;
-  const char* sort_title;                    u32 sort_title_len;
-  const char* localized_title;               u32 localized_title_len;
-  const char* save_title;                    u32 save_title_len;
-  const char* genre;                         u32 genre_len;
-  const char* developer;                     u32 developer_len;
-  const char* publisher;                     u32 publisher_len;
-  const char* compatibility_version_tested;  u32 compatibility_version_tested_len;
-  const char* compatibility_comments;        u32 compatibility_comments_len;
+  const char* serial;
+  u32         serial_len;
+  const char* title;
+  u32         title_len;
+  const char* sort_title;
+  u32         sort_title_len;
+  const char* localized_title;
+  u32         localized_title_len;
+  const char* save_title;
+  u32         save_title_len;
+  const char* genre;
+  u32         genre_len;
+  const char* developer;
+  u32         developer_len;
+  const char* publisher;
+  u32         publisher_len;
+  const char* compatibility_version_tested;
+  u32         compatibility_version_tested_len;
+  const char* compatibility_comments;
+  u32         compatibility_comments_len;
 
-  const game_database_disc_set_t* disc_set;  /* NULL if not part of a set */
+  const game_database_disc_set_t* disc_set; /* NULL if not part of a set */
 
-  u64 release_date;                          /* seconds since Unix epoch  */
+  u64 release_date; /* seconds since Unix epoch  */
   u8  min_players;
   u8  max_players;
   u8  min_blocks;
@@ -171,32 +185,49 @@ typedef struct game_database_entry {
 
   game_database_compat_rating_t compatibility;
 
-  u8 trait_bits   [GAME_DATABASE_TRAIT_BYTES];
+  u8 trait_bits[GAME_DATABASE_TRAIT_BYTES];
   u8 language_bits[GAME_DATABASE_LANGUAGE_BYTES];
 
   /* Optional overrides: each field has a `has_X` companion bool.  When false,
      the value field is undefined and ApplySettings should not touch the
      corresponding settings field. */
-  bool has_display_active_start_offset;       s16 display_active_start_offset;
-  bool has_display_active_end_offset;         s16 display_active_end_offset;
-  bool has_display_line_start_offset;         s8  display_line_start_offset;
-  bool has_display_line_end_offset;           s8  display_line_end_offset;
+  bool has_display_active_start_offset;
+  s16  display_active_start_offset;
+  bool has_display_active_end_offset;
+  s16  display_active_end_offset;
+  bool has_display_line_start_offset;
+  s8   display_line_start_offset;
+  bool has_display_line_end_offset;
+  s8   display_line_end_offset;
 
-  bool has_display_crop_mode;                 display_crop_mode_t           display_crop_mode;
-  bool has_display_deinterlacing_mode;        display_deinterlacing_mode_t  display_deinterlacing_mode;
-  bool has_gpu_line_detect_mode;              gpu_line_detect_mode_t        gpu_line_detect_mode;
+  bool                         has_display_crop_mode;
+  display_crop_mode_t          display_crop_mode;
+  bool                         has_display_deinterlacing_mode;
+  display_deinterlacing_mode_t display_deinterlacing_mode;
+  bool                         has_gpu_line_detect_mode;
+  gpu_line_detect_mode_t       gpu_line_detect_mode;
 
-  bool has_cpu_overclock;                     u8  cpu_overclock;
-  bool has_dma_max_slice_ticks;               u32 dma_max_slice_ticks;
-  bool has_dma_halt_ticks;                    u32 dma_halt_ticks;
-  bool has_cdrom_max_seek_speedup_cycles;     u32 cdrom_max_seek_speedup_cycles;
-  bool has_cdrom_max_read_speedup_cycles;     u32 cdrom_max_read_speedup_cycles;
-  bool has_gpu_fifo_size;                     u32 gpu_fifo_size;
-  bool has_gpu_max_run_ahead;                 u32 gpu_max_run_ahead;
+  bool has_cpu_overclock;
+  u8   cpu_overclock;
+  bool has_dma_max_slice_ticks;
+  u32  dma_max_slice_ticks;
+  bool has_dma_halt_ticks;
+  u32  dma_halt_ticks;
+  bool has_cdrom_max_seek_speedup_cycles;
+  u32  cdrom_max_seek_speedup_cycles;
+  bool has_cdrom_max_read_speedup_cycles;
+  u32  cdrom_max_read_speedup_cycles;
+  bool has_gpu_fifo_size;
+  u32  gpu_fifo_size;
+  bool has_gpu_max_run_ahead;
+  u32  gpu_max_run_ahead;
 
-  bool has_gpu_pgxp_tolerance;                float gpu_pgxp_tolerance;
-  bool has_gpu_pgxp_depth_threshold;          float gpu_pgxp_depth_threshold;
-  bool has_gpu_pgxp_preserve_proj_fp;         bool  gpu_pgxp_preserve_proj_fp;
+  bool  has_gpu_pgxp_tolerance;
+  float gpu_pgxp_tolerance;
+  bool  has_gpu_pgxp_depth_threshold;
+  float gpu_pgxp_depth_threshold;
+  bool  has_gpu_pgxp_preserve_proj_fp;
+  bool  gpu_pgxp_preserve_proj_fp;
 } game_database_entry_t;
 
 /* TrackHashes (lazy-loaded)                                              */
@@ -221,19 +252,18 @@ const game_database_entry_t* game_database_get_entry_for_disc(struct cd_image* i
 char* game_database_get_serial_for_disc(struct cd_image* image);
 char* game_database_get_serial_for_path(const char* path);
 
-const char* game_database_get_trait_name             (game_database_trait_t t);
-const char* game_database_get_trait_display_name     (game_database_trait_t t);
-const char* game_database_get_compat_rating_name     (game_database_compat_rating_t r);
+const char* game_database_get_trait_name(game_database_trait_t t);
+const char* game_database_get_trait_display_name(game_database_trait_t t);
+const char* game_database_get_compat_rating_name(game_database_compat_rating_t r);
 const char* game_database_get_compat_rating_display_name(game_database_compat_rating_t r);
-const char* game_database_get_language_name          (game_database_language_t l);
-const char* game_database_get_language_display_name  (game_database_language_t l);
+const char* game_database_get_language_name(game_database_language_t l);
+const char* game_database_get_language_display_name(game_database_language_t l);
 
-bool game_database_parse_language_name    (const char* str, u32 len, game_database_language_t*     out);
-bool game_database_parse_trait_name       (const char* str, u32 len, game_database_trait_t*        out);
+bool game_database_parse_language_name(const char* str, u32 len, game_database_language_t* out);
+bool game_database_parse_trait_name(const char* str, u32 len, game_database_trait_t* out);
 bool game_database_parse_compat_rating_name(const char* str, u32 len, game_database_compat_rating_t* out);
 
-void game_database_entry_apply_settings(const game_database_entry_t* e,
-                                        settings_t* settings,
+void game_database_entry_apply_settings(const game_database_entry_t* e, settings_t* settings,
                                         bool display_osd_messages);
 
 /* TrackHashes; lazy. */
@@ -242,16 +272,12 @@ const game_database_track_data_t* game_database_lookup_track_hash(const u8 md5[1
 
 /* Inline helpers                                                         */
 
-static inline bool game_database_entry_has_trait(const game_database_entry_t* e,
-                                                 game_database_trait_t t)
-{
+static inline bool game_database_entry_has_trait(const game_database_entry_t* e, game_database_trait_t t) {
   const u32 i = (u32)t;
   return (e->trait_bits[i >> 3] & (u8)(1u << (i & 7u))) != 0;
 }
 
-static inline bool game_database_entry_has_language(const game_database_entry_t* e,
-                                                    game_database_language_t l)
-{
+static inline bool game_database_entry_has_language(const game_database_entry_t* e, game_database_language_t l) {
   const u32 i = (u32)l;
   return (e->language_bits[i >> 3] & (u8)(1u << (i & 7u))) != 0;
 }

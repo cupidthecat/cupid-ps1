@@ -71,7 +71,7 @@ enum {
 /* weak-extern fallbacks for sibling modules whose headers don't yet  */
 /* expose every helper we touch.                                       */
 
- /* Optional notification when the GPU clock changes. */
+/* Optional notification when the GPU clock changes. */
 __attribute__((weak)) extern void gpu_clock_changed(void);
 /* PGXP lifecycle.  Names declared in cpu_pgxp.h are `pgxp_*` (no
  * `cpu_` prefix); the prior weak `cpu_pgxp_*` externs silently resolved
@@ -79,10 +79,10 @@ __attribute__((weak)) extern void gpu_clock_changed(void);
  * call into a no-op, so PGXP was never actually initialized.  Symptom
  * was a SIGSEGV in pgxp_get_ptr (s_mem still NULL) when --pgxp on
  * triggered gpu_commands.c:352 → pgxp_get_precise_vertex. */
-extern void pgxp_initialize(void);
-extern void pgxp_shutdown(void);
-extern void pgxp_reset(void);
-extern void pgxp_do_state(state_wrapper_t* sw);
+extern void                       pgxp_initialize(void);
+extern void                       pgxp_shutdown(void);
+extern void                       pgxp_reset(void);
+extern void                       pgxp_do_state(state_wrapper_t* sw);
 __attribute__((weak)) extern void cpu_code_cache_reset(void);
 __attribute__((weak)) extern void cpu_code_cache_invalidate_all_ram_blocks(void);
 __attribute__((weak)) extern void performance_counters_reset(void);
@@ -102,14 +102,14 @@ void host_pump_messages_on_core_thread(void);
 void host_input_manager_poll_sources(void);
 
 __attribute__((weak)) void host_on_settings_reloaded(void) {}
-__attribute__((weak)) void host_on_system_starting(void)  {}
-__attribute__((weak)) void host_on_system_started(void)   {}
-__attribute__((weak)) void host_on_system_stopping(void)  {}
+__attribute__((weak)) void host_on_system_starting(void) {}
+__attribute__((weak)) void host_on_system_started(void) {}
+__attribute__((weak)) void host_on_system_stopping(void) {}
 __attribute__((weak)) void host_on_system_destroyed(void) {}
-__attribute__((weak)) void host_on_system_paused(void)    {}
-__attribute__((weak)) void host_on_system_resumed(void)   {}
+__attribute__((weak)) void host_on_system_paused(void) {}
+__attribute__((weak)) void host_on_system_resumed(void) {}
 __attribute__((weak)) void host_pump_messages_on_core_thread(void) {}
-__attribute__((weak)) void host_input_manager_poll_sources(void)   {}
+__attribute__((weak)) void host_input_manager_poll_sources(void) {}
 
 /* state                                                               */
 
@@ -136,10 +136,10 @@ typedef struct {
   bool fast_forward_enabled;
   bool turbo_enabled;
 
-  u8   memory_card_fast_forward_frames;
+  u8 memory_card_fast_forward_frames;
 
-  u32  skipped_frame_count;
-  u32  last_presented_internal_frame_number;
+  u32 skipped_frame_count;
+  u32 last_presented_internal_frame_number;
 
   float video_frame_rate;
   float target_speed;
@@ -154,13 +154,13 @@ typedef struct {
   u32                      taints;
 
   /* heap-owned; "" if none. */
-  char*                    running_game_path;
-  char*                    running_game_serial;
-  char*                    running_game_title;
-  char*                    exe_override;
-  u8*                      exe_buffer;       /* heap-owned PS-X EXE; NULL when not BOOT_EXE */
-  size_t                   exe_buffer_size;
-  game_hash_t              running_game_hash;
+  char*       running_game_path;
+  char*       running_game_serial;
+  char*       running_game_title;
+  char*       exe_override;
+  u8*         exe_buffer; /* heap-owned PS-X EXE; NULL when not BOOT_EXE */
+  size_t      exe_buffer_size;
+  game_hash_t running_game_hash;
 
   /* GameDB lookup result for the currently running disc.  NULL when no disc
    * is booted, when serial extraction failed, or when the serial isn't in the
@@ -168,105 +168,96 @@ typedef struct {
    * here; it's stable for the process lifetime). */
   const game_database_entry_t* running_game_entry;
 
-  atomic_bool              startup_cancelled;
+  atomic_bool startup_cancelled;
 
   /* monotonic timer baseline for play-time accounting. */
-  timer_value_t            session_start_time;
+  timer_value_t session_start_time;
 
   /* outstanding async save tasks (we run them inline, but the counter is
    * still bumped so system_flush_save_states() works as a no-op). */
-  atomic_uint              outstanding_save_state_tasks;
+  atomic_uint outstanding_save_state_tasks;
 
   /* process start time, set in system_process_startup. */
-  timer_value_t            process_start_time;
+  timer_value_t process_start_time;
 } system_state_vars_t;
 
 static system_state_vars_t s_state;
 
 /* forward decls                                                       */
 
-static void           system_internal_reset       (void);
-static void           system_destroy_system       (void);
-static void           system_clear_running_game   (void);
-static bool           system_load_bios            (Error* error);
-static bool           system_set_boot_mode        (system_boot_mode_t new_boot_mode,
-                                                   disc_region_t disc_region, Error* error);
-static bool           system_initialize           (cd_image_t* disc, disc_region_t disc_region,
-                                                   bool force_software_renderer, Error* error);
-static void           system_update_running_game  (const char* path, cd_image_t* image, bool booting);
-static void           system_update_controllers   (void);
-static void           system_reset_controllers    (void);
-static void           system_update_multitaps     (void);
-static bool           system_do_state             (state_wrapper_t* sw, bool update_display);
-static bool           system_save_state_to_buffer (u8** out_data, size_t* out_size, Error* error);
-static bool           system_load_state_data_from_buffer(const u8* data, size_t size, u32 version,
-                                                         Error* error, bool update_display);
-static bool           system_load_state_buffer_from_file(FILE* fp, u8** out_state_data,
-                                                          size_t* out_state_size, u32* out_version,
-                                                         char** out_media_path,
-                                                         u32* out_media_subimage_index, 
-                                                         Error* error);
-static bool           system_save_state_buffer_to_file(FILE* fp, const u8* state_data, size_t state_size,
-                                                       const char* media_path, u32 media_subimage_index,
-                                                       Error* error);
-static void           system_throttle              (timer_value_t current_time, timer_value_t sleep_until);
-static void           system_update_throttle_period(void);
-static void           system_reset_throttler       (void);
-static bool           system_is_fast_forwarding_boot(void);
-static void           system_check_for_and_exit_execution(void);
-static void           system_set_taints_from_settings(void);
-static u8             system_get_audio_output_volume(void);
+static void system_internal_reset(void);
+static void system_destroy_system(void);
+static void system_clear_running_game(void);
+static bool system_load_bios(Error* error);
+static bool system_set_boot_mode(system_boot_mode_t new_boot_mode, disc_region_t disc_region, Error* error);
+static bool system_initialize(cd_image_t* disc, disc_region_t disc_region, bool force_software_renderer, Error* error);
+static void system_update_running_game(const char* path, cd_image_t* image, bool booting);
+static void system_update_controllers(void);
+static void system_reset_controllers(void);
+static void system_update_multitaps(void);
+static bool system_do_state(state_wrapper_t* sw, bool update_display);
+static bool system_save_state_to_buffer(u8** out_data, size_t* out_size, Error* error);
+static bool system_load_state_data_from_buffer(const u8* data, size_t size, u32 version, Error* error,
+                                               bool update_display);
+static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data, size_t* out_state_size, u32* out_version,
+                                               char** out_media_path, u32* out_media_subimage_index, Error* error);
+static bool system_save_state_buffer_to_file(FILE* fp, const u8* state_data, size_t state_size, const char* media_path,
+                                             u32 media_subimage_index, Error* error);
+static void system_throttle(timer_value_t current_time, timer_value_t sleep_until);
+static void system_update_throttle_period(void);
+static void system_reset_throttler(void);
+static bool system_is_fast_forwarding_boot(void);
+static void system_check_for_and_exit_execution(void);
+static void system_set_taints_from_settings(void);
+static u8   system_get_audio_output_volume(void);
 
 /* dup / strndup helpers that tolerate NULL input. */
-static char* xstrdup_or_null(const char* s)
-{
+static char* xstrdup_or_null(const char* s) {
   if (!s) return NULL;
   size_t n = strlen(s);
-  char* r = (char*)malloc(n + 1);
+  char*  r = (char*)malloc(n + 1);
   if (!r) return NULL;
   memcpy(r, s, n + 1);
   return r;
 }
 
-static void xfree_str(char** p)
-{
-  if (p && *p) { free(*p); *p = NULL; }
+static void xfree_str(char** p) {
+  if (p && *p) {
+    free(*p);
+    *p = NULL;
+  }
 }
 
- /* Sets *p to a new copy of `value` (free-and-replace semantics).  `value`
+/* Sets *p to a new copy of `value` (free-and-replace semantics).  `value`
  * may be NULL or "" to clear. */
-static void set_str(char** p, const char* value)
-{
+static void set_str(char** p, const char* value) {
   xfree_str(p);
-  if (value && value[0])
-    *p = xstrdup_or_null(value);
+  if (value && value[0]) *p = xstrdup_or_null(value);
 }
 
-static const char* str_or_empty(const char* s) { return s ? s : ""; }
+static const char* str_or_empty(const char* s) {
+  return s ? s : "";
+}
 
 /* ctor / dtor for boot params + extended state info                  */
 
-void system_boot_parameters_init(system_boot_parameters_t* p)
-{
+void system_boot_parameters_init(system_boot_parameters_t* p) {
   memset(p, 0, sizeof(*p));
 }
 
-void system_boot_parameters_destroy(system_boot_parameters_t* p)
-{
+void system_boot_parameters_destroy(system_boot_parameters_t* p) {
   if (!p) return;
   xfree_str(&p->path);
   xfree_str(&p->save_state);
   xfree_str(&p->override_exe);
 }
 
-void system_save_state_info_destroy(system_save_state_info_t* ssi)
-{
+void system_save_state_info_destroy(system_save_state_info_t* ssi) {
   if (!ssi) return;
   xfree_str(&ssi->path);
 }
 
-void system_extended_save_state_info_destroy(system_extended_save_state_info_t* essi)
-{
+void system_extended_save_state_info_destroy(system_extended_save_state_info_t* essi) {
   if (!essi) return;
   xfree_str(&essi->title);
   xfree_str(&essi->serial);
@@ -279,23 +270,34 @@ void system_extended_save_state_info_destroy(system_extended_save_state_info_t* 
 
 /* state queries                                                       */
 
-system_state_t system_get_state(void)         { return s_state.state; }
-bool system_is_running(void)                  { return s_state.state == SYSTEM_STATE_RUNNING; }
-bool system_is_paused(void)                   { return s_state.state == SYSTEM_STATE_PAUSED; }
-bool system_is_shutdown(void)                 { return s_state.state == SYSTEM_STATE_SHUTDOWN; }
-bool system_is_valid(void)                    { return s_state.state == SYSTEM_STATE_RUNNING || s_state.state == SYSTEM_STATE_PAUSED; }
-bool system_is_valid_or_initializing(void)    { return s_state.state == SYSTEM_STATE_STARTING ||
-                                                       s_state.state == SYSTEM_STATE_RUNNING ||
-                                                       s_state.state == SYSTEM_STATE_PAUSED; }
-bool system_is_executing(void)                { return s_state.system_executing; }
+system_state_t system_get_state(void) {
+  return s_state.state;
+}
+bool system_is_running(void) {
+  return s_state.state == SYSTEM_STATE_RUNNING;
+}
+bool system_is_paused(void) {
+  return s_state.state == SYSTEM_STATE_PAUSED;
+}
+bool system_is_shutdown(void) {
+  return s_state.state == SYSTEM_STATE_SHUTDOWN;
+}
+bool system_is_valid(void) {
+  return s_state.state == SYSTEM_STATE_RUNNING || s_state.state == SYSTEM_STATE_PAUSED;
+}
+bool system_is_valid_or_initializing(void) {
+  return s_state.state == SYSTEM_STATE_STARTING || s_state.state == SYSTEM_STATE_RUNNING ||
+         s_state.state == SYSTEM_STATE_PAUSED;
+}
+bool system_is_executing(void) {
+  return s_state.system_executing;
+}
 
-static bool system_is_execution_interrupted(void)
-{
+static bool system_is_execution_interrupted(void) {
   return s_state.state != SYSTEM_STATE_RUNNING || s_state.system_interrupted;
 }
 
-static void system_check_for_and_exit_execution(void)
-{
+static void system_check_for_and_exit_execution(void) {
   if (system_is_execution_interrupted()) {
     s_state.system_interrupted = false;
     timing_events_cancel_running_event();
@@ -303,59 +305,52 @@ static void system_check_for_and_exit_execution(void)
   }
 }
 
-bool system_is_startup_cancelled(void)
-{
+bool system_is_startup_cancelled(void) {
   return atomic_load_explicit(&s_state.startup_cancelled, memory_order_acquire);
 }
 
-void system_cancel_pending_startup(void)
-{
+void system_cancel_pending_startup(void) {
   if (s_state.state == SYSTEM_STATE_STARTING)
     atomic_store_explicit(&s_state.startup_cancelled, true, memory_order_release);
 }
 
-void system_interrupt_execution(void)
-{
-  if (s_state.system_executing)
-    s_state.system_interrupted = true;
+void system_interrupt_execution(void) {
+  if (s_state.system_executing) s_state.system_interrupted = true;
 }
 
-console_region_t system_get_region(void)    { return s_state.region; }
-bool             system_is_pal_region(void) { return s_state.region == CONSOLE_REGION_PAL; }
+console_region_t system_get_region(void) {
+  return s_state.region;
+}
+bool system_is_pal_region(void) {
+  return s_state.region == CONSOLE_REGION_PAL;
+}
 
-const char* system_get_taint_name(system_taint_t taint)
-{
+const char* system_get_taint_name(system_taint_t taint) {
   static const char* const names[SYSTEM_TAINT_MAX_COUNT] = {
-    "CPUOverclock",
-    "CDROMReadSpeedup",
-    "CDROMSeekSpeedup",
-    "ForceFrameTimings",
-    "RAM8MB",
-    "Cheats",
-    "Patches",
-    "MemoryCardMismatch", 
+      "CPUOverclock", "CDROMReadSpeedup", "CDROMSeekSpeedup", "ForceFrameTimings",
+      "RAM8MB",       "Cheats",           "Patches",          "MemoryCardMismatch",
   };
   if ((u32)taint >= (u32)SYSTEM_TAINT_MAX_COUNT) return "?";
   return names[taint];
 }
 
-bool system_has_taint(system_taint_t taint)
-{
+bool system_has_taint(system_taint_t taint) {
   return (s_state.taints & (1u << (u8)taint)) != 0u;
 }
 
-void system_set_taint(system_taint_t taint)
-{
-  if (!system_has_taint(taint))
-    WARNING_LOG("Setting system taint: %s", system_get_taint_name(taint));
+void system_set_taint(system_taint_t taint) {
+  if (!system_has_taint(taint)) WARNING_LOG("Setting system taint: %s", system_get_taint_name(taint));
   s_state.taints |= (1u << (u8)taint);
 }
 
-tick_count_t system_get_ticks_per_second(void) { return s_state.ticks_per_second; }
-tick_count_t system_get_max_slice_ticks (void) { return s_state.max_slice_ticks; }
+tick_count_t system_get_ticks_per_second(void) {
+  return s_state.ticks_per_second;
+}
+tick_count_t system_get_max_slice_ticks(void) {
+  return s_state.max_slice_ticks;
+}
 
-void system_update_overclock(void)
-{
+void system_update_overclock(void) {
   s_state.ticks_per_second = system_scale_ticks_to_overclock(SYSTEM_MASTER_CLOCK);
   s_state.max_slice_ticks  = system_scale_ticks_to_overclock(SYSTEM_MASTER_CLOCK / 10);
   spu_cpu_clock_changed();
@@ -365,26 +360,33 @@ void system_update_overclock(void)
   system_update_throttle_period();
 }
 
-global_ticks_t system_get_global_tick_counter(void)
-{
-  if (timing_events_is_running_events())
-    return timing_events_get_event_run_tick_counter();
+global_ticks_t system_get_global_tick_counter(void) {
+  if (timing_events_is_running_events()) return timing_events_get_event_run_tick_counter();
   return timing_events_get_global_tick_counter() + cpu_get_pending_ticks();
 }
 
-u32 system_get_frame_number(void)          { return s_state.frame_number; }
-u32 system_get_internal_frame_number(void) { return s_state.internal_frame_number; }
+u32 system_get_frame_number(void) {
+  return s_state.frame_number;
+}
+u32 system_get_internal_frame_number(void) {
+  return s_state.internal_frame_number;
+}
 
-const char* system_get_game_title (void)    { return str_or_empty(s_state.running_game_title); }
-const char* system_get_game_serial(void)    { return str_or_empty(s_state.running_game_serial); }
-const char* system_get_game_path  (void)    { return str_or_empty(s_state.running_game_path); }
-const char* system_get_exe_override(void)   { return str_or_empty(s_state.exe_override); }
+const char* system_get_game_title(void) {
+  return str_or_empty(s_state.running_game_title);
+}
+const char* system_get_game_serial(void) {
+  return str_or_empty(s_state.running_game_serial);
+}
+const char* system_get_game_path(void) {
+  return str_or_empty(s_state.running_game_path);
+}
+const char* system_get_exe_override(void) {
+  return str_or_empty(s_state.exe_override);
+}
 
-void system_handle_kernel_initialized(void)
-{
-  if (s_state.boot_mode != SYSTEM_BOOT_MODE_BOOT_EXE || !s_state.exe_buffer ||
-      s_state.exe_buffer_size == 0u)
-    return;
+void system_handle_kernel_initialized(void) {
+  if (s_state.boot_mode != SYSTEM_BOOT_MODE_BOOT_EXE || !s_state.exe_buffer || s_state.exe_buffer_size == 0u) return;
 
   Error e;
   Error_init(&e);
@@ -398,8 +400,7 @@ void system_handle_kernel_initialized(void)
   INFO_LOG("Injected EXE: %s", str_or_empty(s_state.exe_override));
   /* RAM regions covering the EXE just got rewritten; toss any compiled
    * blocks that may have been built from BIOS-shell-era contents. */
-  if (cpu_code_cache_invalidate_all_ram_blocks)
-    cpu_code_cache_invalidate_all_ram_blocks();
+  if (cpu_code_cache_invalidate_all_ram_blocks) cpu_code_cache_invalidate_all_ram_blocks();
   /* We are inside a recomp/interp store callback for the BIOS POST=07
    * write.  cpu_set_pc only updates npc; without bailing out of the
    * current block, the BIOS continues executing past the POST write and
@@ -409,161 +410,145 @@ void system_handle_kernel_initialized(void)
   cpu_exit_execution();
 }
 
-game_hash_t        system_get_game_hash(void)        { return s_state.running_game_hash; }
-bool               system_is_running_unknown_game(void){ return s_state.running_game_hash == 0; }
-system_boot_mode_t system_get_boot_mode(void)        { return s_state.boot_mode; }
+game_hash_t system_get_game_hash(void) {
+  return s_state.running_game_hash;
+}
+bool system_is_running_unknown_game(void) {
+  return s_state.running_game_hash == 0;
+}
+system_boot_mode_t system_get_boot_mode(void) {
+  return s_state.boot_mode;
+}
 
-const game_database_entry_t* system_get_game_database_entry(void)
-{
+const game_database_entry_t* system_get_game_database_entry(void) {
   return s_state.running_game_entry;
 }
 
-bool system_is_using_known_ps1_bios(void)
-{
+bool system_is_using_known_ps1_bios(void) {
   return s_state.bios_image_info && s_state.bios_image_info->fastboot_patch == BIOS_FAST_BOOT_PATCH_TYPE1;
 }
 
 /* path discrimination                                                 */
 
-static bool ends_with_no_case(const char* path, const char* suffix)
-{
+static bool ends_with_no_case(const char* path, const char* suffix) {
   if (!path) return false;
   const u32 path_len = (u32)strlen(path);
   const u32 suf_len  = (u32)strlen(suffix);
   return string_util_ends_with_no_case_view(path, path_len, suffix, suf_len);
 }
 
-bool system_is_disc_path(const char* path)
-{
-  return (ends_with_no_case(path, ".bin") || ends_with_no_case(path, ".cue") ||
-          ends_with_no_case(path, ".img") || ends_with_no_case(path, ".iso") ||
-          ends_with_no_case(path, ".chd") || ends_with_no_case(path, ".ecm") ||
-          ends_with_no_case(path, ".mds") || ends_with_no_case(path, ".pbp") ||
-          ends_with_no_case(path, ".ccd") || ends_with_no_case(path, ".m3u"));
+bool system_is_disc_path(const char* path) {
+  return (ends_with_no_case(path, ".bin") || ends_with_no_case(path, ".cue") || ends_with_no_case(path, ".img") ||
+          ends_with_no_case(path, ".iso") || ends_with_no_case(path, ".chd") || ends_with_no_case(path, ".ecm") ||
+          ends_with_no_case(path, ".mds") || ends_with_no_case(path, ".pbp") || ends_with_no_case(path, ".ccd") ||
+          ends_with_no_case(path, ".m3u"));
 }
 
-bool system_is_exe_path(const char* path)
-{
-  return (ends_with_no_case(path, ".exe") || ends_with_no_case(path, ".psexe") ||
-          ends_with_no_case(path, ".ps-exe") || ends_with_no_case(path, ".psx") ||
-          ends_with_no_case(path, ".cpe") || ends_with_no_case(path, ".elf"));
+bool system_is_exe_path(const char* path) {
+  return (ends_with_no_case(path, ".exe") || ends_with_no_case(path, ".psexe") || ends_with_no_case(path, ".ps-exe") ||
+          ends_with_no_case(path, ".psx") || ends_with_no_case(path, ".cpe") || ends_with_no_case(path, ".elf"));
 }
 
-bool system_is_psf_path(const char* path)
-{
+bool system_is_psf_path(const char* path) {
   return (ends_with_no_case(path, ".psf") || ends_with_no_case(path, ".minipsf"));
 }
 
-bool system_is_gpu_dump_path(const char* path)
-{
+bool system_is_gpu_dump_path(const char* path) {
   return (ends_with_no_case(path, ".psxgpu") || ends_with_no_case(path, ".psxgpu.zst") ||
           ends_with_no_case(path, ".psxgpu.xz"));
 }
 
-bool system_is_loadable_path(const char* path)
-{
-  return system_is_disc_path(path) || system_is_exe_path(path) ||
-         system_is_psf_path(path)  || system_is_gpu_dump_path(path);
+bool system_is_loadable_path(const char* path) {
+  return system_is_disc_path(path) || system_is_exe_path(path) || system_is_psf_path(path) ||
+         system_is_gpu_dump_path(path);
 }
 
-bool system_is_save_state_path(const char* path)
-{
+bool system_is_save_state_path(const char* path) {
   return ends_with_no_case(path, ".sav");
 }
 
-console_region_t system_get_console_region_for_disc_region(disc_region_t region)
-{
+console_region_t system_get_console_region_for_disc_region(disc_region_t region) {
   switch (region) {
-    case DISC_REGION_NTSC_J: return CONSOLE_REGION_NTSC_J;
-    case DISC_REGION_PAL:    return CONSOLE_REGION_PAL;
+    case DISC_REGION_NTSC_J:
+      return CONSOLE_REGION_NTSC_J;
+    case DISC_REGION_PAL:
+      return CONSOLE_REGION_PAL;
     case DISC_REGION_NTSC_U:
     case DISC_REGION_OTHER:
     case DISC_REGION_NON_PS1:
-    default:                 return CONSOLE_REGION_NTSC_U;
+    default:
+      return CONSOLE_REGION_NTSC_U;
   }
 }
 
-void system_get_game_hash_id(game_hash_t hash, char* out, size_t out_size)
-{
+void system_get_game_hash_id(game_hash_t hash, char* out, size_t out_size) {
   snprintf(out, out_size, "HASH-%llX", (unsigned long long)hash);
 }
 
 /* region detection from disc                                           */
 
-disc_region_t system_get_region_for_serial(const char* serial)
-{
+disc_region_t system_get_region_for_serial(const char* serial) {
   if (!serial || !serial[0]) return DISC_REGION_OTHER;
 
-  static const struct { const char* prefix; disc_region_t region; } prefixes[] = {
-    {"sces", DISC_REGION_PAL},     {"sced", DISC_REGION_PAL},
-    {"sles", DISC_REGION_PAL},     {"sled", DISC_REGION_PAL},
-    {"scps", DISC_REGION_NTSC_J},  {"slps", DISC_REGION_NTSC_J},
-    {"slpm", DISC_REGION_NTSC_J},  {"sczs", DISC_REGION_NTSC_J},
-    {"papx", DISC_REGION_NTSC_J},
-    {"scus", DISC_REGION_NTSC_U},  {"slus", DISC_REGION_NTSC_U},
+  static const struct {
+    const char*   prefix;
+    disc_region_t region;
+  } prefixes[] = {
+      {"sces", DISC_REGION_PAL},    {"sced", DISC_REGION_PAL},    {"sles", DISC_REGION_PAL},
+      {"sled", DISC_REGION_PAL},    {"scps", DISC_REGION_NTSC_J}, {"slps", DISC_REGION_NTSC_J},
+      {"slpm", DISC_REGION_NTSC_J}, {"sczs", DISC_REGION_NTSC_J}, {"papx", DISC_REGION_NTSC_J},
+      {"scus", DISC_REGION_NTSC_U}, {"slus", DISC_REGION_NTSC_U},
   };
   const u32 serial_len = (u32)strlen(serial);
-  for (size_t i = 0; i < sizeof(prefixes)/sizeof(prefixes[0]); i++) {
+  for (size_t i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
     const u32 plen = (u32)strlen(prefixes[i].prefix);
-    if (string_util_starts_with_no_case_view(serial, serial_len, prefixes[i].prefix, plen))
-      return prefixes[i].region;
+    if (string_util_starts_with_no_case_view(serial, serial_len, prefixes[i].prefix, plen)) return prefixes[i].region;
   }
   return DISC_REGION_OTHER;
 }
 
-disc_region_t system_get_region_from_system_area(cd_image_t* cdi)
-{
+disc_region_t system_get_region_from_system_area(cd_image_t* cdi) {
   if (!cdi) return DISC_REGION_OTHER;
 
   /* License is on sector 4 of track 1. */
-  if (cd_image_get_track_mode(cdi, 1) == CD_IMAGE_TRACK_MODE_AUDIO)
-    return DISC_REGION_OTHER;
-  if (!cd_image_seek_track_lba(cdi, 1, 4))
-    return DISC_REGION_OTHER;
+  if (cd_image_get_track_mode(cdi, 1) == CD_IMAGE_TRACK_MODE_AUDIO) return DISC_REGION_OTHER;
+  if (!cd_image_seek_track_lba(cdi, 1, 4)) return DISC_REGION_OTHER;
 
   u8 raw[CD_IMAGE_RAW_SECTOR_SIZE];
-  if (!cd_image_read_raw_sector(cdi, raw, NULL))
-    return DISC_REGION_OTHER;
+  if (!cd_image_read_raw_sector(cdi, raw, NULL)) return DISC_REGION_OTHER;
 
   const u8* sector_data = NULL;
-  u32       data_len = 0;
-  if (!iso_reader_extract_sector_data(raw, ISO_READER_READ_MODE_DATA,
-                                      &sector_data, &data_len, NULL))
+  u32       data_len    = 0;
+  if (!iso_reader_extract_sector_data(raw, ISO_READER_READ_MODE_DATA, &sector_data, &data_len, NULL))
     return DISC_REGION_OTHER;
 
   static const char ntsc_u_string[] = "          Licensed  by          Sony Computer Entertainment Amer  ica ";
   static const char ntsc_j_string[] = "          Licensed  by          Sony Computer Entertainment Inc.";
   static const char pal_string[]    = "          Licensed  by          Sony Computer Entertainment Euro pe";
 
-  if (data_len >= sizeof(ntsc_u_string) - 1 &&
-      memcmp(sector_data, ntsc_u_string, sizeof(ntsc_u_string) - 1) == 0)
+  if (data_len >= sizeof(ntsc_u_string) - 1 && memcmp(sector_data, ntsc_u_string, sizeof(ntsc_u_string) - 1) == 0)
     return DISC_REGION_NTSC_U;
-  if (data_len >= sizeof(ntsc_j_string) - 1 &&
-      memcmp(sector_data, ntsc_j_string, sizeof(ntsc_j_string) - 1) == 0)
+  if (data_len >= sizeof(ntsc_j_string) - 1 && memcmp(sector_data, ntsc_j_string, sizeof(ntsc_j_string) - 1) == 0)
     return DISC_REGION_NTSC_J;
-  if (data_len >= sizeof(pal_string) - 1 &&
-      memcmp(sector_data, pal_string, sizeof(pal_string) - 1) == 0)
+  if (data_len >= sizeof(pal_string) - 1 && memcmp(sector_data, pal_string, sizeof(pal_string) - 1) == 0)
     return DISC_REGION_PAL;
   return DISC_REGION_OTHER;
 }
 
 /* Reads SYSTEM.CNF from the ISO and returns the boot executable path
  * (heap-allocated) or NULL. */
-static char* system_get_executable_name_for_image(iso_reader_t* iso, bool strip_subdirectories)
-{
+static char* system_get_executable_name_for_image(iso_reader_t* iso, bool strip_subdirectories) {
   u8*    cnf_data = NULL;
   size_t cnf_size = 0;
-  if (!iso_reader_read_file_path(iso, "SYSTEM.CNF", &cnf_data, &cnf_size,
-                                 ISO_READER_READ_MODE_DATA, NULL))
+  if (!iso_reader_read_file_path(iso, "SYSTEM.CNF", &cnf_data, &cnf_size, ISO_READER_READ_MODE_DATA, NULL))
     return xstrdup_or_null(FALLBACK_EXE_NAME);
 
   /* Find "BOOT = ..." line. */
-  char* result = NULL;
-  size_t i = 0;
+  char*  result = NULL;
+  size_t i      = 0;
   while (i < cnf_size && !result) {
     /* skip whitespace at line start */
-    while (i < cnf_size && (cnf_data[i] == ' ' || cnf_data[i] == '\t' ||
-                             cnf_data[i] == '\r' || cnf_data[i] == '\n'))
+    while (i < cnf_size && (cnf_data[i] == ' ' || cnf_data[i] == '\t' || cnf_data[i] == '\r' || cnf_data[i] == '\n'))
       i++;
 
     /* read key */
@@ -571,16 +556,15 @@ static char* system_get_executable_name_for_image(iso_reader_t* iso, bool strip_
     while (i < cnf_size && cnf_data[i] != '=' && cnf_data[i] != '\n' && cnf_data[i] != '\r')
       i++;
     size_t k_end = i;
-    while (k_end > k_start && (cnf_data[k_end-1] == ' ' || cnf_data[k_end-1] == '\t'))
+    while (k_end > k_start && (cnf_data[k_end - 1] == ' ' || cnf_data[k_end - 1] == '\t'))
       k_end--;
 
     if (i < cnf_size && cnf_data[i] == '=') {
       /* check key */
-      const bool is_boot = ((k_end - k_start) == 4 &&
-                            (cnf_data[k_start]   == 'B' || cnf_data[k_start]   == 'b') &&
-                            (cnf_data[k_start+1] == 'O' || cnf_data[k_start+1] == 'o') &&
-                            (cnf_data[k_start+2] == 'O' || cnf_data[k_start+2] == 'o') && 
-                            (cnf_data[k_start+3] == 'T' || cnf_data[k_start+3] == 't'));
+      const bool is_boot = ((k_end - k_start) == 4 && (cnf_data[k_start] == 'B' || cnf_data[k_start] == 'b') &&
+                            (cnf_data[k_start + 1] == 'O' || cnf_data[k_start + 1] == 'o') &&
+                            (cnf_data[k_start + 2] == 'O' || cnf_data[k_start + 2] == 'o') &&
+                            (cnf_data[k_start + 3] == 'T' || cnf_data[k_start + 3] == 't'));
       i++; /* skip '=' */
       while (i < cnf_size && (cnf_data[i] == ' ' || cnf_data[i] == '\t'))
         i++;
@@ -588,12 +572,12 @@ static char* system_get_executable_name_for_image(iso_reader_t* iso, bool strip_
       while (i < cnf_size && cnf_data[i] != '\n' && cnf_data[i] != '\r')
         i++;
       size_t v_end = i;
-      while (v_end > v_start && (cnf_data[v_end-1] == ' ' || cnf_data[v_end-1] == '\t'))
+      while (v_end > v_start && (cnf_data[v_end - 1] == ' ' || cnf_data[v_end - 1] == '\t'))
         v_end--;
 
       if (is_boot && v_end > v_start) {
         const size_t len = v_end - v_start;
-        result = (char*)malloc(len + 1);
+        result           = (char*)malloc(len + 1);
         if (!result) break;
         memcpy(result, cnf_data + v_start, len);
         result[len] = '\0';
@@ -606,8 +590,7 @@ static char* system_get_executable_name_for_image(iso_reader_t* iso, bool strip_
   }
   free(cnf_data);
 
-  if (!result)
-    return xstrdup_or_null(FALLBACK_EXE_NAME);
+  if (!result) return xstrdup_or_null(FALLBACK_EXE_NAME);
 
   /* Process result: */
   if (strip_subdirectories) {
@@ -631,17 +614,14 @@ static char* system_get_executable_name_for_image(iso_reader_t* iso, bool strip_
   return result;
 }
 
-static bool system_read_executable_from_image_inner(iso_reader_t* iso,
-                                                    char** out_executable_name,
-                                                    u8**   out_executable_data,
-                                                    size_t* out_executable_size)
-{
+static bool system_read_executable_from_image_inner(iso_reader_t* iso, char** out_executable_name,
+                                                    u8** out_executable_data, size_t* out_executable_size) {
   char* exe_path = system_get_executable_name_for_image(iso, false);
   if (!exe_path) return false;
 
   if (out_executable_data && exe_path[0]) {
-    if (!iso_reader_read_file_path(iso, exe_path, out_executable_data, out_executable_size,
-                                   ISO_READER_READ_MODE_DATA, NULL)) {
+    if (!iso_reader_read_file_path(iso, exe_path, out_executable_data, out_executable_size, ISO_READER_READ_MODE_DATA,
+                                   NULL)) {
       ERROR_LOG("Failed to read executable '%s' from disc", exe_path);
       free(exe_path);
       return false;
@@ -658,9 +638,8 @@ static bool system_read_executable_from_image_inner(iso_reader_t* iso,
 
 /* Compute a stable FNV-1a game identifier from the executable name and
  * bytes, primary volume descriptor and first-track length. */
-static game_hash_t system_compute_game_hash(const char* exe_name, const u8* exe_data, size_t exe_size,
-                                            const void* pvd, size_t pvd_size, u32 track_1_length)
-{
+static game_hash_t system_compute_game_hash(const char* exe_name, const u8* exe_data, size_t exe_size, const void* pvd,
+                                            size_t pvd_size, u32 track_1_length) {
   u64 h = 0xCBF29CE484222325ull;
   for (size_t i = 0; exe_name && exe_name[i]; i++) {
     h ^= (u8)exe_name[i];
@@ -682,34 +661,29 @@ static game_hash_t system_compute_game_hash(const char* exe_name, const u8* exe_
   return (game_hash_t)h;
 }
 
-bool system_get_game_details_from_image(cd_image_t* cdi, char** out_id_or_null,
-                                         game_hash_t* out_hash_or_null,
-                                        char** out_executable_name_or_null, 
-                                        u8** out_executable_data_or_null,
-                                        size_t* out_executable_size_or_null)
-{
+bool system_get_game_details_from_image(cd_image_t* cdi, char** out_id_or_null, game_hash_t* out_hash_or_null,
+                                        char** out_executable_name_or_null, u8** out_executable_data_or_null,
+                                        size_t* out_executable_size_or_null) {
   iso_reader_t iso;
   iso_reader_init(&iso);
-  char*  exe_name  = NULL;
-  u8*    exe_data  = NULL;
-  size_t exe_size  = 0;
+  char*  exe_name = NULL;
+  u8*    exe_data = NULL;
+  size_t exe_size = 0;
 
   if (!iso_reader_open(&iso, cdi, 1, NULL) ||
       !system_read_executable_from_image_inner(&iso, &exe_name, &exe_data, &exe_size)) {
     iso_reader_destroy(&iso);
-    if (out_id_or_null)            *out_id_or_null = NULL;
-    if (out_hash_or_null)          *out_hash_or_null = 0;
+    if (out_id_or_null) *out_id_or_null = NULL;
+    if (out_hash_or_null) *out_hash_or_null = 0;
     if (out_executable_name_or_null) *out_executable_name_or_null = NULL;
     if (out_executable_data_or_null) *out_executable_data_or_null = NULL;
     if (out_executable_size_or_null) *out_executable_size_or_null = 0;
     return false;
   }
 
-  const u32 track_len = (u32)cd_image_get_track_length(cdi, 1);
-  const game_hash_t hash =
-    system_compute_game_hash(exe_name, exe_data, exe_size,
-                             iso_reader_get_pvd(&iso), sizeof(iso_primary_volume_descriptor_t),
-                             track_len);
+  const u32         track_len = (u32)cd_image_get_track_length(cdi, 1);
+  const game_hash_t hash      = system_compute_game_hash(exe_name, exe_data, exe_size, iso_reader_get_pvd(&iso),
+                                                         sizeof(iso_primary_volume_descriptor_t), track_len);
   DEV_LOG("Hash for '%s' - %016llX", exe_name, (unsigned long long)hash);
 
   /* Build serial id from exe_name. */
@@ -719,10 +693,10 @@ bool system_get_game_details_from_image(cd_image_t* cdi, char** out_id_or_null,
       system_get_game_hash_id(hash, buf, sizeof(buf));
       *out_id_or_null = xstrdup_or_null(buf);
     } else {
-      const char* slash = strrchr(exe_name, '\\');
-      const char* base  = slash ? (slash + 1) : exe_name;
-      const size_t blen = strlen(base);
-      char* id = (char*)malloc(blen + 1);
+      const char*  slash = strrchr(exe_name, '\\');
+      const char*  base  = slash ? (slash + 1) : exe_name;
+      const size_t blen  = strlen(base);
+      char*        id    = (char*)malloc(blen + 1);
       if (id) {
         size_t out_pos = 0;
         for (size_t i = 0; i < blen; i++) {
@@ -730,7 +704,7 @@ bool system_get_game_details_from_image(cd_image_t* cdi, char** out_id_or_null,
           if (c == '.') continue;
           id[out_pos++] = (c == '_') ? '-' : (char)toupper((unsigned char)c);
         }
-        id[out_pos] = '\0';
+        id[out_pos]     = '\0';
         *out_id_or_null = id;
       } else {
         *out_id_or_null = NULL;
@@ -738,38 +712,38 @@ bool system_get_game_details_from_image(cd_image_t* cdi, char** out_id_or_null,
     }
   }
 
-  if (out_hash_or_null)            *out_hash_or_null = hash;
-  if (out_executable_name_or_null) *out_executable_name_or_null = exe_name;
-  else                             free(exe_name);
-  if (out_executable_data_or_null) *out_executable_data_or_null = exe_data;
-  else if (exe_data)               free(exe_data);
+  if (out_hash_or_null) *out_hash_or_null = hash;
+  if (out_executable_name_or_null)
+    *out_executable_name_or_null = exe_name;
+  else
+    free(exe_name);
+  if (out_executable_data_or_null)
+    *out_executable_data_or_null = exe_data;
+  else if (exe_data)
+    free(exe_data);
   if (out_executable_size_or_null) *out_executable_size_or_null = exe_size;
 
   iso_reader_destroy(&iso);
   return true;
 }
 
-game_hash_t system_get_game_hash_from_file(const char* path)
-{
+game_hash_t system_get_game_hash_from_file(const char* path) {
   u8*    data = NULL;
   size_t size = 0;
-  if (!fs_read_binary_file_path(path, &data, &size, NULL))
-    return 0;
-  const char* file_name = NULL;
+  if (!fs_read_binary_file_path(path, &data, &size, NULL)) return 0;
+  const char* file_name     = NULL;
   u32         file_name_len = 0;
   path_get_file_name_cstr(path, &file_name, &file_name_len);
   char buf[260];
   if (file_name_len >= sizeof(buf)) file_name_len = (u32)sizeof(buf) - 1u;
   memcpy(buf, file_name, file_name_len);
-  buf[file_name_len] = '\0';
-  const game_hash_t h =
-    system_compute_game_hash(buf, data, size, NULL, 0, 0);
+  buf[file_name_len]  = '\0';
+  const game_hash_t h = system_compute_game_hash(buf, data, size, NULL, 0, 0);
   free(data);
   return h;
 }
 
-disc_region_t system_get_region_for_image(cd_image_t* cdi)
-{
+disc_region_t system_get_region_for_image(cd_image_t* cdi) {
   const disc_region_t sa = system_get_region_from_system_area(cdi);
   if (sa != DISC_REGION_OTHER) return sa;
 
@@ -787,20 +761,19 @@ disc_region_t system_get_region_for_image(cd_image_t* cdi)
     return DISC_REGION_NON_PS1;
   }
 
-  const char* slash = strrchr(exename, '\\');
-  const disc_region_t r = system_get_region_for_serial(slash ? slash + 1 : exename);
+  const char*         slash = strrchr(exename, '\\');
+  const disc_region_t r     = system_get_region_for_serial(slash ? slash + 1 : exename);
   free(exename);
   iso_reader_destroy(&iso);
   return r;
 }
 
-disc_region_t system_get_region_for_exe(const char* path)
-{
+disc_region_t system_get_region_for_exe(const char* path) {
   FILE* fp = fs_open_file(path, "rb", NULL);
   if (!fp) return DISC_REGION_OTHER;
 
   bios_psexe_header_t header;
-  const size_t got = fread(&header, 1, sizeof(header), fp);
+  const size_t        got = fread(&header, 1, sizeof(header), fp);
   fclose(fp);
   if (got != sizeof(header)) return DISC_REGION_OTHER;
   return bios_get_psexe_disc_region(&header);
@@ -808,17 +781,14 @@ disc_region_t system_get_region_for_exe(const char* path)
 
 /* settings                                                            */
 
-void system_load_settings(bool display_osd_messages)
-{
+void system_load_settings(bool display_osd_messages) {
   (void)display_osd_messages;
   /* g_settings is reset and reloaded by the frontend through settings_load();
    * here we just propagate to subsystems that need it. */
-  if (system_is_valid())
-    system_update_speed_limiter_state();
+  if (system_is_valid()) system_update_speed_limiter_state();
 }
 
-void system_apply_settings(bool display_osd_messages)
-{
+void system_apply_settings(bool display_osd_messages) {
   (void)display_osd_messages;
   /* See comment on system_load_settings: in cupid-ps1 the frontend re-runs
    * settings_load() and then calls us so subsystems can re-pick values. */
@@ -831,10 +801,9 @@ void system_apply_settings(bool display_osd_messages)
   host_on_settings_reloaded();
 }
 
-void system_reload_input_sources       (void) {}
-void system_reload_input_bindings      (void) {}
-void system_update_controller_settings (void)
-{
+void system_reload_input_sources(void) {}
+void system_reload_input_bindings(void) {}
+void system_update_controller_settings(void) {
   for (u32 i = 0; i < NUM_CONTROLLER_AND_CARD_PORTS; i++) {
     controller_t* c = pad_get_controller(i);
     if (!c) continue;
@@ -848,8 +817,7 @@ void system_update_controller_settings (void)
 
 /* boot / shutdown                                                     */
 
-bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
-{
+bool system_boot_system(system_boot_parameters_t* parameters, Error* error) {
   if (!parameters) {
     Error_set_string(error, "boot parameters NULL");
     return false;
@@ -869,18 +837,18 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
   else
     INFO_LOG("Boot Path: <BIOS/Shell>");
 
-  cd_image_t*           disc  = NULL;
-  console_region_t      auto_console_region = CONSOLE_REGION_NTSC_U;
-  disc_region_t         disc_region = DISC_REGION_NON_PS1;
-  system_boot_mode_t    boot_mode = SYSTEM_BOOT_MODE_FULL_BOOT;
-  char*                 exe_override = NULL;
+  cd_image_t*        disc                = NULL;
+  console_region_t   auto_console_region = CONSOLE_REGION_NTSC_U;
+  disc_region_t      disc_region         = DISC_REGION_NON_PS1;
+  system_boot_mode_t boot_mode           = SYSTEM_BOOT_MODE_FULL_BOOT;
+  char*              exe_override        = NULL;
 
   if (parameters->path && parameters->path[0]) {
     if (system_is_exe_path(parameters->path)) {
-      boot_mode = SYSTEM_BOOT_MODE_BOOT_EXE;
+      boot_mode    = SYSTEM_BOOT_MODE_BOOT_EXE;
       exe_override = xstrdup_or_null(parameters->path);
     } else if (system_is_psf_path(parameters->path)) {
-      boot_mode = SYSTEM_BOOT_MODE_BOOT_PSF;
+      boot_mode    = SYSTEM_BOOT_MODE_BOOT_PSF;
       exe_override = xstrdup_or_null(parameters->path);
     } else if (system_is_gpu_dump_path(parameters->path)) {
       Error_set_string(error, "GPU dump replay is not supported in cupid-ps1.");
@@ -903,16 +871,15 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
       }
       if (parameters->media_playlist_index != 0 &&
           !cd_image_switch_sub_image(disc, parameters->media_playlist_index, error)) {
-        Error_add_prefix_fmt(error, "Failed to switch to subimage %u in '%s':\n",
-                             parameters->media_playlist_index, parameters->path);
+        Error_add_prefix_fmt(error, "Failed to switch to subimage %u in '%s':\n", parameters->media_playlist_index,
+                             parameters->path);
         cd_image_destroy(disc);
         free(exe_override);
         return false;
       }
-      disc_region = system_get_region_for_image(disc);
+      disc_region         = system_get_region_for_image(disc);
       auto_console_region = system_get_console_region_for_disc_region(disc_region);
-      INFO_LOG("Auto-detected console region for '%s' (disc region %d)",
-               parameters->path, (int)disc_region);
+      INFO_LOG("Auto-detected console region for '%s' (disc region %d)", parameters->path, (int)disc_region);
     }
   }
 
@@ -928,8 +895,7 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
   atomic_store_explicit(&s_state.startup_cancelled, false, memory_order_relaxed);
   host_on_system_starting();
 
-  system_update_running_game(disc ? cd_image_get_path(disc) : str_or_empty(parameters->path),
-                             disc, true);
+  system_update_running_game(disc ? cd_image_get_path(disc) : str_or_empty(parameters->path), disc, true);
 
   /* Per-game compatibility overlay: layered on top of g_settings AFTER user
    * settings have been read by the frontend.  Must run before fast-boot is
@@ -941,16 +907,13 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
   }
 
   /* user override of region. */
-  s_state.region =
-    (g_settings.region == CONSOLE_REGION_AUTO) ? auto_console_region : g_settings.region;
+  s_state.region = (g_settings.region == CONSOLE_REGION_AUTO) ? auto_console_region : g_settings.region;
   INFO_LOG("Console region: %d", (int)s_state.region);
 
   /* exe override */
   if (parameters->override_exe && parameters->override_exe[0]) {
-    if (!fs_file_exists(parameters->override_exe) ||
-        !system_is_exe_path(parameters->override_exe)) {
-      Error_set_string_fmt(error, "File '%s' is not a valid executable to boot.",
-                            parameters->override_exe);
+    if (!fs_file_exists(parameters->override_exe) || !system_is_exe_path(parameters->override_exe)) {
+      Error_set_string_fmt(error, "File '%s' is not a valid executable to boot.", parameters->override_exe);
       host_on_system_stopping();
       system_destroy_system();
       free(exe_override);
@@ -985,22 +948,18 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
    * system_reset_system() so a reset re-injects on the next kernel-init. */
   if (s_state.boot_mode == SYSTEM_BOOT_MODE_BOOT_EXE) {
     free(s_state.exe_buffer);
-    s_state.exe_buffer = NULL;
+    s_state.exe_buffer      = NULL;
     s_state.exe_buffer_size = 0;
-    if (!fs_read_binary_file_path(s_state.exe_override, &s_state.exe_buffer,
-                                  &s_state.exe_buffer_size, error)) {
-      Error_add_prefix_fmt(error, "Failed to read executable '%s':\n",
-                           s_state.exe_override);
+    if (!fs_read_binary_file_path(s_state.exe_override, &s_state.exe_buffer, &s_state.exe_buffer_size, error)) {
+      Error_add_prefix_fmt(error, "Failed to read executable '%s':\n", s_state.exe_override);
       host_on_system_stopping();
       system_destroy_system();
       return false;
     }
     bios_psexe_header_t hdr;
     if (s_state.exe_buffer_size < sizeof(hdr) ||
-        (memcpy(&hdr, s_state.exe_buffer, sizeof(hdr)),
-         !bios_is_valid_psexe_header(&hdr, s_state.exe_buffer_size))) {
-      Error_set_string_fmt(error, "File '%s' is not a valid PS-X EXE.",
-                           s_state.exe_override);
+        (memcpy(&hdr, s_state.exe_buffer, sizeof(hdr)), !bios_is_valid_psexe_header(&hdr, s_state.exe_buffer_size))) {
+      Error_set_string_fmt(error, "File '%s' is not a valid PS-X EXE.", s_state.exe_override);
       host_on_system_stopping();
       system_destroy_system();
       return false;
@@ -1015,8 +974,7 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
   s_state.state = SYSTEM_STATE_RUNNING;
 
   /* immediately pause? */
-  const bool start_paused = parameters->override_start_paused.has &&
-                             parameters->override_start_paused.val;
+  const bool start_paused = parameters->override_start_paused.has && parameters->override_start_paused.val;
 
   /* try to load save state */
   if (parameters->save_state && parameters->save_state[0]) {
@@ -1031,8 +989,7 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
 
   host_on_system_started();
 
-  if (parameters->load_image_to_ram || g_settings.cdrom_load_image_to_ram)
-    cdrom_precache_media();
+  if (parameters->load_image_to_ram || g_settings.cdrom_load_image_to_ram) cdrom_precache_media();
 
   if (start_paused) system_pause_system(true);
 
@@ -1044,19 +1001,17 @@ bool system_boot_system(system_boot_parameters_t* parameters, Error* error)
   return true;
 }
 
-static bool system_initialize(cd_image_t* disc, disc_region_t disc_region,
-                              bool force_software_renderer, Error* error)
-{
-  s_state.ticks_per_second = system_scale_ticks_to_overclock(SYSTEM_MASTER_CLOCK);
-  s_state.max_slice_ticks  = system_scale_ticks_to_overclock(SYSTEM_MASTER_CLOCK / 10);
+static bool system_initialize(cd_image_t* disc, disc_region_t disc_region, bool force_software_renderer, Error* error) {
+  s_state.ticks_per_second      = system_scale_ticks_to_overclock(SYSTEM_MASTER_CLOCK);
+  s_state.max_slice_ticks       = system_scale_ticks_to_overclock(SYSTEM_MASTER_CLOCK / 10);
   s_state.frame_number          = 1;
   s_state.internal_frame_number = 0;
 
-  s_state.target_speed = g_settings.emulation_speed;
-  s_state.video_frame_rate = 60.0f;
-  s_state.frame_period = 0;
-  s_state.next_frame_time = 0;
-  s_state.turbo_enabled = false;
+  s_state.target_speed         = g_settings.emulation_speed;
+  s_state.video_frame_rate     = 60.0f;
+  s_state.frame_period         = 0;
+  s_state.next_frame_time      = 0;
+  s_state.turbo_enabled        = false;
   s_state.fast_forward_enabled = false;
 
   timing_events_initialize();
@@ -1080,12 +1035,10 @@ static bool system_initialize(cd_image_t* disc, disc_region_t disc_region,
   cpu_pc_trigger_install();
   cdrom_initialize();
 
-  if (disc && !cdrom_insert_media(disc, disc_region,
-                                   str_or_empty(s_state.running_game_serial),
-                                   strlen(str_or_empty(s_state.running_game_serial)),
-                                   str_or_empty(s_state.running_game_title),
-                                   strlen(str_or_empty(s_state.running_game_title)),
-                                   "", 0, error)) {
+  if (disc &&
+      !cdrom_insert_media(disc, disc_region, str_or_empty(s_state.running_game_serial),
+                          strlen(str_or_empty(s_state.running_game_serial)), str_or_empty(s_state.running_game_title),
+                          strlen(str_or_empty(s_state.running_game_title)), "", 0, error)) {
     return false;
   }
 
@@ -1113,8 +1066,7 @@ static bool system_initialize(cd_image_t* disc, disc_region_t disc_region,
   return true;
 }
 
-static void system_destroy_system(void)
-{
+static void system_destroy_system(void) {
   if (s_state.state == SYSTEM_STATE_SHUTDOWN) return;
 
   sio_shutdown();
@@ -1138,16 +1090,15 @@ static void system_destroy_system(void)
   s_state.bios_image_info = NULL;
   xfree_str(&s_state.exe_override);
   free(s_state.exe_buffer);
-  s_state.exe_buffer = NULL;
+  s_state.exe_buffer      = NULL;
   s_state.exe_buffer_size = 0;
-  s_state.boot_mode = SYSTEM_BOOT_MODE_NONE;
-  s_state.state = SYSTEM_STATE_SHUTDOWN;
+  s_state.boot_mode       = SYSTEM_BOOT_MODE_NONE;
+  s_state.state           = SYSTEM_STATE_SHUTDOWN;
 
   host_on_system_destroyed();
 }
 
-void system_abnormal_shutdown(const char* reason)
-{
+void system_abnormal_shutdown(const char* reason) {
   if (!system_is_valid()) return;
   ERROR_LOG("Abnormal shutdown: %s", reason ? reason : "(null)");
   s_state.state = SYSTEM_STATE_STOPPING;
@@ -1158,18 +1109,16 @@ void system_abnormal_shutdown(const char* reason)
     system_destroy_system();
 }
 
-static void system_clear_running_game(void)
-{
+static void system_clear_running_game(void) {
   xfree_str(&s_state.running_game_serial);
   xfree_str(&s_state.running_game_path);
   xfree_str(&s_state.running_game_title);
-  s_state.running_game_hash  = 0;
+  s_state.running_game_hash = 0;
   /* GameDB entry is loader-owned; just drop the borrowed pointer. */
   s_state.running_game_entry = NULL;
 }
 
-void system_shutdown_system(bool save_resume_state)
-{
+void system_shutdown_system(bool save_resume_state) {
   if (!system_is_valid()) return;
 
   if (save_resume_state) {
@@ -1183,14 +1132,12 @@ void system_shutdown_system(bool save_resume_state)
 
   host_on_system_stopping();
   s_state.state = SYSTEM_STATE_STOPPING;
-  if (!s_state.system_executing)
-    system_destroy_system();
+  if (!s_state.system_executing) system_destroy_system();
 }
 
 /* reset                                                               */
 
-static void system_internal_reset(void)
-{
+static void system_internal_reset(void) {
   if (system_is_shutdown()) return;
   s_state.frame_actions_pending = false;
 
@@ -1212,20 +1159,18 @@ static void system_internal_reset(void)
   mdec_reset();
   sio_reset();
 
-  s_state.frame_number = 1;
+  s_state.frame_number          = 1;
   s_state.internal_frame_number = 0;
 }
 
-void system_reset_system(void)
-{
+void system_reset_system(void) {
   if (!system_is_valid()) return;
 
   /* Boot-mode reset: preserve BootEXE/BootPSF, otherwise re-evaluate fast vs. full. */
   const system_boot_mode_t new_boot_mode =
-    (s_state.boot_mode == SYSTEM_BOOT_MODE_BOOT_EXE ||
-     s_state.boot_mode == SYSTEM_BOOT_MODE_BOOT_PSF)
-      ? s_state.boot_mode 
-      : (g_settings.bios_patch_fast_boot ? SYSTEM_BOOT_MODE_FAST_BOOT : SYSTEM_BOOT_MODE_FULL_BOOT);
+      (s_state.boot_mode == SYSTEM_BOOT_MODE_BOOT_EXE || s_state.boot_mode == SYSTEM_BOOT_MODE_BOOT_PSF)
+          ? s_state.boot_mode
+          : (g_settings.bios_patch_fast_boot ? SYSTEM_BOOT_MODE_FAST_BOOT : SYSTEM_BOOT_MODE_FULL_BOOT);
   Error e;
   Error_init(&e);
   if (!system_set_boot_mode(new_boot_mode, cdrom_get_disc_region(), &e))
@@ -1234,18 +1179,15 @@ void system_reset_system(void)
 
   system_internal_reset();
 
-  if (system_is_fast_forwarding_boot())
-    system_update_speed_limiter_state();
+  if (system_is_fast_forwarding_boot()) system_update_speed_limiter_state();
 
   if (performance_counters_reset) performance_counters_reset();
   system_reset_throttler();
   system_interrupt_execution();
 }
 
-void system_pause_system(bool paused)
-{
-  if (paused == system_is_paused() || !system_is_valid())
-    return;
+void system_pause_system(bool paused) {
+  if (paused == system_is_paused() || !system_is_valid()) return;
 
   s_state.state = paused ? SYSTEM_STATE_PAUSED : SYSTEM_STATE_RUNNING;
 
@@ -1260,11 +1202,9 @@ void system_pause_system(bool paused)
 
 /* BIOS load + boot mode                                               */
 
-static bool system_load_bios(Error* error)
-{
+static bool system_load_bios(Error* error) {
   bios_image_t image = {0};
-  if (!bios_get_image(s_state.region, &image, error))
-    return false;
+  if (!bios_get_image(s_state.region, &image, error)) return false;
 
   s_state.bios_image_info = image.info;
   memcpy(s_state.bios_hash, image.hash, sizeof(bios_hash_t));
@@ -1278,20 +1218,16 @@ static bool system_load_bios(Error* error)
     small_string_destroy(&hs.s);
   }
 
-  if (image.data && image.data_size >= BUS_BIOS_SIZE)
-    memcpy(bus_get_bios_pointer(), image.data, BUS_BIOS_SIZE);
+  if (image.data && image.data_size >= BUS_BIOS_SIZE) memcpy(bus_get_bios_pointer(), image.data, BUS_BIOS_SIZE);
 
   bios_image_destroy(&image);
   return true;
 }
 
-static bool system_set_boot_mode(system_boot_mode_t new_boot_mode,
-                                 disc_region_t disc_region, Error* error)
-{
-  const bool can_fast_boot =
-    (disc_region != DISC_REGION_NON_PS1) &&
-    (s_state.state == SYSTEM_STATE_STARTING || 
-     (s_state.bios_image_info && bios_supports_fast_boot(s_state.bios_image_info)));
+static bool system_set_boot_mode(system_boot_mode_t new_boot_mode, disc_region_t disc_region, Error* error) {
+  const bool can_fast_boot = (disc_region != DISC_REGION_NON_PS1) &&
+                             (s_state.state == SYSTEM_STATE_STARTING ||
+                              (s_state.bios_image_info && bios_supports_fast_boot(s_state.bios_image_info)));
 
   system_boot_mode_t actual = new_boot_mode;
   if (new_boot_mode == SYSTEM_BOOT_MODE_FAST_BOOT ||
@@ -1300,22 +1236,19 @@ static bool system_set_boot_mode(system_boot_mode_t new_boot_mode,
     actual = can_fast_boot ? SYSTEM_BOOT_MODE_FAST_BOOT : SYSTEM_BOOT_MODE_FULL_BOOT;
   }
 
-  if (actual == s_state.boot_mode)
-    return true;
+  if (actual == s_state.boot_mode) return true;
 
-  if (new_boot_mode != SYSTEM_BOOT_MODE_REPLAY_GPU_DUMP && !system_load_bios(error))
-    return false;
+  if (new_boot_mode != SYSTEM_BOOT_MODE_REPLAY_GPU_DUMP && !system_load_bios(error)) return false;
 
-  s_state.boot_mode =
-    (actual == SYSTEM_BOOT_MODE_FULL_BOOT && s_state.bios_image_info &&
-     !bios_can_slow_boot_disc(s_state.bios_image_info, disc_region)) ? 
-      SYSTEM_BOOT_MODE_FAST_BOOT : actual;
+  s_state.boot_mode = (actual == SYSTEM_BOOT_MODE_FULL_BOOT && s_state.bios_image_info &&
+                       !bios_can_slow_boot_disc(s_state.bios_image_info, disc_region))
+                          ? SYSTEM_BOOT_MODE_FAST_BOOT
+                          : actual;
 
   if (s_state.boot_mode == SYSTEM_BOOT_MODE_FAST_BOOT) {
     if (s_state.bios_image_info && bios_supports_fast_boot(s_state.bios_image_info)) {
       INFO_LOG("Patching BIOS for fast boot.");
-      if (!bios_patch_fast_boot(bus_get_bios_pointer(), BUS_BIOS_SIZE,
-                                s_state.bios_image_info->fastboot_patch))
+      if (!bios_patch_fast_boot(bus_get_bios_pointer(), BUS_BIOS_SIZE, s_state.bios_image_info->fastboot_patch))
         s_state.boot_mode = SYSTEM_BOOT_MODE_FULL_BOOT;
     } else {
       ERROR_LOG("Cannot fast boot, BIOS is incompatible.");
@@ -1324,9 +1257,8 @@ static bool system_set_boot_mode(system_boot_mode_t new_boot_mode,
   }
 
   /* If full-boot without a disc on auto region, switch to BIOS region. */
-  if (new_boot_mode == SYSTEM_BOOT_MODE_FULL_BOOT && disc_region == DISC_REGION_NON_PS1 &&
-      s_state.bios_image_info && g_settings.region == CONSOLE_REGION_AUTO &&
-      s_state.region != s_state.bios_image_info->region) {
+  if (new_boot_mode == SYSTEM_BOOT_MODE_FULL_BOOT && disc_region == DISC_REGION_NON_PS1 && s_state.bios_image_info &&
+      g_settings.region == CONSOLE_REGION_AUTO && s_state.region != s_state.bios_image_info->region) {
     WARNING_LOG("Changing region to match BIOS for full boot without game.");
     s_state.region = s_state.bios_image_info->region;
   }
@@ -1336,13 +1268,11 @@ static bool system_set_boot_mode(system_boot_mode_t new_boot_mode,
 
 /* save state                                                          */
 
-size_t system_get_max_save_state_size(bool enable_8mb_ram)
-{
+size_t system_get_max_save_state_size(bool enable_8mb_ram) {
   return enable_8mb_ram ? (11u * 1024u * 1024u) : (5u * 1024u * 1024u);
 }
 
-static bool system_do_state(state_wrapper_t* sw, bool update_display)
-{
+static bool system_do_state(state_wrapper_t* sw, bool update_display) {
   (void)update_display;
   if (!state_wrapper_do_marker(sw, "System")) return false;
 
@@ -1359,8 +1289,7 @@ static bool system_do_state(state_wrapper_t* sw, bool update_display)
   if (state_wrapper_get_version(sw) >= 75u) {
     u32 t = s_state.taints;
     state_wrapper_do_u32(sw, &t);
-    if (state_wrapper_is_reading(sw))
-      s_state.taints |= t;
+    if (state_wrapper_is_reading(sw)) s_state.taints |= t;
   }
 
   state_wrapper_do_u32(sw, &s_state.frame_number);
@@ -1371,8 +1300,7 @@ static bool system_do_state(state_wrapper_t* sw, bool update_display)
     memcpy(hash, s_state.bios_hash, sizeof(hash));
     state_wrapper_do_bytes(sw, hash, sizeof(hash));
     /* No OSD warning; log only. */
-    if (state_wrapper_is_reading(sw) &&
-        memcmp(hash, s_state.bios_hash, sizeof(hash)) != 0)
+    if (state_wrapper_is_reading(sw) && memcmp(hash, s_state.bios_hash, sizeof(hash)) != 0)
       WARNING_LOG("Save state BIOS hash differs from current; running anyway.");
   }
 
@@ -1383,20 +1311,18 @@ static bool system_do_state(state_wrapper_t* sw, bool update_display)
     if (cpu_code_cache_reset) cpu_code_cache_reset();
   }
 
-  if (!state_wrapper_do_marker(sw, "Bus")  || !bus_do_state(sw))  return false;
-  if (!state_wrapper_do_marker(sw, "DMA")  || !dma_do_state(sw))  return false;
-  if (!state_wrapper_do_marker(sw, "InterruptController") ||
-      !interrupt_controller_do_state(sw)) return false;
-  if (!state_wrapper_do_marker(sw, "GPU")  || !gpu_do_state(sw))  return false;
-  if (!state_wrapper_do_marker(sw, "CDROM")|| !cdrom_do_state(sw))return false;
-  if (!state_wrapper_do_marker(sw, "Pad")  || !pad_do_state(sw, false)) return false;
-  if (!state_wrapper_do_marker(sw, "Timers")||!timers_do_state(sw))return false;
-  if (!state_wrapper_do_marker(sw, "SPU")  || !spu_do_state(sw))  return false;
+  if (!state_wrapper_do_marker(sw, "Bus") || !bus_do_state(sw)) return false;
+  if (!state_wrapper_do_marker(sw, "DMA") || !dma_do_state(sw)) return false;
+  if (!state_wrapper_do_marker(sw, "InterruptController") || !interrupt_controller_do_state(sw)) return false;
+  if (!state_wrapper_do_marker(sw, "GPU") || !gpu_do_state(sw)) return false;
+  if (!state_wrapper_do_marker(sw, "CDROM") || !cdrom_do_state(sw)) return false;
+  if (!state_wrapper_do_marker(sw, "Pad") || !pad_do_state(sw, false)) return false;
+  if (!state_wrapper_do_marker(sw, "Timers") || !timers_do_state(sw)) return false;
+  if (!state_wrapper_do_marker(sw, "SPU") || !spu_do_state(sw)) return false;
   if (!state_wrapper_do_marker(sw, "MDEC") || !mdec_do_state(sw)) return false;
-  if (!state_wrapper_do_marker(sw, "SIO")  || !sio_do_state(sw))  return false;
+  if (!state_wrapper_do_marker(sw, "SIO") || !sio_do_state(sw)) return false;
 
-  if (!state_wrapper_do_marker(sw, "Events") || !timing_events_do_state(sw))
-    return false;
+  if (!state_wrapper_do_marker(sw, "Events") || !timing_events_do_state(sw)) return false;
 
   if (state_wrapper_is_reading(sw)) spu_post_load_state(state_wrapper_get_version(sw));
 
@@ -1406,13 +1332,12 @@ static bool system_do_state(state_wrapper_t* sw, bool update_display)
   u32  oc_num    = g_settings.cpu_overclock_numerator;
   u32  oc_den    = g_settings.cpu_overclock_denominator;
   state_wrapper_do_bool(sw, &oc_active);
-  state_wrapper_do_u32 (sw, &oc_num);
-  state_wrapper_do_u32 (sw, &oc_den);
+  state_wrapper_do_u32(sw, &oc_num);
+  state_wrapper_do_u32(sw, &oc_den);
 
-  if (state_wrapper_is_reading(sw) &&
-      (oc_active != g_settings.cpu_overclock_active ||
-       (oc_active && (g_settings.cpu_overclock_numerator   != oc_num || 
-                      g_settings.cpu_overclock_denominator != oc_den)))) {
+  if (state_wrapper_is_reading(sw) && (oc_active != g_settings.cpu_overclock_active ||
+                                       (oc_active && (g_settings.cpu_overclock_numerator != oc_num ||
+                                                      g_settings.cpu_overclock_denominator != oc_den)))) {
     WARNING_LOG("CPU overclock differs from save state; updating.");
     system_update_overclock();
   }
@@ -1429,9 +1354,8 @@ static bool system_do_state(state_wrapper_t* sw, bool update_display)
   return true;
 }
 
-static bool system_load_state_data_from_buffer(const u8* data, size_t size, u32 version,
-                                               Error* error, bool update_display)
-{
+static bool system_load_state_data_from_buffer(const u8* data, size_t size, u32 version, Error* error,
+                                               bool update_display) {
   if (system_is_shutdown()) {
     Error_set_string(error, "system invalid");
     return false;
@@ -1448,8 +1372,7 @@ static bool system_load_state_data_from_buffer(const u8* data, size_t size, u32 
   return true;
 }
 
-static bool system_save_state_to_buffer(u8** out_data, size_t* out_size, Error* error)
-{
+static bool system_save_state_to_buffer(u8** out_data, size_t* out_size, Error* error) {
   if (system_is_shutdown()) {
     Error_set_string(error, "system invalid");
     return false;
@@ -1457,7 +1380,7 @@ static bool system_save_state_to_buffer(u8** out_data, size_t* out_size, Error* 
 
   /* worst-case allocation; trim later */
   const size_t cap = system_get_max_save_state_size(bus_get_ram_size() > BUS_RAM_2MB_SIZE);
-  u8* buf = (u8*)malloc(cap);
+  u8*          buf = (u8*)malloc(cap);
   if (!buf) {
     Error_set_string(error, "failed to allocate save-state buffer");
     return false;
@@ -1475,8 +1398,7 @@ static bool system_save_state_to_buffer(u8** out_data, size_t* out_size, Error* 
   return true;
 }
 
-static bool fread_exact(void* dst, size_t n, FILE* fp, Error* error)
-{
+static bool fread_exact(void* dst, size_t n, FILE* fp, Error* error) {
   if (n == 0) return true;
   if (fread(dst, 1, n, fp) != n) {
     Error_set_errno(error, errno);
@@ -1485,32 +1407,26 @@ static bool fread_exact(void* dst, size_t n, FILE* fp, Error* error)
   return true;
 }
 
-static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data,
-                                                size_t* out_state_size, u32* out_version,
-                                               char** out_media_path,
-                                               u32* out_media_subimage_index,
-                                               Error* error) 
-{
+static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data, size_t* out_state_size, u32* out_version,
+                                               char** out_media_path, u32* out_media_subimage_index, Error* error) {
   *out_state_data = NULL;
   *out_state_size = 0;
   if (out_media_path) *out_media_path = NULL;
   if (out_media_subimage_index) *out_media_subimage_index = 0;
 
   save_state_header_t header;
-  if (!fread_exact(&header, sizeof(header), fp, error))
-    return false;
+  if (!fread_exact(&header, sizeof(header), fp, error)) return false;
   if (header.magic != SAVE_STATE_MAGIC) {
     Error_set_string(error, "save state magic mismatch");
     return false;
   }
   if (header.version < SAVE_STATE_MINIMUM_VERSION) {
-    Error_set_string_fmt(error, "save state version %u < minimum %u",
-                          header.version, (unsigned)SAVE_STATE_MINIMUM_VERSION);
+    Error_set_string_fmt(error, "save state version %u < minimum %u", header.version,
+                         (unsigned)SAVE_STATE_MINIMUM_VERSION);
     return false;
   }
   if (header.version > SAVE_STATE_VERSION) {
-    Error_set_string_fmt(error, "save state version %u > current %u",
-                          header.version, (unsigned)SAVE_STATE_VERSION);
+    Error_set_string_fmt(error, "save state version %u > current %u", header.version, (unsigned)SAVE_STATE_VERSION);
     return false;
   }
   *out_version = header.version;
@@ -1528,7 +1444,7 @@ static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data,
       return false;
     }
     mp[header.media_path_length] = '\0';
-    *out_media_path = mp;
+    *out_media_path              = mp;
     if (out_media_subimage_index) *out_media_subimage_index = header.media_subimage_index;
   }
 
@@ -1555,7 +1471,7 @@ static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data,
     case SAVE_STATE_COMPRESSION_TYPE_XZ:
     default:
       Error_set_string_fmt(error, "compressed save states (type %u) are not supported in cupid-ps1",
-                            header.data_compression_type);
+                           header.data_compression_type);
       return false;
   }
 
@@ -1587,8 +1503,8 @@ static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data,
       Error_set_string(error, "alloc state body");
       return false;
     }
-    if (!compress_helpers_decompress_buffer(compress_type, buf, header.data_uncompressed_size,
-                                            cbuf, header.data_compressed_size, error)) {
+    if (!compress_helpers_decompress_buffer(compress_type, buf, header.data_uncompressed_size, cbuf,
+                                            header.data_compressed_size, error)) {
       free(cbuf);
       free(buf);
       return false;
@@ -1600,16 +1516,14 @@ static bool system_load_state_buffer_from_file(FILE* fp, u8** out_state_data,
   return true;
 }
 
-static bool system_save_state_buffer_to_file(FILE* fp, const u8* state_data, size_t state_size,
-                                             const char* media_path, u32 media_subimage_index,
-                                             Error* error)
-{
+static bool system_save_state_buffer_to_file(FILE* fp, const u8* state_data, size_t state_size, const char* media_path,
+                                             u32 media_subimage_index, Error* error) {
   save_state_header_t header;
   memset(&header, 0, sizeof(header));
   header.magic   = SAVE_STATE_MAGIC;
   header.version = SAVE_STATE_VERSION;
   string_util_strlcpy_cstr(header.title, str_or_empty(s_state.running_game_title), sizeof(header.title));
-  string_util_strlcpy_cstr(header.serial,str_or_empty(s_state.running_game_serial), sizeof(header.serial));
+  string_util_strlcpy_cstr(header.serial, str_or_empty(s_state.running_game_serial), sizeof(header.serial));
 
   /* placeholder write; we fix up offsets and rewrite. */
   if (fwrite(&header, sizeof(header), 1, fp) != 1) {
@@ -1648,8 +1562,7 @@ static bool system_save_state_buffer_to_file(FILE* fp, const u8* state_data, siz
   return true;
 }
 
-int system_load_state(const char* path, Error* error, bool save_undo_state, bool force_update_display)
-{
+int system_load_state(const char* path, Error* error, bool save_undo_state, bool force_update_display) {
   (void)save_undo_state;
   if (!system_is_valid()) {
     Error_set_string(error, "system not in correct state");
@@ -1661,8 +1574,8 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
   /* .sav.gz / .sav.zst / .sav.xz: outer-wrap the entire save-state file.
    * Decompress into a seekable read-only stream for the shared header parser. */
   const compress_type_t outer = compress_helpers_type_from_path(path);
-  FILE* fp;
-  u8*   wrapped_buf = NULL;
+  FILE*                 fp;
+  u8*                   wrapped_buf = NULL;
   if (outer == COMPRESS_TYPE_UNCOMPRESSED) {
     fp = fs_open_file(path, "rb", error);
     if (!fp) {
@@ -1676,8 +1589,7 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
       Error_add_prefix_fmt(error, "Failed to read '%s': ", path);
       return 0;
     }
-    if (!compress_helpers_decompress_alloc(outer, fbuf, fsize, 0,
-                                           &wrapped_buf, &fsize, error)) {
+    if (!compress_helpers_decompress_alloc(outer, fbuf, fsize, 0, &wrapped_buf, &fsize, error)) {
       free(fbuf);
       Error_add_prefix_fmt(error, "Failed to decompress '%s': ", path);
       return 0;
@@ -1693,13 +1605,13 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
 
   INFO_LOG("Loading state from '%s'...", path);
 
-  u8*    state_data = NULL;
-  size_t state_size = 0;
-  u32    version    = 0;
-  char*  media_path = NULL;
-  u32    media_subimage_index = 0;
-  const bool ok = system_load_state_buffer_from_file(fp, &state_data, &state_size, &version,
-                                                     &media_path, &media_subimage_index, error);
+  u8*        state_data           = NULL;
+  size_t     state_size           = 0;
+  u32        version              = 0;
+  char*      media_path           = NULL;
+  u32        media_subimage_index = 0;
+  const bool ok = system_load_state_buffer_from_file(fp, &state_data, &state_size, &version, &media_path,
+                                                     &media_subimage_index, error);
   fclose(fp);
   free(wrapped_buf);
   if (!ok) {
@@ -1716,38 +1628,32 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
     const bool  same     = curr && strcmp(curr, media_path) == 0 && curr_sub == media_subimage_index;
     if (!same) {
       cd_image_t* new_disc = cd_image_open(media_path, error);
-      bool swap_ok = (new_disc != NULL);
+      bool        swap_ok  = (new_disc != NULL);
       if (swap_ok && media_subimage_index != 0 && cd_image_has_sub_images(new_disc)) {
         swap_ok = cd_image_switch_sub_image(new_disc, media_subimage_index, error);
       }
       const disc_region_t r = swap_ok ? system_get_region_for_image(new_disc) : DISC_REGION_NON_PS1;
       if (swap_ok) {
         system_update_running_game(media_path, new_disc, false);
-        swap_ok = cdrom_insert_media(new_disc, r,
-                                     str_or_empty(s_state.running_game_serial),
-                                     strlen(str_or_empty(s_state.running_game_serial)),
-                                     str_or_empty(s_state.running_game_title),
-                                     strlen(str_or_empty(s_state.running_game_title)),
-                                     "", 0, error);
+        swap_ok = cdrom_insert_media(
+            new_disc, r, str_or_empty(s_state.running_game_serial), strlen(str_or_empty(s_state.running_game_serial)),
+            str_or_empty(s_state.running_game_title), strlen(str_or_empty(s_state.running_game_title)), "", 0, error);
       }
       if (!swap_ok) {
         cd_image_destroy(new_disc);
-        WARNING_LOG("Failed to swap disc to '%s' (sub-image %u) for save state; keeping current.",
-                    media_path, media_subimage_index);
+        WARNING_LOG("Failed to swap disc to '%s' (sub-image %u) for save state; keeping current.", media_path,
+                    media_subimage_index);
       }
     }
   }
   free(media_path);
 
-  const bool ld_ok = system_load_state_data_from_buffer(state_data, state_size, version,
-                                                        error, force_update_display);
+  const bool ld_ok = system_load_state_data_from_buffer(state_data, state_size, version, error, force_update_display);
   free(state_data);
   return ld_ok ? 1 : 0;
 }
 
-bool system_save_state(const char* path, Error* error, bool backup_existing_save,
-                       bool ignore_memcard_busy)
-{
+bool system_save_state(const char* path, Error* error, bool backup_existing_save, bool ignore_memcard_busy) {
   if (!system_is_valid()) {
     Error_set_string(error, "system not in correct state");
     return false;
@@ -1757,10 +1663,9 @@ bool system_save_state(const char* path, Error* error, bool backup_existing_save
     return false;
   }
 
-  u8* state_data = NULL;
+  u8*    state_data = NULL;
   size_t state_size = 0;
-  if (!system_save_state_to_buffer(&state_data, &state_size, error))
-    return false;
+  if (!system_save_state_to_buffer(&state_data, &state_size, error)) return false;
 
   if (backup_existing_save && fs_file_exists(path)) {
     small_string_stack_t bak;
@@ -1773,7 +1678,7 @@ bool system_save_state(const char* path, Error* error, bool backup_existing_save
   /* Outer compression uses an anonymous seekable stream, since serialization
    * rewrites the header before the complete file is compressed. */
   const compress_type_t outer = compress_helpers_type_from_path(path);
-  FILE* fp;
+  FILE*                 fp;
   if (outer == COMPRESS_TYPE_UNCOMPRESSED) {
     fp = fs_open_file(path, "wb", error);
     if (!fp) {
@@ -1790,19 +1695,17 @@ bool system_save_state(const char* path, Error* error, bool backup_existing_save
   }
 
   const char* media_path = cdrom_has_media() ? cdrom_get_media_path() : "";
-  const u32 sub_idx      = cdrom_has_media() ? cdrom_get_current_sub_image() : 0u;
-  bool ok = system_save_state_buffer_to_file(fp, state_data, state_size,
-                                             media_path, sub_idx, error);
+  const u32   sub_idx    = cdrom_has_media() ? cdrom_get_current_sub_image() : 0u;
+  bool        ok         = system_save_state_buffer_to_file(fp, state_data, state_size, media_path, sub_idx, error);
   free(state_data);
 
   if (ok && outer != COMPRESS_TYPE_UNCOMPRESSED) {
-    u8*    raw = NULL;
+    u8*    raw     = NULL;
     size_t raw_len = 0;
-    if (fs_fseek64_e(fp, 0, SEEK_SET, error) &&
-        fs_read_binary_file(fp, &raw, &raw_len, error)) {
+    if (fs_fseek64_e(fp, 0, SEEK_SET, error) && fs_read_binary_file(fp, &raw, &raw_len, error)) {
       u8*    cbuf = NULL;
       size_t clen = 0;
-      ok = compress_helpers_compress_alloc(outer, raw, raw_len, -1, &cbuf, &clen, error);
+      ok          = compress_helpers_compress_alloc(outer, raw, raw_len, -1, &cbuf, &clen, error);
       free(raw);
       if (ok) {
         FILE* out = fs_open_file(path, "wb", error);
@@ -1824,8 +1727,7 @@ bool system_save_state(const char* path, Error* error, bool backup_existing_save
   return ok;
 }
 
-bool system_save_resume_state(Error* error)
-{
+bool system_save_resume_state(Error* error) {
   if (!s_state.running_game_serial || !s_state.running_game_serial[0]) {
     Error_set_string(error, "Cannot save resume state without serial.");
     return false;
@@ -1838,8 +1740,7 @@ bool system_save_resume_state(Error* error)
   return ok;
 }
 
-void system_get_game_save_state_path(const char* serial, s32 slot, small_string_t* out)
-{
+void system_get_game_save_state_path(const char* serial, s32 slot, small_string_t* out) {
   small_string_clear(out);
   if (slot < 0)
     small_string_sprintf(out, "savestates/%s_resume.sav", str_or_empty(serial));
@@ -1847,8 +1748,7 @@ void system_get_game_save_state_path(const char* serial, s32 slot, small_string_
     small_string_sprintf(out, "savestates/%s_%d.sav", str_or_empty(serial), (int)slot);
 }
 
-void system_get_global_save_state_path(s32 slot, small_string_t* out)
-{
+void system_get_global_save_state_path(s32 slot, small_string_t* out) {
   small_string_clear(out);
   if (slot < 0)
     small_string_assign_cstr(out, "savestates/resume.sav");
@@ -1856,55 +1756,54 @@ void system_get_global_save_state_path(s32 slot, small_string_t* out)
     small_string_sprintf(out, "savestates/savestate_%d.sav", (int)slot);
 }
 
-void system_get_most_recent_resume_save_state_path(small_string_t* out)
-{
+void system_get_most_recent_resume_save_state_path(small_string_t* out) {
   small_string_clear(out);
 }
 
-void system_load_state_from_slot(bool global, s32 slot)
-{
+void system_load_state_from_slot(bool global, s32 slot) {
   if (!system_is_valid()) return;
   small_string_stack_t path;
   small_string_stack_init(&path);
-  if (global) system_get_global_save_state_path(slot, &path.s);
-  else        system_get_game_save_state_path(s_state.running_game_serial, slot, &path.s);
+  if (global)
+    system_get_global_save_state_path(slot, &path.s);
+  else
+    system_get_game_save_state_path(s_state.running_game_serial, slot, &path.s);
   if (!fs_file_exists(small_string_c_str(&path.s))) {
     WARNING_LOG("No save state in slot %d.", (int)slot);
   } else {
-    Error e; Error_init(&e);
+    Error e;
+    Error_init(&e);
     const int r = system_load_state(small_string_c_str(&path.s), &e, true, false);
-    if (r != 1)
-      WARNING_LOG("Failed to load slot %d: %s", (int)slot, Error_get_description(&e));
+    if (r != 1) WARNING_LOG("Failed to load slot %d: %s", (int)slot, Error_get_description(&e));
     Error_destroy(&e);
   }
   small_string_destroy(&path.s);
 }
 
-void system_save_state_to_slot(bool global, s32 slot)
-{
+void system_save_state_to_slot(bool global, s32 slot) {
   if (!system_is_valid()) return;
   small_string_stack_t path;
   small_string_stack_init(&path);
-  if (global) system_get_global_save_state_path(slot, &path.s);
-  else        system_get_game_save_state_path(s_state.running_game_serial, slot, &path.s);
-  Error e; Error_init(&e);
-  if (!system_save_state(small_string_c_str(&path.s), &e,
-                         g_settings.create_save_state_backups, false))
+  if (global)
+    system_get_global_save_state_path(slot, &path.s);
+  else
+    system_get_game_save_state_path(s_state.running_game_serial, slot, &path.s);
+  Error e;
+  Error_init(&e);
+  if (!system_save_state(small_string_c_str(&path.s), &e, g_settings.create_save_state_backups, false))
     WARNING_LOG("Failed to save slot %d: %s", (int)slot, Error_get_description(&e));
   Error_destroy(&e);
   small_string_destroy(&path.s);
 }
 
-void system_flush_save_states(void)
-{
+void system_flush_save_states(void) {
   while (atomic_load_explicit(&s_state.outstanding_save_state_tasks, memory_order_acquire) > 0)
     host_wait_for_all_async_tasks();
 }
 
 /* run loop                                                            */
 
-void system_execute(void)
-{
+void system_execute(void) {
   for (;;) {
     switch (s_state.state) {
       case SYSTEM_STATE_RUNNING:
@@ -1927,20 +1826,16 @@ void system_execute(void)
   }
 }
 
-void system_single_step_cpu(void)
-{
+void system_single_step_cpu(void) {
   /* cpu_set_single_step_flag isn't exposed; rely on regular execute exit. */
-  if (system_is_paused())
-    system_pause_system(false);
+  if (system_is_paused()) system_pause_system(false);
 }
 
-void system_increment_frame_number(void)
-{
+void system_increment_frame_number(void) {
   s_state.frame_number++;
 }
 
-void system_increment_internal_frame_number(void)
-{
+void system_increment_internal_frame_number(void) {
   if (system_is_fast_forwarding_boot()) {
     s_state.internal_frame_number++;
     system_update_speed_limiter_state();
@@ -1949,8 +1844,7 @@ void system_increment_internal_frame_number(void)
   s_state.internal_frame_number++;
 }
 
-void system_frame_done(void)
-{
+void system_frame_done(void) {
   /* End-of-frame plumbing.  Achievements / cheats / dumper / runahead all
    * drop here; we keep MDEC end-of-frame and SPU drain. */
   mdec_end_frame();
@@ -1961,8 +1855,7 @@ void system_frame_done(void)
   /* memory card fast-forward */
   if (s_state.memory_card_fast_forward_frames > 0) {
     s_state.memory_card_fast_forward_frames--;
-    if (s_state.memory_card_fast_forward_frames == 0)
-      system_update_speed_limiter_state();
+    if (s_state.memory_card_fast_forward_frames == 0) system_update_speed_limiter_state();
   }
 
   /* frame step */
@@ -1972,8 +1865,7 @@ void system_frame_done(void)
   }
 
   /* throttle */
-  if (s_state.throttler_enabled)
-    system_throttle(current_time, s_state.next_frame_time);
+  if (s_state.throttler_enabled) system_throttle(current_time, s_state.next_frame_time);
 
   s_state.frame_start_time = current_time;
 
@@ -1983,10 +1875,11 @@ void system_frame_done(void)
   timing_events_update_cpu_downcount();
 }
 
-bool system_has_pending_frame_actions(void) { return s_state.frame_actions_pending; }
+bool system_has_pending_frame_actions(void) {
+  return s_state.frame_actions_pending;
+}
 
-void system_process_frame_actions(void)
-{
+void system_process_frame_actions(void) {
   if (!s_state.frame_actions_pending) return;
   s_state.frame_actions_pending = false;
   timing_events_update_cpu_downcount();
@@ -1995,35 +1888,32 @@ void system_process_frame_actions(void)
   system_check_for_and_exit_execution();
 }
 
-float system_get_video_frame_rate(void) { return s_state.video_frame_rate; }
+float system_get_video_frame_rate(void) {
+  return s_state.video_frame_rate;
+}
 
-void system_set_video_frame_rate(float frequency)
-{
+void system_set_video_frame_rate(float frequency) {
   if (s_state.video_frame_rate == frequency) return;
   VERBOSE_LOG("Video frame rate: %.2f -> %.2f fps", s_state.video_frame_rate, frequency);
   s_state.video_frame_rate = frequency;
   system_update_throttle_period();
 }
 
-static void system_update_throttle_period(void)
-{
+static void system_update_throttle_period(void) {
   if (s_state.target_speed > 1e-9f && s_state.video_frame_rate > 0.0f) {
-    const double ts = (double)s_state.target_speed;
-    s_state.frame_period =
-      timer_seconds_to_value(1.0 / ((double)s_state.video_frame_rate * ts));
+    const double ts      = (double)s_state.target_speed;
+    s_state.frame_period = timer_seconds_to_value(1.0 / ((double)s_state.video_frame_rate * ts));
   } else {
     s_state.frame_period = 1;
   }
   system_reset_throttler();
 }
 
-static void system_reset_throttler(void)
-{
+static void system_reset_throttler(void) {
   s_state.next_frame_time = timer_get_current_value() + s_state.frame_period;
 }
 
-static void system_throttle(timer_value_t current_time, timer_value_t sleep_until)
-{
+static void system_throttle(timer_value_t current_time, timer_value_t sleep_until) {
   if (current_time > sleep_until) {
     /* running too slow; skip ahead. */
     const u64 diff = current_time - s_state.next_frame_time;
@@ -2035,25 +1925,27 @@ static void system_throttle(timer_value_t current_time, timer_value_t sleep_unti
   s_state.next_frame_time += s_state.frame_period;
 }
 
-float system_get_target_speed       (void) { return s_state.target_speed; }
-float system_get_audio_nominal_rate (void) { return s_state.throttler_enabled ? s_state.target_speed : 1.0f; }
+float system_get_target_speed(void) {
+  return s_state.target_speed;
+}
+float system_get_audio_nominal_rate(void) {
+  return s_state.throttler_enabled ? s_state.target_speed : 1.0f;
+}
 
-bool system_is_running_at_non_standard_speed(void)
-{
+bool system_is_running_at_non_standard_speed(void) {
   return system_is_valid() && s_state.target_speed != 1.0f;
 }
 
-void system_update_speed_limiter_state(void)
-{
-  s_state.target_speed =
-    (system_is_fast_forwarding_boot() || s_state.memory_card_fast_forward_frames > 0) ? 0.0f
-    : (s_state.turbo_enabled ? g_settings.turbo_speed
-       : (s_state.fast_forward_enabled ? g_settings.fast_forward_speed 
-                                       : g_settings.emulation_speed));
-  s_state.throttler_enabled = (s_state.target_speed != 0.0f);
+void system_update_speed_limiter_state(void) {
+  s_state.target_speed         = (system_is_fast_forwarding_boot() || s_state.memory_card_fast_forward_frames > 0)
+                                     ? 0.0f
+                                     : (s_state.turbo_enabled ? g_settings.turbo_speed
+                                                              : (s_state.fast_forward_enabled ? g_settings.fast_forward_speed
+                                                                                              : g_settings.emulation_speed));
+  s_state.throttler_enabled    = (s_state.target_speed != 0.0f);
   s_state.optimal_frame_pacing = (s_state.throttler_enabled && g_settings.display_optimal_frame_pacing);
   s_state.skip_presenting_duplicate_frames =
-    s_state.throttler_enabled && g_settings.display_skip_presenting_duplicate_frames;
+      s_state.throttler_enabled && g_settings.display_skip_presenting_duplicate_frames;
 
   VERBOSE_LOG("Target speed: %.0f%%", s_state.target_speed * 100.0f);
 
@@ -2061,51 +1953,48 @@ void system_update_speed_limiter_state(void)
   system_reset_throttler();
 }
 
-bool system_is_fast_forward_enabled(void) { return s_state.fast_forward_enabled; }
+bool system_is_fast_forward_enabled(void) {
+  return s_state.fast_forward_enabled;
+}
 
-void system_set_fast_forward_enabled(bool enabled)
-{
+void system_set_fast_forward_enabled(bool enabled) {
   if (!system_is_valid()) return;
   s_state.fast_forward_enabled = enabled;
   system_update_speed_limiter_state();
 }
 
-bool system_is_turbo_enabled(void) { return s_state.turbo_enabled; }
+bool system_is_turbo_enabled(void) {
+  return s_state.turbo_enabled;
+}
 
-void system_set_turbo_enabled(bool enabled)
-{
+void system_set_turbo_enabled(bool enabled) {
   if (!system_is_valid()) return;
   s_state.turbo_enabled = enabled;
   system_update_speed_limiter_state();
 }
 
-void system_do_frame_step(void)
-{
+void system_do_frame_step(void) {
   if (!system_is_valid()) return;
   s_state.frame_step_request = true;
   system_pause_system(false);
 }
 
-static bool system_is_fast_forwarding_boot(void)
-{
+static bool system_is_fast_forwarding_boot(void) {
   return g_settings.bios_fast_forward_boot && s_state.internal_frame_number == 0 &&
          s_state.boot_mode == SYSTEM_BOOT_MODE_FAST_BOOT;
 }
 
-static u8 system_get_audio_output_volume(void)
-{
+static u8 system_get_audio_output_volume(void) {
   return settings_get_audio_output_volume(&g_settings, system_is_running_at_non_standard_speed());
 }
 
 /* controllers / memory cards                                          */
 
-controller_t* system_get_controller(u32 slot)
-{
+controller_t* system_get_controller(u32 slot) {
   return pad_get_controller(slot);
 }
 
-static void system_update_controllers(void)
-{
+static void system_update_controllers(void) {
   for (u32 i = 0; i < NUM_CONTROLLER_AND_CARD_PORTS; i++) {
     pad_set_controller(i, NULL);
     const controller_type_t type = g_settings.controller_types[i];
@@ -2116,16 +2005,14 @@ static void system_update_controllers(void)
   }
 }
 
-static void system_reset_controllers(void)
-{
+static void system_reset_controllers(void) {
   for (u32 i = 0; i < NUM_CONTROLLER_AND_CARD_PORTS; i++) {
     controller_t* c = pad_get_controller(i);
     if (c) controller_reset(c);
   }
 }
 
-static void system_update_multitaps(void)
-{
+static void system_update_multitaps(void) {
   switch (g_settings.multitap_mode) {
     case MULTITAP_MODE_DISABLED:
       multitap_set_enable(pad_get_multitap(0), false, 0);
@@ -2143,14 +2030,13 @@ static void system_update_multitaps(void)
       multitap_set_enable(pad_get_multitap(0), true, 0);
       multitap_set_enable(pad_get_multitap(1), true, 1);
       break;
-    default: break;
+    default:
+      break;
   }
 }
 
-void system_update_memory_cards(void)
-{
-  if (s_state.running_game_path && system_is_psf_path(s_state.running_game_path))
-    return;
+void system_update_memory_cards(void) {
+  if (s_state.running_game_path && system_is_psf_path(s_state.running_game_path)) return;
 
   for (u32 i = 0; i < NUM_CONTROLLER_AND_CARD_PORTS; i++) {
     const memory_card_type_t type = g_settings.memory_card_types[i];
@@ -2160,30 +2046,26 @@ void system_update_memory_cards(void)
     }
     /* Per-game / per-title etc. derivation lives in settings.c; we just open
      * the configured path here. */
-    const char* path = g_settings.memory_card_paths[i];
+    const char*    path = g_settings.memory_card_paths[i];
     memory_card_t* card = (path && path[0]) ? memory_card_open(i, path) : memory_card_create(i);
     pad_set_memory_card(i, card);
     if (path) INFO_LOG("Memory card %u: %s", i + 1, path);
   }
 }
 
-bool system_has_memory_card(u32 slot)
-{
+bool system_has_memory_card(u32 slot) {
   return pad_get_memory_card(slot) != NULL;
 }
 
-bool system_is_saving_memory_cards(void)
-{
+bool system_is_saving_memory_cards(void) {
   for (u32 i = 0; i < NUM_CONTROLLER_AND_CARD_PORTS; i++) {
     memory_card_t* mc = pad_get_memory_card(i);
-    if (mc && memory_card_is_or_was_recently_writing(mc))
-      return true;
+    if (mc && memory_card_is_or_was_recently_writing(mc)) return true;
   }
   return false;
 }
 
-void system_swap_memory_cards(void)
-{
+void system_swap_memory_cards(void) {
   if (!system_is_valid()) return;
   memory_card_t* a = pad_remove_memory_card(0);
   memory_card_t* b = pad_remove_memory_card(1);
@@ -2191,18 +2073,16 @@ void system_swap_memory_cards(void)
   pad_set_memory_card(1, a);
 }
 
-void system_on_memory_card_accessed(void)
-{
+void system_on_memory_card_accessed(void) {
   if (!g_settings.memory_card_fast_forward_access) return;
-  const u8 prev = s_state.memory_card_fast_forward_frames;
+  const u8 prev                           = s_state.memory_card_fast_forward_frames;
   s_state.memory_card_fast_forward_frames = MEMORY_CARD_FAST_FORWARD_FRAMES;
   if (prev == 0) system_update_speed_limiter_state();
 }
 
 /* media                                                               */
 
-bool system_dump_ram(const char* path, Error* error)
-{
+bool system_dump_ram(const char* path, Error* error) {
   if (!system_is_valid()) {
     Error_set_string(error, "invalid system state");
     return false;
@@ -2210,8 +2090,7 @@ bool system_dump_ram(const char* path, Error* error)
   return fs_write_binary_file(path, bus_get_unprotected_ram_pointer(), bus_get_ram_size(), error);
 }
 
-bool system_dump_spu_ram(const char* path, Error* error)
-{
+bool system_dump_spu_ram(const char* path, Error* error) {
   if (!system_is_valid()) {
     Error_set_string(error, "invalid system state");
     return false;
@@ -2219,9 +2098,9 @@ bool system_dump_spu_ram(const char* path, Error* error)
   return fs_write_binary_file(path, spu_get_ram(), SPU_RAM_SIZE, error);
 }
 
-bool system_insert_media(const char* path)
-{
-  Error err; Error_init(&err);
+bool system_insert_media(const char* path) {
+  Error err;
+  Error_init(&err);
   cd_image_t* image = cd_image_open(path, &err);
   if (!image) {
     WARNING_LOG("Failed to open '%s': %s", path, Error_get_description(&err));
@@ -2230,12 +2109,9 @@ bool system_insert_media(const char* path)
   }
   const disc_region_t r = system_get_region_for_image(image);
   system_update_running_game(path, image, false);
-  if (!cdrom_insert_media(image, r,
-                          str_or_empty(s_state.running_game_serial),
-                          strlen(str_or_empty(s_state.running_game_serial)),
-                          str_or_empty(s_state.running_game_title),
-                          strlen(str_or_empty(s_state.running_game_title)),
-                          "", 0, &err)) {
+  if (!cdrom_insert_media(image, r, str_or_empty(s_state.running_game_serial),
+                          strlen(str_or_empty(s_state.running_game_serial)), str_or_empty(s_state.running_game_title),
+                          strlen(str_or_empty(s_state.running_game_title)), "", 0, &err)) {
     WARNING_LOG("Insert media failed: %s", Error_get_description(&err));
     Error_destroy(&err);
     return false;
@@ -2245,38 +2121,32 @@ bool system_insert_media(const char* path)
   return true;
 }
 
-void system_remove_media(void)
-{
+void system_remove_media(void) {
   cd_image_t* old = cdrom_remove_media(false);
   cd_image_destroy(old);
 }
 
-bool system_has_media_sub_images(void)
-{
+bool system_has_media_sub_images(void) {
   const cd_image_t* m = cdrom_get_media();
   return m && cd_image_has_sub_images(m);
 }
 
-u32 system_get_media_sub_image_count(void)
-{
+u32 system_get_media_sub_image_count(void) {
   const cd_image_t* m = cdrom_get_media();
   return m ? cd_image_get_sub_image_count(m) : 0u;
 }
 
-u32 system_get_media_sub_image_index(void)
-{
+u32 system_get_media_sub_image_index(void) {
   const cd_image_t* m = cdrom_get_media();
   return m ? cd_image_get_current_sub_image(m) : 0u;
 }
 
-char* system_get_media_sub_image_title(u32 index)
-{
+char* system_get_media_sub_image_title(u32 index) {
   const cd_image_t* m = cdrom_get_media();
   return m ? cd_image_get_sub_image_title(m, index) : NULL;
 }
 
-bool system_switch_media_sub_image(u32 index, Error* error)
-{
+bool system_switch_media_sub_image(u32 index, Error* error) {
   if (!cdrom_has_media()) {
     Error_set_string(error, "No media inserted.");
     return false;
@@ -2290,34 +2160,29 @@ bool system_switch_media_sub_image(u32 index, Error* error)
     return false;
   }
 
-  Error local; Error_init(&local);
-  Error* e = error ? error : &local;
-  bool ok = cd_image_switch_sub_image(image, index, e);
+  Error local;
+  Error_init(&local);
+  Error* e  = error ? error : &local;
+  bool   ok = cd_image_switch_sub_image(image, index, e);
 
   disc_region_t r = DISC_REGION_NON_PS1;
   if (ok) {
     r = system_get_region_for_image(image);
     system_update_running_game(cd_image_get_path(image), image, false);
-    ok = cdrom_insert_media(image, r,
-                            str_or_empty(s_state.running_game_serial),
-                            strlen(str_or_empty(s_state.running_game_serial)),
-                            str_or_empty(s_state.running_game_title),
-                            strlen(str_or_empty(s_state.running_game_title)),
-                            "", 0, e);
+    ok = cdrom_insert_media(image, r, str_or_empty(s_state.running_game_serial),
+                            strlen(str_or_empty(s_state.running_game_serial)), str_or_empty(s_state.running_game_title),
+                            strlen(str_or_empty(s_state.running_game_title)), "", 0, e);
   }
 
   if (!ok) {
-    WARNING_LOG("Failed to switch to sub-image %u in '%s': %s",
-                index, cd_image_get_path(image), Error_get_description(e));
+    WARNING_LOG("Failed to switch to sub-image %u in '%s': %s", index, cd_image_get_path(image),
+                Error_get_description(e));
     /* Restore the previous image without changing the sub-image. */
     const disc_region_t rr = system_get_region_for_image(image);
     system_update_running_game(cd_image_get_path(image), image, false);
-    if (!cdrom_insert_media(image, rr,
-                            str_or_empty(s_state.running_game_serial),
-                            strlen(str_or_empty(s_state.running_game_serial)),
-                            str_or_empty(s_state.running_game_title),
-                            strlen(str_or_empty(s_state.running_game_title)),
-                            "", 0, NULL)) {
+    if (!cdrom_insert_media(image, rr, str_or_empty(s_state.running_game_serial),
+                            strlen(str_or_empty(s_state.running_game_serial)), str_or_empty(s_state.running_game_title),
+                            strlen(str_or_empty(s_state.running_game_title)), "", 0, NULL)) {
       cd_image_destroy(image);
     }
     Error_destroy(&local);
@@ -2330,17 +2195,18 @@ bool system_switch_media_sub_image(u32 index, Error* error)
 
 /* running-game tracking                                               */
 
-static void system_update_running_game(const char* path, cd_image_t* image, bool booting)
-{
+static void system_update_running_game(const char* path, cd_image_t* image, bool booting) {
   (void)booting;
   set_str(&s_state.running_game_path, path);
-  if (xfree_str(&s_state.running_game_serial), xfree_str(&s_state.running_game_title), 0) {}
+  if (xfree_str(&s_state.running_game_serial), xfree_str(&s_state.running_game_title), 0) {
+  }
   s_state.running_game_hash  = 0;
   s_state.running_game_entry = NULL;
 
   if (path && path[0]) {
     if (system_is_exe_path(path)) {
-      const char* fn = NULL;  u32 fnl = 0;
+      const char* fn  = NULL;
+      u32         fnl = 0;
       path_get_file_name_cstr(path, &fn, &fnl);
       if (fnl > 0) {
         char buf[260];
@@ -2357,8 +2223,8 @@ static void system_update_running_game(const char* path, cd_image_t* image, bool
         gpu_texture_cache_game_serial_changed();
       }
     } else if (image && cd_image_get_track_mode(image, 1) != CD_IMAGE_TRACK_MODE_AUDIO) {
-      char* id = NULL;
-      game_hash_t h = 0;
+      char*       id = NULL;
+      game_hash_t h  = 0;
       system_get_game_details_from_image(image, &id, &h, NULL, NULL, NULL);
       s_state.running_game_hash = h;
       set_str(&s_state.running_game_serial, id);
@@ -2371,34 +2237,31 @@ static void system_update_running_game(const char* path, cd_image_t* image, bool
        * just stash it. */
       game_database_ensure_loaded();
       if (s_state.running_game_serial && s_state.running_game_serial[0]) {
-        s_state.running_game_entry =
-          game_database_get_entry_for_serial(s_state.running_game_serial);
+        s_state.running_game_entry = game_database_get_entry_for_serial(s_state.running_game_serial);
       }
-      if (!s_state.running_game_entry)
-        s_state.running_game_entry = game_database_get_entry_for_disc(image);
+      if (!s_state.running_game_entry) s_state.running_game_entry = game_database_get_entry_for_disc(image);
 
       /* Prefer the GameDB title when we have it; otherwise fall back to the
        * disc filename. */
       if (s_state.running_game_entry && s_state.running_game_entry->title_len > 0) {
         const game_database_entry_t* e = s_state.running_game_entry;
-        char buf[260];
-        u32 n = e->title_len;
+        char                         buf[260];
+        u32                          n = e->title_len;
         if (n >= sizeof(buf)) n = (u32)sizeof(buf) - 1u;
         memcpy(buf, e->title, n);
         buf[n] = '\0';
         set_str(&s_state.running_game_title, buf);
-        INFO_LOG("Game serial: %s, title: %s",
-                 str_or_empty(s_state.running_game_serial), buf);
+        INFO_LOG("Game serial: %s, title: %s", str_or_empty(s_state.running_game_serial), buf);
       } else {
-        const char* fn = NULL;  u32 fnl = 0;
+        const char* fn  = NULL;
+        u32         fnl = 0;
         path_get_file_name_cstr(path, &fn, &fnl);
         char buf[260];
         if (fnl >= sizeof(buf)) fnl = (u32)sizeof(buf) - 1u;
         memcpy(buf, fn, fnl);
         buf[fnl] = '\0';
         set_str(&s_state.running_game_title, buf);
-        INFO_LOG("Game serial: %s (no GameDB entry)",
-                 str_or_empty(s_state.running_game_serial));
+        INFO_LOG("Game serial: %s (no GameDB entry)", str_or_empty(s_state.running_game_serial));
       }
     }
   }
@@ -2406,48 +2269,36 @@ static void system_update_running_game(const char* path, cd_image_t* image, bool
 
 /* taints                                                              */
 
-static void system_set_taints_from_settings(void)
-{
+static void system_set_taints_from_settings(void) {
   s_state.taints = 0;
-  if (g_settings.cdrom_read_speedup > 1)
-    system_set_taint(SYSTEM_TAINT_CDROM_READ_SPEEDUP);
-  if (g_settings.cdrom_seek_speedup > 1)
-    system_set_taint(SYSTEM_TAINT_CDROM_SEEK_SPEEDUP);
-  if (g_settings.cpu_overclock_active)
-    system_set_taint(SYSTEM_TAINT_CPU_OVERCLOCK);
+  if (g_settings.cdrom_read_speedup > 1) system_set_taint(SYSTEM_TAINT_CDROM_READ_SPEEDUP);
+  if (g_settings.cdrom_seek_speedup > 1) system_set_taint(SYSTEM_TAINT_CDROM_SEEK_SPEEDUP);
+  if (g_settings.cpu_overclock_active) system_set_taint(SYSTEM_TAINT_CPU_OVERCLOCK);
   if (g_settings.gpu_force_video_timing != FORCE_VIDEO_TIMING_MODE_DISABLED)
     system_set_taint(SYSTEM_TAINT_FORCE_FRAME_TIMINGS);
-  if (g_settings.cpu_enable_8mb_ram)
-    system_set_taint(SYSTEM_TAINT_RAM_8MB);
+  if (g_settings.cpu_enable_8mb_ram) system_set_taint(SYSTEM_TAINT_RAM_8MB);
 }
 
 /* process-wide / core-thread lifecycle                                */
 
-bool system_process_startup(Error* error)
-{
-  if (!bus_allocate_memory(false, error))
-    return false;
+bool system_process_startup(Error* error) {
+  if (!bus_allocate_memory(false, error)) return false;
   s_state.process_start_time = timer_get_current_value();
   return true;
 }
 
-void system_process_shutdown(void)
-{
+void system_process_shutdown(void) {
   bus_release_memory();
 }
 
-bool system_core_thread_initialize(Error* error)
-{
+bool system_core_thread_initialize(Error* error) {
   (void)error;
   /* Frontend-side settings load delegated. */
   return true;
 }
 
-void system_core_thread_shutdown(void)
-{
-}
+void system_core_thread_shutdown(void) {}
 
-void system_idle_poll_update(void)
-{
+void system_idle_poll_update(void) {
   /* No achievements / discord / sockets to poll. */
 }

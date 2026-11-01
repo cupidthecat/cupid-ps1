@@ -5,13 +5,10 @@
 #include "core/spu/spu.h"
 #include "tests/core/spu/spu_state_fixture.h"
 
-static void check_dma_polling(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
-  const u32 program[] = {
-      0x3C081F80, 0x350810C0, 0x3C0EA005, 0x8DC90000, 0x8DCA0004, 0x8DCB0008, 0x8DCC000C, 0,
-      0xAD090000, 0xAD0A0004, 0xAD0B0030, 0xAD0C0008,
-      0x8D020008, 0, 0x00021602, 0x30420001, 0x1440FFFB, 0x26310001,
-      0x3C0DA003, 0x24160001, 0xADB60000, 0x1000FFFF, 0};
+static void check_dma_polling(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
+  const u32 program[] = {0x3C081F80, 0x350810C0, 0x3C0EA005, 0x8DC90000, 0x8DCA0004, 0x8DCB0008, 0x8DCC000C, 0,
+                         0xAD090000, 0xAD0A0004, 0xAD0B0030, 0xAD0C0008, 0x8D020008, 0,          0x00021602, 0x30420001,
+                         0x1440FFFB, 0x26310001, 0x3C0DA003, 0x24160001, 0xADB60000, 0x1000FFFF, 0};
   for (u32 read = 0; read < 2; read++) {
     start_cpu_with_fastmem(mode, fastmem, 0xA0010000, program, sizeof(program) / sizeof(program[0]));
     g_settings.cpu_recompiler_block_linking = linking;
@@ -21,7 +18,8 @@ static void check_dma_polling(cpu_execution_mode_t mode, cpu_fastmem_mode_t fast
     const u32 params[] = {0x40000, 0x00100010, 0x80000, read ? 0x01000200 : 0x01000201};
     memcpy(bus_get_unprotected_ram_pointer() + 0x50000, params, sizeof(params));
     u32 expected[256];
-    for (u32 i = 0; i < 256; i++) expected[i] = 0x17C9AB31 ^ (i * 0x387D1369u);
+    for (u32 i = 0; i < 256; i++)
+      expected[i] = 0x17C9AB31 ^ (i * 0x387D1369u);
     if (read) {
       memcpy(spu_get_writable_ram() + 0x10000, expected, sizeof(expected));
       memset(bus_get_unprotected_ram_pointer() + 0x40000, 0xA5, sizeof(expected));
@@ -43,15 +41,16 @@ static void check_dma_polling(cpu_execution_mode_t mode, cpu_fastmem_mode_t fast
     free_spu_execution(&midway);
     u32 completed;
     memcpy(&completed, bus_get_unprotected_ram_pointer() + 0x30000, sizeof(completed));
-    printf("spu-poll mode=%u fastmem=%u linking=%u read=%u complete=%u polls=%u remaining=%u\n",
-           mode, fastmem, linking, read, completed, g_cpu_state.regs.r[17], dma_dbg_block_control(4) >> 16);
+    printf("spu-poll mode=%u fastmem=%u linking=%u read=%u complete=%u polls=%u remaining=%u\n", mode, fastmem, linking,
+           read, completed, g_cpu_state.regs.r[17], dma_dbg_block_control(4) >> 16);
     fflush(stdout);
     EXPECT_EQ(completed, 1);
     EXPECT_TRUE(g_cpu_state.regs.r[17] > 1);
     EXPECT_EQ(dma_dbg_channel_control(4) & (1u << 24), 0);
     EXPECT_EQ(dma_dbg_block_control(4) >> 16, 0);
-    EXPECT_EQ(memcmp(read ? bus_get_unprotected_ram_pointer() + 0x40000 : spu_get_ram() + 0x10000,
-                     expected, sizeof(expected)), 0);
+    EXPECT_EQ(memcmp(read ? bus_get_unprotected_ram_pointer() + 0x40000 : spu_get_ram() + 0x10000, expected,
+                     sizeof(expected)),
+              0);
     const cpu_execution_stats_t stats = *cpu_execution_stats_get();
     if (mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER) {
       const cpu_cached_interpreter_stats_t cached = cpu_code_cache_get_cached_interpreter_stats();
@@ -70,8 +69,9 @@ static void check_dma_polling(cpu_execution_mode_t mode, cpu_fastmem_mode_t fast
 }
 
 #define TRANSFER_EVENT_CASE(name, mode, fastmem, linking) \
-  TEST(SpuTransferEvents, name)                         \
-  { check_dma_polling(mode, fastmem, linking); }
+  TEST(SpuTransferEvents, name) {                         \
+    check_dma_polling(mode, fastmem, linking);            \
+  }
 TRANSFER_EVENT_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)
 TRANSFER_EVENT_CASE(cached, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)
 TRANSFER_EVENT_CASE(native_slow, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true)

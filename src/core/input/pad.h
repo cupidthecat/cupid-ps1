@@ -32,7 +32,7 @@ memory_card_t* pad_remove_memory_card(u32 slot);
 
 multitap_t* pad_get_multitap(u32 slot);
 
-u32  pad_read_register (u32 offset);
+u32  pad_read_register(u32 offset);
 void pad_write_register(u32 offset, u32 value);
 
 bool pad_is_transmitting(void);

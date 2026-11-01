@@ -35,7 +35,7 @@ LOG_CHANNEL(CDImage);
 #define CCD_ALL_SUBCODE_BYTES ((u32)CD_IMAGE_ALL_SUBCODE_SIZE)
 
 typedef struct cd_image_ccd {
-  cd_image_t base;        /* MUST be first */
+  cd_image_t base; /* MUST be first */
   FILE*      img_file;
   FILE*      sub_file;
   s64        img_position;
@@ -53,14 +53,12 @@ typedef struct ccd_kv_list {
   size_t    cap;
 } ccd_kv_list_t;
 
-static const char* basename_view(const char* path)
-{
+static const char* basename_view(const char* path) {
   const char* slash = strrchr(path, '/');
   return slash ? slash + 1 : path;
 }
 
-static char* dup_range(const char* data, size_t len)
-{
+static char* dup_range(const char* data, size_t len) {
   char* out = (char*)malloc(len + 1);
   if (!out) abort();
   memcpy(out, data, len);
@@ -68,10 +66,13 @@ static char* dup_range(const char* data, size_t len)
   return out;
 }
 
-static void kv_list_init(ccd_kv_list_t* l) { l->items = NULL; l->count = 0; l->cap = 0; }
+static void kv_list_init(ccd_kv_list_t* l) {
+  l->items = NULL;
+  l->count = 0;
+  l->cap   = 0;
+}
 
-static void kv_list_destroy(ccd_kv_list_t* l)
-{
+static void kv_list_destroy(ccd_kv_list_t* l) {
   for (size_t i = 0; i < l->count; i++) {
     free(l->items[i].section);
     free(l->items[i].key);
@@ -80,15 +81,14 @@ static void kv_list_destroy(ccd_kv_list_t* l)
   free(l->items);
   l->items = NULL;
   l->count = 0;
-  l->cap = 0;
+  l->cap   = 0;
 }
 
-static void kv_list_push(ccd_kv_list_t* l, const char* section, const char* key, const char* key_end,
-                         const char* value, const char* value_end)
-{
+static void kv_list_push(ccd_kv_list_t* l, const char* section, const char* key, const char* key_end, const char* value,
+                         const char* value_end) {
   if (l->count == l->cap) {
     size_t new_cap = l->cap ? l->cap * 2 : 64;
-    l->items = (ccd_kv_t*)realloc(l->items, new_cap * sizeof(*l->items));
+    l->items       = (ccd_kv_t*)realloc(l->items, new_cap * sizeof(*l->items));
     if (!l->items) abort();
     l->cap = new_cap;
   }
@@ -99,31 +99,31 @@ static void kv_list_push(ccd_kv_list_t* l, const char* section, const char* key,
 }
 
 /* Strip leading + trailing whitespace from [data, end). */
-static void strip_ws(const char** pdata, const char** pend)
-{
+static void strip_ws(const char** pdata, const char** pend) {
   const char* d = *pdata;
   const char* e = *pend;
-  while (d < e && isspace((u8)*d))   d++;
-  while (e > d && isspace((u8)e[-1])) e--;
+  while (d < e && isspace((u8)*d))
+    d++;
+  while (e > d && isspace((u8)e[-1]))
+    e--;
   *pdata = d;
   *pend  = e;
 }
 
 /* Walk the CCD text, populating kv_list.  Returns false on syntax issues
  * but currently only `false` for OOM (handled via abort). */
-static void parse_ini_text(const char* text, size_t text_len, ccd_kv_list_t* out)
-{
+static void parse_ini_text(const char* text, size_t text_len, ccd_kv_list_t* out) {
   small_string_t section;
   small_string_init(&section);
 
-  const char* p = text;
+  const char* p   = text;
   const char* end = text + text_len;
   while (p < end) {
     /* find end of line */
     const char* line_end = (const char*)memchr(p, '\n', (size_t)(end - p));
     if (!line_end) line_end = end;
 
-    const char* line = p;
+    const char* line           = p;
     const char* line_end_strip = line_end;
     /* strip CR, then strip whitespace */
     if (line_end_strip > line && line_end_strip[-1] == '\r') line_end_strip--;
@@ -138,9 +138,9 @@ static void parse_ini_text(const char* text, size_t text_len, ccd_kv_list_t* out
       } else {
         const char* eq = (const char*)memchr(line, '=', (size_t)(line_end_strip - line));
         if (eq) {
-          const char* key = line;
+          const char* key     = line;
           const char* key_end = eq;
-          const char* val = eq + 1;
+          const char* val     = eq + 1;
           const char* val_end = line_end_strip;
           strip_ws(&key, &key_end);
           strip_ws(&val, &val_end);
@@ -157,24 +157,20 @@ static void parse_ini_text(const char* text, size_t text_len, ccd_kv_list_t* out
   small_string_destroy(&section);
 }
 
-static bool kv_list_has_section(const ccd_kv_list_t* l, const char* section)
-{
+static bool kv_list_has_section(const ccd_kv_list_t* l, const char* section) {
   for (size_t i = 0; i < l->count; i++) {
-    if (strcasecmp(l->items[i].section, section) == 0)
-      return true;
+    if (strcasecmp(l->items[i].section, section) == 0) return true;
   }
   return false;
 }
 
-static bool kv_list_get_int(const ccd_kv_list_t* l, const char* section, const char* key, s32* out)
-{
+static bool kv_list_get_int(const ccd_kv_list_t* l, const char* section, const char* key, s32* out) {
   for (size_t i = 0; i < l->count; i++) {
     if (strcasecmp(l->items[i].section, section) == 0 && strcasecmp(l->items[i].key, key) == 0) {
       char* endp = NULL;
-      errno = 0;
-      long v = strtol(l->items[i].value, &endp, 0);
-      if (errno != 0 || endp == l->items[i].value)
-        return false;
+      errno      = 0;
+      long v     = strtol(l->items[i].value, &endp, 0);
+      if (errno != 0 || endp == l->items[i].value) return false;
       *out = (s32)v;
       return true;
     }
@@ -185,28 +181,25 @@ static bool kv_list_get_int(const ccd_kv_list_t* l, const char* section, const c
 typedef struct ccd_track_info {
   u32                   track_number;
   cd_image_track_mode_t mode;
-  s32                   index0;   /* -1 if not present */
+  s32                   index0; /* -1 if not present */
   s32                   index1;
   u8                    control;
 } ccd_track_info_t;
 
-static int track_info_cmp(const void* a, const void* b)
-{
+static int track_info_cmp(const void* a, const void* b) {
   const ccd_track_info_t* ta = (const ccd_track_info_t*)a;
   const ccd_track_info_t* tb = (const ccd_track_info_t*)b;
   if (ta->track_number < tb->track_number) return -1;
-  if (ta->track_number > tb->track_number) return  1;
+  if (ta->track_number > tb->track_number) return 1;
   return 0;
 }
 
-static bool cdimage_ccd_read_sector_from_index(cd_image_t* self, void* buffer,
-                                               const cd_image_index_t* index, cd_image_lba_t lba_in_index)
-{
-  cd_image_ccd_t* img = (cd_image_ccd_t*)self;
-  const s64 file_position = (s64)(index->file_offset + ((u64)lba_in_index * (u64)CCD_IMG_SECTOR_SIZE));
+static bool cdimage_ccd_read_sector_from_index(cd_image_t* self, void* buffer, const cd_image_index_t* index,
+                                               cd_image_lba_t lba_in_index) {
+  cd_image_ccd_t* img           = (cd_image_ccd_t*)self;
+  const s64       file_position = (s64)(index->file_offset + ((u64)lba_in_index * (u64)CCD_IMG_SECTOR_SIZE));
   if (img->img_position != file_position) {
-    if (fseek(img->img_file, (long)file_position, SEEK_SET) != 0)
-      return false;
+    if (fseek(img->img_file, (long)file_position, SEEK_SET) != 0) return false;
     img->img_position = file_position;
   }
   if (fread(buffer, CCD_IMG_SECTOR_SIZE, 1, img->img_file) != 1) {
@@ -217,9 +210,8 @@ static bool cdimage_ccd_read_sector_from_index(cd_image_t* self, void* buffer,
   return true;
 }
 
-static bool cdimage_ccd_read_subchannel_q(cd_image_t* self, cd_image_subq_t* subq,
-                                          const cd_image_index_t* index, cd_image_lba_t lba_in_index)
-{
+static bool cdimage_ccd_read_subchannel_q(cd_image_t* self, cd_image_subq_t* subq, const cd_image_index_t* index,
+                                          cd_image_lba_t lba_in_index) {
   cd_image_ccd_t* img = (cd_image_ccd_t*)self;
 
   /* Virtual pregaps (file_sector_size==0) → generated Q. */
@@ -229,13 +221,12 @@ static bool cdimage_ccd_read_subchannel_q(cd_image_t* self, cd_image_subq_t* sub
   }
 
   /* Q is the second 12-byte block of the 96-byte subcode. */
-  const u64 q_offset = CCD_SUBCHANNEL_BYTES;
-  const s64 sub_offset = (s64)(
-      ((index->file_offset / CCD_IMG_SECTOR_SIZE) * CCD_ALL_SUBCODE_BYTES)
-      + ((u64)lba_in_index * CCD_ALL_SUBCODE_BYTES) + q_offset);
+  const u64 q_offset   = CCD_SUBCHANNEL_BYTES;
+  const s64 sub_offset = (s64)(((index->file_offset / CCD_IMG_SECTOR_SIZE) * CCD_ALL_SUBCODE_BYTES) +
+                               ((u64)lba_in_index * CCD_ALL_SUBCODE_BYTES) + q_offset);
 
-  if (fseek(img->sub_file, (long)sub_offset, SEEK_SET) != 0
-      || fread(subq, CCD_SUBCHANNEL_BYTES, 1, img->sub_file) != 1) {
+  if (fseek(img->sub_file, (long)sub_offset, SEEK_SET) != 0 ||
+      fread(subq, CCD_SUBCHANNEL_BYTES, 1, img->sub_file) != 1) {
     WARNING_LOG("Failed to read subq for sector %u", (u32)(index->start_lba_on_disc + lba_in_index));
     cd_image_generate_subq_from_index(self, subq, index, lba_in_index);
     return true;
@@ -243,12 +234,14 @@ static bool cdimage_ccd_read_subchannel_q(cd_image_t* self, cd_image_subq_t* sub
   return true;
 }
 
-static bool cdimage_ccd_has_subchannel_data(const cd_image_t* self) { (void)self; return true; }
+static bool cdimage_ccd_has_subchannel_data(const cd_image_t* self) {
+  (void)self;
+  return true;
+}
 
-static s64 cdimage_ccd_get_size_on_disk(const cd_image_t* self)
-{
+static s64 cdimage_ccd_get_size_on_disk(const cd_image_t* self) {
   cd_image_ccd_t* img = (cd_image_ccd_t*)self;
-  s64 sz = fs_fsize64(img->img_file, NULL);
+  s64             sz  = fs_fsize64(img->img_file, NULL);
   if (sz < 0) sz = 0;
   if (img->sub_file) {
     s64 ss = fs_fsize64(img->sub_file, NULL);
@@ -257,36 +250,39 @@ static s64 cdimage_ccd_get_size_on_disk(const cd_image_t* self)
   return sz;
 }
 
-static void cdimage_ccd_destroy(cd_image_t* self)
-{
+static void cdimage_ccd_destroy(cd_image_t* self) {
   cd_image_ccd_t* img = (cd_image_ccd_t*)self;
-  if (img->sub_file) { fclose(img->sub_file); img->sub_file = NULL; }
-  if (img->img_file) { fclose(img->img_file); img->img_file = NULL; }
+  if (img->sub_file) {
+    fclose(img->sub_file);
+    img->sub_file = NULL;
+  }
+  if (img->img_file) {
+    fclose(img->img_file);
+    img->img_file = NULL;
+  }
 }
 
 static const cd_image_vtable_t s_ccd_vtable = {
-   .read_sector_from_index = cdimage_ccd_read_sector_from_index,
-  .read_subchannel_q      = cdimage_ccd_read_subchannel_q,
-  .has_subchannel_data    = cdimage_ccd_has_subchannel_data,
-  .get_size_on_disk       = cdimage_ccd_get_size_on_disk,
-  .destroy                = cdimage_ccd_destroy, 
+    .read_sector_from_index = cdimage_ccd_read_sector_from_index,
+    .read_subchannel_q      = cdimage_ccd_read_subchannel_q,
+    .has_subchannel_data    = cdimage_ccd_has_subchannel_data,
+    .get_size_on_disk       = cdimage_ccd_get_size_on_disk,
+    .destroy                = cdimage_ccd_destroy,
 };
 
-static cd_image_ccd_t* alloc_ccd_image(void)
-{
+static cd_image_ccd_t* alloc_ccd_image(void) {
   cd_image_ccd_t* img = (cd_image_ccd_t*)malloc(sizeof(*img));
   if (!img) abort();
   cd_image_init(&img->base, &s_ccd_vtable);
-  img->img_file = NULL;
-  img->sub_file = NULL;
+  img->img_file     = NULL;
+  img->sub_file     = NULL;
   img->img_position = 0;
   return img;
 }
 
-static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error* error)
-{
+static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error* error) {
   /* 1. Read CCD as text. */
-  char*  text = NULL;
+  char*  text     = NULL;
   size_t text_len = 0;
   if (!fs_read_file_to_string_path(filename, &text, &text_len, error)) {
     Error_set_string_fmt(error, "Failed to open ccd '%s'", basename_view(filename));
@@ -300,8 +296,7 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
   path_change_extension_cstr(&img_path, filename, "img");
   path_change_extension_cstr(&sub_path, filename, "sub");
 
-  img->img_file = fs_open_shared_file(small_string_c_str(&img_path), "rb",
-                                      FS_FILE_SHARE_DENY_WRITE, error);
+  img->img_file = fs_open_shared_file(small_string_c_str(&img_path), "rb", FS_FILE_SHARE_DENY_WRITE, error);
   if (!img->img_file) {
     Error_set_string_fmt(error, "Failed to open img file '%s'", basename_view(small_string_c_str(&img_path)));
     small_string_destroy(&img_path);
@@ -309,8 +304,7 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
     free(text);
     return false;
   }
-  img->sub_file = fs_open_shared_file(small_string_c_str(&sub_path), "rb",
-                                      FS_FILE_SHARE_DENY_WRITE, error);
+  img->sub_file = fs_open_shared_file(small_string_c_str(&sub_path), "rb", FS_FILE_SHARE_DENY_WRITE, error);
   if (!img->sub_file) {
     Error_set_string_fmt(error, "Failed to open sub file '%s'", basename_view(small_string_c_str(&sub_path)));
     small_string_destroy(&img_path);
@@ -349,25 +343,26 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
   }
 
   /* 4. Read the disc type, tracks and lead-out from the TOC entries. */
-  cd_image_lba_t leadout_lba = 0;
+  cd_image_lba_t   leadout_lba = 0;
   ccd_track_info_t parsed_tracks[100];
-  size_t parsed_tracks_count = 0;
+  size_t           parsed_tracks_count = 0;
 
   for (s32 i = 0; i < toc_entries; i++) {
     char section[32];
     snprintf(section, sizeof(section), "Entry %d", i);
     s32 point = 0;
-    if (!kv_list_get_int(&kv, section, "Point", &point))
-      continue;
+    if (!kv_list_get_int(&kv, section, "Point", &point)) continue;
 
-    s32 plba = 0; bool has_plba = kv_list_get_int(&kv, section, "PLBA", &plba);
-    s32 control = 0; bool has_control = kv_list_get_int(&kv, section, "Control", &control);
+    s32  plba        = 0;
+    bool has_plba    = kv_list_get_int(&kv, section, "PLBA", &plba);
+    s32  control     = 0;
+    bool has_control = kv_list_get_int(&kv, section, "Control", &control);
 
     const u8 point_val = (u8)point;
     if (point_val == 0xA0) {
       s32 disc_type = 0;
       if (kv_list_get_int(&kv, section, "PSec", &disc_type) && disc_type >= 0 && disc_type <= 0xFF) {
-        img->base.toc_disc_type = (u8)disc_type;
+        img->base.toc_disc_type     = (u8)disc_type;
         img->base.has_toc_disc_type = true;
       }
     } else if (point_val == 0xA2 && has_plba) {
@@ -382,10 +377,16 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
       s32 mode_val = 0;
       if (kv_list_get_int(&kv, track_section, "MODE", &mode_val)) {
         switch (mode_val) {
-          case 0:  info.mode = CD_IMAGE_TRACK_MODE_AUDIO;     break;
-          case 1:  info.mode = CD_IMAGE_TRACK_MODE_MODE1_RAW; break;
+          case 0:
+            info.mode = CD_IMAGE_TRACK_MODE_AUDIO;
+            break;
+          case 1:
+            info.mode = CD_IMAGE_TRACK_MODE_MODE1_RAW;
+            break;
           case 2:
-          default: info.mode = CD_IMAGE_TRACK_MODE_MODE2_RAW; break;
+          default:
+            info.mode = CD_IMAGE_TRACK_MODE_MODE2_RAW;
+            break;
         }
       } else {
         info.mode = (info.control & 0x04u) ? CD_IMAGE_TRACK_MODE_MODE2_RAW : CD_IMAGE_TRACK_MODE_AUDIO;
@@ -442,28 +443,28 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
 
   /* 6. Emit indices + tracks. */
   for (size_t i = 0; i < parsed_tracks_count; i++) {
-    const ccd_track_info_t* ti = &parsed_tracks[i];
-    const cd_image_lba_t track_index0 = (cd_image_lba_t)((ti->index0 >= 0) ? ti->index0 : ti->index1);
-    const cd_image_lba_t track_index1 = (cd_image_lba_t)ti->index1;
+    const ccd_track_info_t* ti           = &parsed_tracks[i];
+    const cd_image_lba_t    track_index0 = (cd_image_lba_t)((ti->index0 >= 0) ? ti->index0 : ti->index1);
+    const cd_image_lba_t    track_index1 = (cd_image_lba_t)ti->index1;
 
     cd_image_lba_t next_track_index0, next_track_index1;
     if (i + 1 < parsed_tracks_count) {
       const ccd_track_info_t* next = &parsed_tracks[i + 1];
-      next_track_index0 = (cd_image_lba_t)((next->index0 >= 0) ? next->index0 : next->index1);
-      next_track_index1 = (cd_image_lba_t)next->index1;
+      next_track_index0            = (cd_image_lba_t)((next->index0 >= 0) ? next->index0 : next->index1);
+      next_track_index1            = (cd_image_lba_t)next->index1;
     } else {
       next_track_index0 = leadout_lba;
       next_track_index1 = leadout_lba;
     }
 
     if (track_index1 < track_index0 || next_track_index0 <= track_index1 || next_track_index0 > next_track_index1) {
-      ERROR_LOG("Track %u has invalid length (start %u/%u, next %u/%u)", ti->track_number,
-                track_index0, track_index1, next_track_index0, next_track_index1);
+      ERROR_LOG("Track %u has invalid length (start %u/%u, next %u/%u)", ti->track_number, track_index0, track_index1,
+                next_track_index0, next_track_index1);
       Error_set_string_fmt(error, "Track %u has invalid length", ti->track_number);
       return false;
     }
 
-    cd_image_subq_control_t control = { 0 };
+    cd_image_subq_control_t control = {0};
     cd_image_subq_control_set_data(&control, ti->mode != CD_IMAGE_TRACK_MODE_AUDIO);
 
     u32 toc_track_length = next_track_index0 - track_index0;
@@ -471,58 +472,58 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
     if (track_index1 > track_index0) {
       /* Pregap is in the IMG file. */
       const cd_image_lba_t pregap_length = track_index1 - track_index0;
-      cd_image_index_t pregap = { 0 };
-      pregap.start_lba_on_disc  = (cd_image_lba_t)ti->index0 + plba_offset;
-      pregap.start_lba_in_track = (cd_image_lba_t)(-(s32)pregap_length);
-      pregap.length             = pregap_length;
-      pregap.track_number       = ti->track_number;
-      pregap.index_number       = 0;
-      pregap.file_index         = 0;
-      pregap.file_sector_size   = CCD_IMG_SECTOR_SIZE;
-      pregap.file_offset        = (u64)ti->index0 * CCD_IMG_SECTOR_SIZE;
-      pregap.mode               = ti->mode;
-      pregap.submode            = CD_IMAGE_SUBCHANNEL_MODE_RAW;
-      pregap.control            = control;
-      pregap.is_pregap          = true;
-      *cd_image_push_index(&img->base) = pregap;
+      cd_image_index_t     pregap        = {0};
+      pregap.start_lba_on_disc           = (cd_image_lba_t)ti->index0 + plba_offset;
+      pregap.start_lba_in_track          = (cd_image_lba_t)(-(s32)pregap_length);
+      pregap.length                      = pregap_length;
+      pregap.track_number                = ti->track_number;
+      pregap.index_number                = 0;
+      pregap.file_index                  = 0;
+      pregap.file_sector_size            = CCD_IMG_SECTOR_SIZE;
+      pregap.file_offset                 = (u64)ti->index0 * CCD_IMG_SECTOR_SIZE;
+      pregap.mode                        = ti->mode;
+      pregap.submode                     = CD_IMAGE_SUBCHANNEL_MODE_RAW;
+      pregap.control                     = control;
+      pregap.is_pregap                   = true;
+      *cd_image_push_index(&img->base)   = pregap;
     } else if (ti->track_number == 1 && plba_offset > 0) {
       /* Implicit synthesised track-1 pregap. */
-      cd_image_index_t pregap = { 0 };
-      pregap.start_lba_on_disc  = 0;
-      pregap.start_lba_in_track = (cd_image_lba_t)(-(s32)plba_offset);
-      pregap.length             = plba_offset;
-      pregap.track_number       = ti->track_number;
-      pregap.index_number       = 0;
-      pregap.mode               = ti->mode;
-      pregap.submode            = CD_IMAGE_SUBCHANNEL_MODE_NONE;
-      pregap.control            = control;
-      pregap.is_pregap          = true;
+      cd_image_index_t pregap          = {0};
+      pregap.start_lba_on_disc         = 0;
+      pregap.start_lba_in_track        = (cd_image_lba_t)(-(s32)plba_offset);
+      pregap.length                    = plba_offset;
+      pregap.track_number              = ti->track_number;
+      pregap.index_number              = 0;
+      pregap.mode                      = ti->mode;
+      pregap.submode                   = CD_IMAGE_SUBCHANNEL_MODE_NONE;
+      pregap.control                   = control;
+      pregap.is_pregap                 = true;
       *cd_image_push_index(&img->base) = pregap;
       toc_track_length += plba_offset;
     }
 
     cd_image_track_t* tr = cd_image_push_track(&img->base);
-    tr->track_number = ti->track_number;
-    tr->start_lba    = track_index1 + plba_offset;
-    tr->first_index  = img->base.index_count;
-    tr->length       = toc_track_length;
-    tr->mode         = ti->mode;
-    tr->submode      = CD_IMAGE_SUBCHANNEL_MODE_NONE;
-    tr->control      = control;
+    tr->track_number     = ti->track_number;
+    tr->start_lba        = track_index1 + plba_offset;
+    tr->first_index      = img->base.index_count;
+    tr->length           = toc_track_length;
+    tr->mode             = ti->mode;
+    tr->submode          = CD_IMAGE_SUBCHANNEL_MODE_NONE;
+    tr->control          = control;
 
-    cd_image_index_t data_idx = { 0 };
-    data_idx.start_lba_on_disc  = track_index1 + plba_offset;
-    data_idx.start_lba_in_track = 0;
-    data_idx.track_number       = ti->track_number;
-    data_idx.index_number       = 1;
-    data_idx.file_index         = 0;
-    data_idx.file_sector_size   = CCD_IMG_SECTOR_SIZE;
-    data_idx.file_offset        = (u64)track_index1 * CCD_IMG_SECTOR_SIZE;
-    data_idx.mode               = ti->mode;
-    data_idx.submode            = CD_IMAGE_SUBCHANNEL_MODE_RAW;
-    data_idx.control            = control;
-    data_idx.is_pregap          = false;
-    data_idx.length             = next_track_index0 - track_index1;
+    cd_image_index_t data_idx        = {0};
+    data_idx.start_lba_on_disc       = track_index1 + plba_offset;
+    data_idx.start_lba_in_track      = 0;
+    data_idx.track_number            = ti->track_number;
+    data_idx.index_number            = 1;
+    data_idx.file_index              = 0;
+    data_idx.file_sector_size        = CCD_IMG_SECTOR_SIZE;
+    data_idx.file_offset             = (u64)track_index1 * CCD_IMG_SECTOR_SIZE;
+    data_idx.mode                    = ti->mode;
+    data_idx.submode                 = CD_IMAGE_SUBCHANNEL_MODE_RAW;
+    data_idx.control                 = control;
+    data_idx.is_pregap               = false;
+    data_idx.length                  = next_track_index0 - track_index1;
     *cd_image_push_index(&img->base) = data_idx;
   }
 
@@ -533,14 +534,13 @@ static bool open_and_parse_ccd(cd_image_ccd_t* img, const char* filename, Error*
   }
 
   const cd_image_track_t* last = &img->base.tracks[img->base.track_count - 1];
-  img->base.lba_count = last->start_lba + last->length;
+  img->base.lba_count          = last->start_lba + last->length;
   cd_image_add_lead_out_index(&img->base);
 
-  return cd_image_seek_track_msf(&img->base, 1u, (cd_image_position_t){ 0, 0, 0 });
+  return cd_image_seek_track_msf(&img->base, 1u, (cd_image_position_t){0, 0, 0});
 }
 
-cd_image_t* cd_image_open_ccd(const char* path, Error* error)
-{
+cd_image_t* cd_image_open_ccd(const char* path, Error* error) {
   cd_image_ccd_t* img = alloc_ccd_image();
   if (!open_and_parse_ccd(img, path, error)) {
     cd_image_destroy(&img->base);

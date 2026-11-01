@@ -6,8 +6,7 @@
 #include "core/interrupts/interrupt_controller.h"
 #include "core/timers/timers.h"
 
-static gpu_backend_t* begin_gpu_irq(void)
-{
+static gpu_backend_t* begin_gpu_irq(void) {
   const u32 words[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, words, 2);
   interrupt_controller_reset();
@@ -19,37 +18,31 @@ static gpu_backend_t* begin_gpu_irq(void)
   return backend;
 }
 
-static void end_gpu_irq(gpu_backend_t* backend)
-{
+static void end_gpu_irq(gpu_backend_t* backend) {
   gpu_shutdown();
   gpu_backend_destroy(backend);
   timers_shutdown();
   finish_cpu();
 }
 
-static bool gpu_irq_flag(void)
-{
+static bool gpu_irq_flag(void) {
   return (gpu_read_register(4) & (1u << 24)) != 0;
 }
-static bool gpu_irq_latched(void)
-{
+static bool gpu_irq_latched(void) {
   return (irq_dbg_status_register() & (1u << INTERRUPT_CONTROLLER_IRQ_GPU)) != 0;
 }
-static void acknowledge_cpu_gpu_irq(void)
-{
+static void acknowledge_cpu_gpu_irq(void) {
   interrupt_controller_write_register(0, ~(1u << INTERRUPT_CONTROLLER_IRQ_GPU));
 }
 
-static void request_gpu_irq(bool partial_command)
-{
+static void request_gpu_irq(bool partial_command) {
   gpu_write_register(0, 0x1F000000);
   EXPECT_TRUE(gpu_irq_flag());
   EXPECT_TRUE(gpu_irq_latched());
   if (partial_command) gpu_write_register(0, 0x20000000);
 }
 
-static void restore_pending_gpu_irq(void)
-{
+static void restore_pending_gpu_irq(void) {
   u8           cpu[16384], irq[16], counters[128], timing[4096];
   const size_t gpu_capacity = 2 * 1024 * 1024;
   u8*          gpu          = malloc(gpu_capacity);
@@ -87,8 +80,7 @@ static void restore_pending_gpu_irq(void)
   free(gpu);
 }
 
-static void check_gpu_reset_irq(bool hard)
-{
+static void check_gpu_reset_irq(bool hard) {
   u32 failures = 0, observations = 0;
   for (u32 variant = 0; variant < (hard ? 2u : 4u); variant++) {
     for (u32 partial = 0; partial < 2; partial++) {
@@ -119,17 +111,14 @@ static void check_gpu_reset_irq(bool hard)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(GpuResetIrq, soft_reset)
-{
+TEST(GpuResetIrq, soft_reset) {
   check_gpu_reset_irq(false);
 }
-TEST(GpuResetIrq, hard_reset)
-{
+TEST(GpuResetIrq, hard_reset) {
   check_gpu_reset_irq(true);
 }
 
-TEST(GpuResetIrq, acknowledge_and_fifo_controls)
-{
+TEST(GpuResetIrq, acknowledge_and_fifo_controls) {
   u32 failures = 0, observations = 0;
   for (u32 fifo = 0; fifo < 2; fifo++) {
     for (u32 partial = 0; partial < 2; partial++) {

@@ -20,9 +20,9 @@
 LOG_CHANNEL(AudioStream);
 
 typedef struct {
-  audio_stream_t      base;
-  SDL_AudioDeviceID   device_id;
-  SDL_AudioSpec       obtained_spec;
+  audio_stream_t    base;
+  SDL_AudioDeviceID device_id;
+  SDL_AudioSpec     obtained_spec;
 } sdl_audio_stream_t;
 
 /* SDL2's audio subsystem is reference-counted internally, but we still want a
@@ -30,18 +30,14 @@ typedef struct {
  * Repeated calls are cheap and safe. */
 static bool s_sdl_audio_initialized = false;
 
-static void sdl_audio_atexit(void)
-{
+static void sdl_audio_atexit(void) {
   SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
-static bool sdl_audio_initialize(Error* error)
-{
-  if (s_sdl_audio_initialized)
-    return true;
+static bool sdl_audio_initialize(Error* error) {
+  if (s_sdl_audio_initialized) return true;
 
-  if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0)
-  {
+  if (SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
     Error_set_string_fmt(error, "SDL_InitSubSystem(SDL_INIT_AUDIO) failed: %s", SDL_GetError());
     return false;
   }
@@ -51,49 +47,39 @@ static bool sdl_audio_initialize(Error* error)
   return true;
 }
 
-static void sdl_audio_callback(void* userdata, Uint8* stream, int len)
-{
-  sdl_audio_stream_t* const self = (sdl_audio_stream_t*)userdata;
-  const u32 frame_bytes = (u32)sizeof(audio_stream_sample_t) * self->base.channels;
-  if (len <= 0 || frame_bytes == 0)
-  {
-    if (len > 0)
-      memset(stream, 0, (size_t)len);
+static void sdl_audio_callback(void* userdata, Uint8* stream, int len) {
+  sdl_audio_stream_t* const self        = (sdl_audio_stream_t*)userdata;
+  const u32                 frame_bytes = (u32)sizeof(audio_stream_sample_t) * self->base.channels;
+  if (len <= 0 || frame_bytes == 0) {
+    if (len > 0) memset(stream, 0, (size_t)len);
     return;
   }
 
   const u32 num_frames = (u32)len / frame_bytes;
-  if (num_frames == 0)
-  {
+  if (num_frames == 0) {
     memset(stream, 0, (size_t)len);
     return;
   }
 
-  self->base.source.read_frames(self->base.source.user,
-                                (audio_stream_sample_t*)stream, num_frames);
+  self->base.source.read_frames(self->base.source.user, (audio_stream_sample_t*)stream, num_frames);
 
   /* Zero any tail bytes that don't form a whole frame so the device never
    * plays uninitialised memory. */
   const u32 consumed = num_frames * frame_bytes;
-  if ((u32)len > consumed)
-    memset(stream + consumed, 0, (size_t)len - consumed);
+  if ((u32)len > consumed) memset(stream + consumed, 0, (size_t)len - consumed);
 }
 
-static void sdl_stream_close(audio_stream_t* base)
-{
+static void sdl_stream_close(audio_stream_t* base) {
   sdl_audio_stream_t* const self = (sdl_audio_stream_t*)base;
-  if (self->device_id != 0)
-  {
+  if (self->device_id != 0) {
     SDL_CloseAudioDevice(self->device_id);
     self->device_id = 0;
   }
 }
 
-static bool sdl_stream_start(audio_stream_t* base, Error* error)
-{
+static bool sdl_stream_start(audio_stream_t* base, Error* error) {
   sdl_audio_stream_t* const self = (sdl_audio_stream_t*)base;
-  if (self->device_id == 0)
-  {
+  if (self->device_id == 0) {
     Error_set_string(error, "SDL audio device is not open.");
     return false;
   }
@@ -102,11 +88,9 @@ static bool sdl_stream_start(audio_stream_t* base, Error* error)
   return true;
 }
 
-static bool sdl_stream_stop(audio_stream_t* base, Error* error)
-{
+static bool sdl_stream_stop(audio_stream_t* base, Error* error) {
   sdl_audio_stream_t* const self = (sdl_audio_stream_t*)base;
-  if (self->device_id == 0)
-  {
+  if (self->device_id == 0) {
     Error_set_string(error, "SDL audio device is not open.");
     return false;
   }
@@ -116,29 +100,23 @@ static bool sdl_stream_stop(audio_stream_t* base, Error* error)
 }
 
 static const audio_stream_vtable_t s_sdl_vtable = {
-   .close = sdl_stream_close,
-  .start = sdl_stream_start,
-  .stop  = sdl_stream_stop, 
+    .close = sdl_stream_close,
+    .start = sdl_stream_start,
+    .stop  = sdl_stream_stop,
 };
 
- audio_stream_t* audio_stream_create_sdl(u32 sample_rate, u32 channels,
-                                        u32 output_latency_frames, bool output_latency_minimal, 
-                                        const char* device_name,
-                                         audio_stream_source_t source, bool auto_start,
-                                        Error* error) 
-{
-  if (!sdl_audio_initialize(error))
-    return NULL;
+audio_stream_t* audio_stream_create_sdl(u32 sample_rate, u32 channels, u32 output_latency_frames,
+                                        bool output_latency_minimal, const char* device_name,
+                                        audio_stream_source_t source, bool auto_start, Error* error) {
+  if (!sdl_audio_initialize(error)) return NULL;
 
-  if (!source.read_frames)
-  {
+  if (!source.read_frames) {
     Error_set_string(error, "Audio source has no read_frames callback.");
     return NULL;
   }
 
   sdl_audio_stream_t* self = (sdl_audio_stream_t*)calloc(1, sizeof(*self));
-  if (!self)
-  {
+  if (!self) {
     Error_set_string(error, "Out of memory allocating SDL audio stream.");
     return NULL;
   }
@@ -152,8 +130,7 @@ static const audio_stream_vtable_t s_sdl_vtable = {
    * never starves; output_latency_minimal asks for the smallest viable
    * buffer, which we approximate with 256 samples (~5 ms at 44.1 kHz). */
   u32 samples = output_latency_minimal ? 256u : output_latency_frames;
-  if (samples < 64u)
-    samples = 64u;
+  if (samples < 64u) samples = 64u;
   /* Round up to next power of two. */
   u32 pow2 = 1u;
   while (pow2 < samples)
@@ -169,22 +146,18 @@ static const audio_stream_vtable_t s_sdl_vtable = {
   desired.userdata = self;
 
   const char* sdl_device = (device_name && device_name[0]) ? device_name : NULL;
-  self->device_id = SDL_OpenAudioDevice(sdl_device, 0, &desired, &self->obtained_spec, 0);
-  if (self->device_id == 0)
-  {
+  self->device_id        = SDL_OpenAudioDevice(sdl_device, 0, &desired, &self->obtained_spec, 0);
+  if (self->device_id == 0) {
     Error_set_string_fmt(error, "SDL_OpenAudioDevice() failed: %s", SDL_GetError());
     free(self);
     return NULL;
   }
 
-  INFO_LOG("SDL audio: %d Hz, %u ch, %u-sample buffer (~%u ms latency)",
-            self->obtained_spec.freq, (unsigned)self->obtained_spec.channels,
-           (unsigned)self->obtained_spec.samples, 
-           audio_stream_frames_to_ms((u32)self->obtained_spec.freq,
-                                     (u32)self->obtained_spec.samples));
+  INFO_LOG("SDL audio: %d Hz, %u ch, %u-sample buffer (~%u ms latency)", self->obtained_spec.freq,
+           (unsigned)self->obtained_spec.channels, (unsigned)self->obtained_spec.samples,
+           audio_stream_frames_to_ms((u32)self->obtained_spec.freq, (u32)self->obtained_spec.samples));
 
-  if (auto_start)
-    SDL_PauseAudioDevice(self->device_id, 0);
+  if (auto_start) SDL_PauseAudioDevice(self->device_id, 0);
 
   return &self->base;
 }

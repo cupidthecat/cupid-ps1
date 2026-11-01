@@ -1,7 +1,6 @@
 #include "tests/core/mdec/mdec_input_fixture.h"
 
-static void check_dma_input(bool restore)
-{
+static void check_dma_input(bool restore) {
   const u32 rooms[]      = {0, 1, 2, 3, 4, 63, 64, 65, 66, 67, 511, 512};
   const u32 requests[]   = {0, 1, 33};
   const u32 patterns[]   = {0xCAFE1357, 0x89ABCDEF};
@@ -47,17 +46,14 @@ static void check_dma_input(bool restore)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(MdecInputDma, fresh)
-{
+TEST(MdecInputDma, fresh) {
   check_dma_input(false);
 }
-TEST(MdecInputDma, restored)
-{
+TEST(MdecInputDma, restored) {
   check_dma_input(true);
 }
 
-static void check_mmio_input(bool restore)
-{
+static void check_mmio_input(bool restore) {
   const u32 rooms[]      = {0, 1, 2, 3, 4, 65, 66, 67};
   const u32 patterns[]   = {0xCAFE1357, 0x89ABCDEF};
   const u32 program[]    = {0x1000FFFF, 0};
@@ -88,11 +84,9 @@ static void check_mmio_input(bool restore)
   EXPECT_EQ(failures, 0);
 }
 
-TEST(MdecInputMmio, fresh)
-{
+TEST(MdecInputMmio, fresh) {
   check_mmio_input(false);
 }
-TEST(MdecInputMmio, restored)
-{
+TEST(MdecInputMmio, restored) {
   check_mmio_input(true);
 }

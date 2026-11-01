@@ -8,13 +8,11 @@
 
 #include "types.h"
 
-ALWAYS_INLINE void hash_combine_u64(u64* seed, u64 value)
-{
+ALWAYS_INLINE void hash_combine_u64(u64* seed, u64 value) {
   *seed ^= value + 0x9e3779b9ull + (*seed << 6) + (*seed >> 2);
 }
 
-ALWAYS_INLINE void hash_combine_u32(u32* seed, u32 value)
-{
+ALWAYS_INLINE void hash_combine_u32(u32* seed, u32 value) {
   *seed ^= value + 0x9e3779b9u + (*seed << 6) + (*seed >> 2);
 }
 

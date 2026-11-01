@@ -3,23 +3,20 @@
 
 static u32 store_device_reads, store_device_writes;
 
-static u32 observe_store_device_read(u32 address)
-{
+static u32 observe_store_device_read(u32 address) {
   (void)address;
   store_device_reads++;
   return 0x12345678;
 }
 
-static void observe_store_device_write(u32 address, u32 value)
-{
+static void observe_store_device_write(u32 address, u32 value) {
   (void)address;
   (void)value;
   store_device_writes++;
 }
 
 static void check_store_alignment(u32 cop, cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking,
-                                  bool checked)
-{
+                                  bool checked) {
   for (u32 form = 0; form < 2; form++) {
     for (u32 region = 0; region < 2; region++) {
       for (u32 offset = 1; offset < 4; offset++) {
@@ -114,32 +111,25 @@ static void check_store_alignment(u32 cop, cpu_execution_mode_t mode, cpu_fastme
 }
 
 #define STORE_ALIGNMENT_CASES(number)                                                                             \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_interpreter)                                                   \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_interpreter) {                                                 \
     check_store_alignment(number, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, false);        \
   }                                                                                                               \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_cached)                                                        \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_cached) {                                                      \
     check_store_alignment(number, CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true, false); \
   }                                                                                                               \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_native)                                                        \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_native) {                                                      \
     check_store_alignment(number, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true, false);         \
   }                                                                                                               \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_mmap)                                                          \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_mmap) {                                                        \
     check_store_alignment(number, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true, false);             \
   }                                                                                                               \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_lut)                                                           \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_lut) {                                                         \
     check_store_alignment(number, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true, false);              \
   }                                                                                                               \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_unlinked)                                                      \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_unlinked) {                                                    \
     check_store_alignment(number, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, false, false);             \
   }                                                                                                               \
-  TEST(CpuCoprocessorStoreAlignment, cop##number##_checked)                                                       \
-  {                                                                                                               \
+  TEST(CpuCoprocessorStoreAlignment, cop##number##_checked) {                                                     \
     check_store_alignment(number, CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true, true);               \
   }
 

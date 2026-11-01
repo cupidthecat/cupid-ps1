@@ -1,13 +1,11 @@
 /* cupid-ps1 successful word-merge and load-delay regressions. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static u32 memory_instruction(u32 op, u32 base, u32 target, u32 offset)
-{
+static u32 memory_instruction(u32 op, u32 base, u32 target, u32 offset) {
   return (op << 26) | (base << 21) | (target << 16) | offset;
 }
 
-static void check_native_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_native_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   if (mode == CPU_EXECUTION_MODE_RECOMPILER) {
     EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
     EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
@@ -15,8 +13,7 @@ static void check_native_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t 
   if (fastmem != CPU_FASTMEM_MODE_DISABLED) EXPECT_TRUE(cpu_code_cache_is_using_fastmem());
 }
 
-static void check_merge_pairs(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_merge_pairs(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u8 bytes[] = {0x11, 0x82, 0xF3, 0x64, 0xA5, 0x36, 0xC7, 0x58};
   for (u32 offset = 0; offset < 4; offset++) {
     for (u32 reverse = 0; reverse < 2; reverse++) {
@@ -49,8 +46,7 @@ static void check_merge_pairs(cpu_execution_mode_t mode, cpu_fastmem_mode_t fast
   }
 }
 
-static void check_pending_base(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_pending_base(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 right = 0; right < 2; right++) {
     for (u32 target = 8; target < 10; target++) {
       const u32 merge   = memory_instruction(right ? CPU_OP_LWR : CPU_OP_LWL, 8, target, right ? 0 : 3);
@@ -76,28 +72,22 @@ static void check_pending_base(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
 }
 
 #define MERGE_CASES(name, check)                                                   \
-  TEST(NativeMemoryMerge, name##_interpreter)                                      \
-  {                                                                                \
+  TEST(NativeMemoryMerge, name##_interpreter) {                                    \
     check(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);        \
   }                                                                                \
-  TEST(NativeMemoryMerge, name##_cached)                                           \
-  {                                                                                \
+  TEST(NativeMemoryMerge, name##_cached) {                                         \
     check(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true); \
   }                                                                                \
-  TEST(NativeMemoryMerge, name##_native)                                           \
-  {                                                                                \
+  TEST(NativeMemoryMerge, name##_native) {                                         \
     check(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
   }                                                                                \
-  TEST(NativeMemoryMerge, name##_lut)                                              \
-  {                                                                                \
+  TEST(NativeMemoryMerge, name##_lut) {                                            \
     check(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                \
-  TEST(NativeMemoryMerge, name##_mmap)                                             \
-  {                                                                                \
+  TEST(NativeMemoryMerge, name##_mmap) {                                           \
     check(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);             \
   }                                                                                \
-  TEST(NativeMemoryMerge, name##_unlinked)                                         \
-  {                                                                                \
+  TEST(NativeMemoryMerge, name##_unlinked) {                                       \
     check(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);        \
   }
 

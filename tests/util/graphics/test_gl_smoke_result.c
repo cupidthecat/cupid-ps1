@@ -10,36 +10,30 @@
 static unsigned         swaps, fail_at, pumps, clears, destroyed, surfaces_destroyed, windows_destroyed, quits;
 static opengl_context_t context;
 
-static int smoke_init(Uint32 flags)
-{
+static int smoke_init(Uint32 flags) {
   return 0;
 }
 
-static SDL_Window* smoke_window(const char* title, int x, int y, int w, int h, Uint32 flags)
-{
+static SDL_Window* smoke_window(const char* title, int x, int y, int w, int h, Uint32 flags) {
   return (SDL_Window*)&context;
 }
 
-static SDL_bool smoke_window_info(SDL_Window* window, SDL_SysWMinfo* info)
-{
+static SDL_bool smoke_window_info(SDL_Window* window, SDL_SysWMinfo* info) {
   info->subsystem        = SDL_SYSWM_X11;
   info->info.x11.display = NULL;
   info->info.x11.window  = 1;
   return SDL_TRUE;
 }
 
-static void smoke_destroy_window(SDL_Window* window)
-{
+static void smoke_destroy_window(SDL_Window* window) {
   windows_destroyed++;
 }
 
-static void smoke_quit(void)
-{
+static void smoke_quit(void) {
   quits++;
 }
 
-static void smoke_pump(void)
-{
+static void smoke_pump(void) {
   pumps++;
 }
 
@@ -47,39 +41,32 @@ static void smoke_viewport(GLint x, GLint y, GLsizei w, GLsizei h) {}
 
 static void smoke_clear_color(GLfloat r, GLfloat g, GLfloat b, GLfloat a) {}
 
-static void smoke_clear(GLbitfield mask)
-{
+static void smoke_clear(GLbitfield mask) {
   clears++;
 }
 
-static bool smoke_swap(opengl_context_t* ctx)
-{
+static bool smoke_swap(opengl_context_t* ctx) {
   return ++swaps != fail_at;
 }
 
-static bool smoke_interval(opengl_context_t* ctx, s32 interval, Error* error)
-{
+static bool smoke_interval(opengl_context_t* ctx, s32 interval, Error* error) {
   return true;
 }
 
-static bool smoke_done(opengl_context_t* ctx)
-{
+static bool smoke_done(opengl_context_t* ctx) {
   return true;
 }
 
-static void smoke_destroy_surface(opengl_context_t* ctx, opengl_surface_handle_t surface)
-{
+static void smoke_destroy_surface(opengl_context_t* ctx, opengl_surface_handle_t surface) {
   surfaces_destroyed++;
 }
 
-static void smoke_destroy(opengl_context_t* ctx)
-{
+static void smoke_destroy(opengl_context_t* ctx) {
   destroyed++;
 }
 
 static opengl_context_t* smoke_create(window_info_t* info, opengl_surface_handle_t* surface, bool prefer_gles,
-                                      Error* error)
-{
+                                      Error* error) {
   static const opengl_context_vtable_t vtable = {
       .swap_buffers      = smoke_swap,
       .set_swap_interval = smoke_interval,
@@ -110,8 +97,7 @@ static int smoke_entry(int argc, char** argv);
 #include "test_gl_context_smoke.c"
 #undef main
 
-static void check_smoke(unsigned failure)
-{
+static void check_smoke(unsigned failure) {
   swaps = pumps = clears = destroyed = surfaces_destroyed = windows_destroyed = quits = 0;
   fail_at                                                                             = failure;
   FILE* output                                                                        = tmpfile();
@@ -147,17 +133,14 @@ static void check_smoke(unsigned failure)
   }
 }
 
-TEST(GlSmokeResult, complete_run_succeeds)
-{
+TEST(GlSmokeResult, complete_run_succeeds) {
   check_smoke(0);
 }
 
-TEST(GlSmokeResult, first_swap_failure_fails_and_cleans_up)
-{
+TEST(GlSmokeResult, first_swap_failure_fails_and_cleans_up) {
   check_smoke(1);
 }
 
-TEST(GlSmokeResult, last_swap_failure_fails_and_cleans_up)
-{
+TEST(GlSmokeResult, last_swap_failure_fails_and_cleans_up) {
   check_smoke(120);
 }

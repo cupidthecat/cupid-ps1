@@ -1,13 +1,11 @@
 /* cupid-ps1 device-bus controls during CPU execution and state restoration. */
 #include "tests/core/memory/device_bus_execution_fixture.h"
 
-static void set_bios_control(u32 value)
-{
+static void set_bios_control(u32 value) {
   cpu_get_memory_write_handler(0x1F801010, MEMORY_ACCESS_SIZE_WORD)(0x1F801010, value);
 }
 
-static void check_bios_cpu_data(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_bios_cpu_data(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 constant = 0; constant < 2; constant++) {
     for (u32 restore = 0; restore < 2; restore++) {
       const u32 base    = 0xA0010000;
@@ -64,8 +62,7 @@ static void check_bios_cpu_data(cpu_execution_mode_t mode, cpu_fastmem_mode_t fa
   }
 }
 
-static void check_bios_cpu_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_bios_cpu_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 increment = 0; increment < 2; increment++) {
     for (u32 cached = 0; cached < 2; cached++) {
       for (u32 restore = 0; restore < 2; restore++) {
@@ -110,12 +107,10 @@ static void check_bios_cpu_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t f
 }
 
 #define DEVICE_CPU_CASES(name, mode, fastmem, linking) \
-  TEST(DeviceBusCPU, name##_data)                      \
-  {                                                    \
+  TEST(DeviceBusCPU, name##_data) {                    \
     check_bios_cpu_data(mode, fastmem, linking);       \
   }                                                    \
-  TEST(DeviceBusCPU, name##_fetch)                     \
-  {                                                    \
+  TEST(DeviceBusCPU, name##_fetch) {                   \
     check_bios_cpu_fetch(mode, fastmem, linking);      \
   }
 DEVICE_CPU_CASES(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

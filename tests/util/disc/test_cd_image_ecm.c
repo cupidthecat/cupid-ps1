@@ -15,63 +15,64 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static void write_file_bytes(const char* path, const void* data, size_t len)
-{
+static void write_file_bytes(const char* path, const void* data, size_t len) {
   FILE* fp = fopen(path, "wb");
   EXPECT_NOT_NULL(fp);
   if (len) EXPECT_EQ(fwrite(data, 1, len, fp), len);
   fclose(fp);
 }
 
-static char* make_tmpdir(void)
-{
+static char* make_tmpdir(void) {
   char tmpl[] = "/tmp/cupid_ps1_ecm_XXXXXX";
   if (!mkdtemp(tmpl)) Panic("mkdtemp");
   return strdup(tmpl);
 }
 
-static char* make_path(const char* dir, const char* name)
-{
+static char* make_path(const char* dir, const char* name) {
   char* out = NULL;
   if (asprintf(&out, "%s/%s", dir, name) < 0) Panic("asprintf");
   return out;
 }
 
 /* Reject when magic isn't "ECM\0". */
-TEST(CDImageEcm, RejectsBadMagic)
-{
-  char* dir   = make_tmpdir();
-  char* path  = make_path(dir, "bad.ecm");
+TEST(CDImageEcm, RejectsBadMagic) {
+  char* dir  = make_tmpdir();
+  char* path = make_path(dir, "bad.ecm");
 
   /* Wrong magic. */
-  const unsigned char bad[8] = { 'X','Y','Z','Q', 0,0,0,0 };
+  const unsigned char bad[8] = {'X', 'Y', 'Z', 'Q', 0, 0, 0, 0};
   write_file_bytes(path, bad, sizeof(bad));
 
-  Error err; Error_init(&err);
+  Error err;
+  Error_init(&err);
   cd_image_t* img = cd_image_open(path, &err);
   EXPECT_NULL(img);
   Error_destroy(&err);
 
-  unlink(path); free(path);
-  rmdir(dir);   free(dir);
+  unlink(path);
+  free(path);
+  rmdir(dir);
+  free(dir);
 }
 
 /* Reject if file is shorter than the 4-byte magic. */
-TEST(CDImageEcm, RejectsTinyFile)
-{
-  char* dir   = make_tmpdir();
-  char* path  = make_path(dir, "tiny.ecm");
+TEST(CDImageEcm, RejectsTinyFile) {
+  char* dir  = make_tmpdir();
+  char* path = make_path(dir, "tiny.ecm");
 
-  const unsigned char tiny[2] = { 'E','C' };
+  const unsigned char tiny[2] = {'E', 'C'};
   write_file_bytes(path, tiny, sizeof(tiny));
 
-  Error err; Error_init(&err);
+  Error err;
+  Error_init(&err);
   cd_image_t* img = cd_image_open(path, &err);
   EXPECT_NULL(img);
   Error_destroy(&err);
 
-  unlink(path); free(path);
-  rmdir(dir);   free(dir);
+  unlink(path);
+  free(path);
+  rmdir(dir);
+  free(dir);
 }
 
 /* Accept a single one-raw-sector image: magic + raw block (type=0,
@@ -93,14 +94,16 @@ TEST(CDImageEcm, RejectsTinyFile)
  *   bits 19..25 = 0x7F | 0x80 -> 0xFF
  *   bits 26..31 = 0x3F (no cont) -> 0x3F
  */
-TEST(CDImageEcm, OpensMinimalRawImage)
-{
+TEST(CDImageEcm, OpensMinimalRawImage) {
   char* dir  = make_tmpdir();
   char* path = make_path(dir, "ok.ecm");
 
   unsigned char* buf = (unsigned char*)calloc(1, 4 + 2 + 2352 + 5);
-  size_t off = 0;
-  buf[off++] = 'E'; buf[off++] = 'C'; buf[off++] = 'M'; buf[off++] = 0x00;
+  size_t         off = 0;
+  buf[off++]         = 'E';
+  buf[off++]         = 'C';
+  buf[off++]         = 'M';
+  buf[off++]         = 0x00;
   /* raw count=2351 (encoded zero-based, +1 = 2352 bytes) */
   buf[off++] = 0xBC;
   buf[off++] = 0x49;
@@ -115,7 +118,8 @@ TEST(CDImageEcm, OpensMinimalRawImage)
   write_file_bytes(path, buf, off);
   free(buf);
 
-  Error err; Error_init(&err);
+  Error err;
+  Error_init(&err);
   cd_image_t* img = cd_image_open(path, &err);
   /* We reuse cd_image_open's extension dispatch which routes .ecm to
    * cd_image_open_ecm.  Single 2352-byte raw "sector" + 2-second pregap. */
@@ -127,6 +131,8 @@ TEST(CDImageEcm, OpensMinimalRawImage)
   }
   Error_destroy(&err);
 
-  unlink(path); free(path);
-  rmdir(dir);   free(dir);
+  unlink(path);
+  free(path);
+  rmdir(dir);
+  free(dir);
 }

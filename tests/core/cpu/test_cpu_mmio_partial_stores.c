@@ -5,14 +5,12 @@
 static bus_memory_read_handler_t original_device_read;
 static u32                       observed_device_reads;
 
-static u32 observe_device_read(u32 address)
-{
+static u32 observe_device_read(u32 address) {
   observed_device_reads++;
   return original_device_read(address);
 }
 
-static void check_partial_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_partial_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 baselines[] = {0, 0xFFFFFFFF, 0x11223344};
   const u32 sources[]   = {0xAABBCCDD, 0xFEDCBA98};
   u32       failures = 0, cells = 0, unexpected_reads = 0;
@@ -73,8 +71,7 @@ static void check_partial_stores(cpu_execution_mode_t mode, cpu_fastmem_mode_t f
 }
 
 #define PARTIAL_CASE(name, mode, fastmem, linking) \
-  TEST(CpuPartialMMIO, name)                       \
-  {                                                \
+  TEST(CpuPartialMMIO, name) {                     \
     check_partial_stores(mode, fastmem, linking);  \
   }
 PARTIAL_CASE(interpreter, CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true)

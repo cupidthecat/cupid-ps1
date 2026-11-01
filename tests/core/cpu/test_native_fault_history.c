@@ -9,22 +9,19 @@ static uintptr_t             expected_fault_address;
 static bool                  expected_write;
 static u32                   device_reads, device_writes;
 
-static u32 read_fault_device(u32 address)
-{
+static u32 read_fault_device(u32 address) {
   EXPECT_EQ(address, 0x1F802000);
   device_reads++;
   return 0x13572468;
 }
 
-static void write_fault_device(u32 address, u32 value)
-{
+static void write_fault_device(u32 address, u32 value) {
   EXPECT_EQ(address, 0x1F802000);
   EXPECT_EQ(value, 0x13572468);
   device_writes++;
 }
 
-static page_fault_handler_result_t observe_native_fault(void* exception_pc, void* fault_address, bool is_write)
-{
+static page_fault_handler_result_t observe_native_fault(void* exception_pc, void* fault_address, bool is_write) {
   const bool observed = (uintptr_t)fault_address == expected_fault_address && is_write == expected_write;
   if (observed) {
     faults_seen++;
@@ -36,8 +33,7 @@ static page_fault_handler_result_t observe_native_fault(void* exception_pc, void
   return result;
 }
 
-static void check_zero_pc_fault(cpu_fastmem_mode_t fastmem, bool linking, bool store)
-{
+static void check_zero_pc_fault(cpu_fastmem_mode_t fastmem, bool linking, bool store) {
   /* First use a RAM base, then revisit the same access with a device base. */
   const u32 words[] = {store ? 0xAD280000 : 0x8D280000, 0x26100001, 0x8D490000, 0, 0x08000000, 0};
   start_cpu_with_fastmem(CPU_EXECUTION_MODE_RECOMPILER, fastmem, 0, words, 6);
@@ -93,48 +89,39 @@ static void check_zero_pc_fault(cpu_fastmem_mode_t fastmem, bool linking, bool s
   finish_cpu();
 }
 
-TEST(NativeFaultHistory, lut_load_at_zero)
-{
+TEST(NativeFaultHistory, lut_load_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_LUT, true, false);
 }
 
-TEST(NativeFaultHistory, lut_store_at_zero)
-{
+TEST(NativeFaultHistory, lut_store_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_LUT, true, true);
 }
 
-TEST(NativeFaultHistory, mmap_load_at_zero)
-{
+TEST(NativeFaultHistory, mmap_load_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_MMAP, true, false);
 }
 
-TEST(NativeFaultHistory, mmap_store_at_zero)
-{
+TEST(NativeFaultHistory, mmap_store_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_MMAP, true, true);
 }
 
-TEST(NativeFaultHistory, unlinked_lut_load_at_zero)
-{
+TEST(NativeFaultHistory, unlinked_lut_load_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_LUT, false, false);
 }
 
-TEST(NativeFaultHistory, unlinked_lut_store_at_zero)
-{
+TEST(NativeFaultHistory, unlinked_lut_store_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_LUT, false, true);
 }
 
-TEST(NativeFaultHistory, unlinked_mmap_load_at_zero)
-{
+TEST(NativeFaultHistory, unlinked_mmap_load_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_MMAP, false, false);
 }
 
-TEST(NativeFaultHistory, unlinked_mmap_store_at_zero)
-{
+TEST(NativeFaultHistory, unlinked_mmap_store_at_zero) {
   check_zero_pc_fault(CPU_FASTMEM_MODE_MMAP, false, true);
 }
 
-static void check_many_fault_sites(cpu_fastmem_mode_t fastmem, u32 entry)
-{
+static void check_many_fault_sites(cpu_fastmem_mode_t fastmem, u32 entry) {
   const u32 sites = 5000;
   const u32 count = sites * 4 + 3;
   u32*      words = malloc(count * sizeof(*words));
@@ -187,22 +174,18 @@ static void check_many_fault_sites(cpu_fastmem_mode_t fastmem, u32 entry)
   finish_cpu();
 }
 
-TEST(NativeFaultHistory, lut_retains_thousands_of_fault_sites)
-{
+TEST(NativeFaultHistory, lut_retains_thousands_of_fault_sites) {
   check_many_fault_sites(CPU_FASTMEM_MODE_LUT, 0x10000);
 }
 
-TEST(NativeFaultHistory, mmap_retains_thousands_of_fault_sites)
-{
+TEST(NativeFaultHistory, mmap_retains_thousands_of_fault_sites) {
   check_many_fault_sites(CPU_FASTMEM_MODE_MMAP, 0x10000);
 }
 
-TEST(NativeFaultHistory, lut_retains_zero_across_growth)
-{
+TEST(NativeFaultHistory, lut_retains_zero_across_growth) {
   check_many_fault_sites(CPU_FASTMEM_MODE_LUT, 0);
 }
 
-TEST(NativeFaultHistory, mmap_retains_zero_across_growth)
-{
+TEST(NativeFaultHistory, mmap_retains_zero_across_growth) {
   check_many_fault_sites(CPU_FASTMEM_MODE_MMAP, 0);
 }

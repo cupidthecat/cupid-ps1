@@ -14,12 +14,12 @@
 
 typedef enum {
   GPU_RENDER_API_NONE = 0,
-  GPU_RENDER_API_D3D11,        /* dropped */
-  GPU_RENDER_API_D3D12,        /* dropped */
-  GPU_RENDER_API_VULKAN,       /* deferred */
+  GPU_RENDER_API_D3D11,  /* dropped */
+  GPU_RENDER_API_D3D12,  /* dropped */
+  GPU_RENDER_API_VULKAN, /* deferred */
   GPU_RENDER_API_OPENGL,
-  GPU_RENDER_API_OPENGL_ES,    /* deferred */
-  GPU_RENDER_API_METAL,        /* dropped */
+  GPU_RENDER_API_OPENGL_ES, /* deferred */
+  GPU_RENDER_API_METAL,     /* dropped */
 } gpu_render_api_t;
 
 typedef enum {
@@ -62,7 +62,7 @@ typedef enum {
   GPU_TEXTURE_FORMAT_BC3,
   GPU_TEXTURE_FORMAT_BC7,
   /* Backward-compat alias for window_info_t::surface_format. */
-  GPU_TEXTURE_FORMAT_RGBA5551 = GPU_TEXTURE_FORMAT_RGB5A1,
+  GPU_TEXTURE_FORMAT_RGBA5551  = GPU_TEXTURE_FORMAT_RGB5A1,
   GPU_TEXTURE_FORMAT_MAX_COUNT = GPU_TEXTURE_FORMAT_BC7 + 1,
 } gpu_texture_format_t;
 
@@ -76,12 +76,12 @@ typedef enum {
 
 typedef enum {
   GPU_SHADER_LANGUAGE_NONE = 0,
-  GPU_SHADER_LANGUAGE_HLSL,        /* deferred */
+  GPU_SHADER_LANGUAGE_HLSL, /* deferred */
   GPU_SHADER_LANGUAGE_GLSL,
   GPU_SHADER_LANGUAGE_GLSL_ES,
-  GPU_SHADER_LANGUAGE_GLSL_VK,     /* deferred */
-  GPU_SHADER_LANGUAGE_MSL,         /* dropped */
-  GPU_SHADER_LANGUAGE_SPV,         /* deferred */
+  GPU_SHADER_LANGUAGE_GLSL_VK, /* deferred */
+  GPU_SHADER_LANGUAGE_MSL,     /* dropped */
+  GPU_SHADER_LANGUAGE_SPV,     /* deferred */
   GPU_SHADER_LANGUAGE_COUNT,
 } gpu_shader_language_t;
 
@@ -89,16 +89,16 @@ typedef enum {
   GPU_DRIVER_TYPE_MOBILE_FLAG   = 0x100,
   GPU_DRIVER_TYPE_SOFTWARE_FLAG = 0x200,
 
-  GPU_DRIVER_TYPE_UNKNOWN              = 0,
-  GPU_DRIVER_TYPE_AMD_PROPRIETARY      = 1,
-  GPU_DRIVER_TYPE_AMD_MESA             = 2,
-  GPU_DRIVER_TYPE_INTEL_PROPRIETARY    = 3,
-  GPU_DRIVER_TYPE_INTEL_MESA           = 4,
-  GPU_DRIVER_TYPE_NVIDIA_PROPRIETARY   = 5,
-  GPU_DRIVER_TYPE_NVIDIA_MESA          = 6,
-  GPU_DRIVER_TYPE_APPLE_PROPRIETARY    = 7,
-  GPU_DRIVER_TYPE_APPLE_MESA           = 8,
-  GPU_DRIVER_TYPE_DOZEN_MESA           = 9,
+  GPU_DRIVER_TYPE_UNKNOWN            = 0,
+  GPU_DRIVER_TYPE_AMD_PROPRIETARY    = 1,
+  GPU_DRIVER_TYPE_AMD_MESA           = 2,
+  GPU_DRIVER_TYPE_INTEL_PROPRIETARY  = 3,
+  GPU_DRIVER_TYPE_INTEL_MESA         = 4,
+  GPU_DRIVER_TYPE_NVIDIA_PROPRIETARY = 5,
+  GPU_DRIVER_TYPE_NVIDIA_MESA        = 6,
+  GPU_DRIVER_TYPE_APPLE_PROPRIETARY  = 7,
+  GPU_DRIVER_TYPE_APPLE_MESA         = 8,
+  GPU_DRIVER_TYPE_DOZEN_MESA         = 9,
 
   GPU_DRIVER_TYPE_IMAGINATION_PROPRIETARY = 0x100 | 1,
   GPU_DRIVER_TYPE_IMAGINATION_MESA        = 0x100 | 2,
@@ -109,9 +109,9 @@ typedef enum {
   GPU_DRIVER_TYPE_BROADCOM_PROPRIETARY    = 0x100 | 7,
   GPU_DRIVER_TYPE_BROADCOM_MESA           = 0x100 | 8,
 
-  GPU_DRIVER_TYPE_LLVMPIPE   = 0x200 | 1,
+  GPU_DRIVER_TYPE_LLVMPIPE    = 0x200 | 1,
   GPU_DRIVER_TYPE_SWIFTSHADER = 0x200 | 2,
-  GPU_DRIVER_TYPE_WARP       = 0x200 | 3,
+  GPU_DRIVER_TYPE_WARP        = 0x200 | 3,
 } gpu_driver_type_t;
 
 typedef enum {

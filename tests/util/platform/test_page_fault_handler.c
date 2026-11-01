@@ -7,20 +7,17 @@
 
 static volatile sig_atomic_t s_received;
 
-static void previous_handler(int sig)
-{
+static void previous_handler(int sig) {
   (void)sig;
   s_received = 1;
 }
 
-static void later_handler(int sig)
-{
+static void later_handler(int sig) {
   (void)sig;
   s_received = 2;
 }
 
-TEST(PageFaultHandler, uninstall_restores_previous_handler_and_allows_reinstall)
-{
+TEST(PageFaultHandler, uninstall_restores_previous_handler_and_allows_reinstall) {
   struct sigaction action = {0}, original;
   action.sa_handler       = previous_handler;
   sigemptyset(&action.sa_mask);
@@ -38,8 +35,7 @@ TEST(PageFaultHandler, uninstall_restores_previous_handler_and_allows_reinstall)
   Error_destroy(&error);
 }
 
-TEST(PageFaultHandler, uninstall_keeps_a_handler_installed_later)
-{
+TEST(PageFaultHandler, uninstall_keeps_a_handler_installed_later) {
   Error error;
   Error_init(&error);
   struct sigaction original, action = {0};
@@ -56,8 +52,7 @@ TEST(PageFaultHandler, uninstall_keeps_a_handler_installed_later)
   Error_destroy(&error);
 }
 
-TEST(PageFaultHandler, uninstall_is_idempotent)
-{
+TEST(PageFaultHandler, uninstall_is_idempotent) {
   Error error;
   Error_init(&error);
   EXPECT_TRUE(page_fault_handler_uninstall(&error));

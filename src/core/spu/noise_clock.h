@@ -6,7 +6,7 @@
 
 typedef struct {
   u16 divider;
-  u8 counter;
+  u8  counter;
 } spu_noise_clock_t;
 
 /* Advance one 44.1 kHz sample. True means the shared LFSR shifts once. */

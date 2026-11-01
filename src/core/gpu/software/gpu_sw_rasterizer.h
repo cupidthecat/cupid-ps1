@@ -20,7 +20,7 @@ typedef enum {
   GPU_SW_TEX_MODULATION_5BIT          = 3, /* modulate with 5-bit color */
 } gpu_sw_tex_modulation_t;
 
- /* Dither LUT: ((color + DITHER_MATRIX[y][x]) >> 3) clamped to [0,31].
+/* Dither LUT: ((color + DITHER_MATRIX[y][x]) >> 3) clamped to [0,31].
  * 512 = next-pow2 covering max input 31*255>>4 = 494. */
 #define GPU_SW_DITHER_LUT_SIZE 512
 
@@ -28,7 +28,7 @@ typedef enum {
  * we precompute the LUT at startup. */
 extern u8 gpu_sw_dither_lut[DITHER_MATRIX_SIZE][DITHER_MATRIX_SIZE][GPU_SW_DITHER_LUT_SIZE];
 
- /* Drawing area shared with the rasterizer.  Set by gpu_backend's
+/* Drawing area shared with the rasterizer.  Set by gpu_backend's
  * drawing_area_changed callback. */
 extern gpu_drawing_area_t gpu_sw_drawing_area;
 
@@ -44,36 +44,29 @@ void gpu_sw_rasterizer_init(void);
  * automatically from gpu_sw_rasterizer_init(). */
 void gpu_sw_rasterizer_dispatch_init(void);
 
- /*
+/*
  * GenerateChromaSmoothingFragmentShader).  Operates in-place on a
  * rectangular RGBA8 region of `fb` (stride `fb_stride` u32s/row), keeping
  * each pixel's luma and replacing its chroma with a bilerp of four 2x2
  * neighbour averages.  Both SW and HW renderers call this after the
  * 24-bit row decode fills their display_buffer.  Skip in interlaced mode
  * (per-field smoothing not implemented). */
-void gpu_apply_chroma_smoothing_24bit(u32* fb, u32 fb_stride,
-                                      u32 fmv_x, u32 fmv_y,
-                                      u32 fmv_w, u32 fmv_h);
+void gpu_apply_chroma_smoothing_24bit(u32* fb, u32 fb_stride, u32 fmv_x, u32 fmv_y, u32 fmv_w, u32 fmv_h);
 
 /* Cache the active CLUT into g_gpu_clut. */
 void gpu_sw_rasterizer_update_clut(gpu_texture_palette_reg_t reg, bool clut_is_8bit);
 
 /* Primitive entry points; runtime-dispatched on cmd flags. */
 void gpu_sw_rasterizer_draw_rectangle(const gpu_backend_draw_rectangle_cmd_t* cmd);
-void gpu_sw_rasterizer_draw_line     (const gpu_backend_draw_cmd_t* cmd,
-                                      const gpu_backend_line_vertex_t* p0,
-                                      const gpu_backend_line_vertex_t* p1);
-void gpu_sw_rasterizer_draw_triangle (const gpu_backend_draw_cmd_t* cmd,
-                                      const gpu_backend_polygon_vertex_t* v0,
-                                      const gpu_backend_polygon_vertex_t* v1,
-                                      const gpu_backend_polygon_vertex_t* v2);
+void gpu_sw_rasterizer_draw_line(const gpu_backend_draw_cmd_t* cmd, const gpu_backend_line_vertex_t* p0,
+                                 const gpu_backend_line_vertex_t* p1);
+void gpu_sw_rasterizer_draw_triangle(const gpu_backend_draw_cmd_t* cmd, const gpu_backend_polygon_vertex_t* v0,
+                                     const gpu_backend_polygon_vertex_t* v1, const gpu_backend_polygon_vertex_t* v2);
 
 /* VRAM blits. */
-void gpu_sw_rasterizer_fill_vram (u32 x, u32 y, u32 width, u32 height, u32 color,
-                                  bool interlaced, u8 active_line_lsb);
-void gpu_sw_rasterizer_write_vram(u32 x, u32 y, u32 width, u32 height, const u16* data,
-                                  bool set_mask, bool check_mask);
-void gpu_sw_rasterizer_copy_vram (u32 src_x, u32 src_y, u32 dst_x, u32 dst_y,
-                                  u32 width, u32 height, bool set_mask, bool check_mask);
+void gpu_sw_rasterizer_fill_vram(u32 x, u32 y, u32 width, u32 height, u32 color, bool interlaced, u8 active_line_lsb);
+void gpu_sw_rasterizer_write_vram(u32 x, u32 y, u32 width, u32 height, const u16* data, bool set_mask, bool check_mask);
+void gpu_sw_rasterizer_copy_vram(u32 src_x, u32 src_y, u32 dst_x, u32 dst_y, u32 width, u32 height, bool set_mask,
+                                 bool check_mask);
 
 #endif /* CUPID_CORE_GPU_SW_RASTERIZER_H */

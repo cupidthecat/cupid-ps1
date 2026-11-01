@@ -10,19 +10,16 @@ static PVOID                            s_handler;
 static _Atomic(page_fault_handler_cb_t) s_callback;
 static _Thread_local bool               s_in_handler;
 
-void page_fault_handler_set_callback(page_fault_handler_cb_t cb)
-{
+void page_fault_handler_set_callback(page_fault_handler_cb_t cb) {
   atomic_store_explicit(&s_callback, cb, memory_order_release);
 }
 
-page_fault_handler_result_t page_fault_handler_handle(void* pc, void* address, bool write)
-{
+page_fault_handler_result_t page_fault_handler_handle(void* pc, void* address, bool write) {
   page_fault_handler_cb_t cb = atomic_load_explicit(&s_callback, memory_order_acquire);
   return cb ? cb(pc, address, write) : PAGE_FAULT_HANDLER_EXECUTE_NEXT;
 }
 
-static LONG CALLBACK dispatch_exception(PEXCEPTION_POINTERS exception)
-{
+static LONG CALLBACK dispatch_exception(PEXCEPTION_POINTERS exception) {
   EXCEPTION_RECORD* record = exception->ExceptionRecord;
   if (record->ExceptionCode != EXCEPTION_ACCESS_VIOLATION || record->NumberParameters < 2 ||
       record->ExceptionInformation[0] > 1 || s_in_handler)
@@ -35,8 +32,7 @@ static LONG CALLBACK dispatch_exception(PEXCEPTION_POINTERS exception)
   return result == PAGE_FAULT_HANDLER_CONTINUE_EXECUTION ? EXCEPTION_CONTINUE_EXECUTION : EXCEPTION_CONTINUE_SEARCH;
 }
 
-bool page_fault_handler_install(Error* error)
-{
+bool page_fault_handler_install(Error* error) {
   AcquireSRWLockExclusive(&s_install_lock);
   if (s_handler) {
     ReleaseSRWLockExclusive(&s_install_lock);
@@ -50,8 +46,7 @@ bool page_fault_handler_install(Error* error)
   return result;
 }
 
-bool page_fault_handler_uninstall(Error* error)
-{
+bool page_fault_handler_uninstall(Error* error) {
   AcquireSRWLockExclusive(&s_install_lock);
   if (s_handler && !RemoveVectoredExceptionHandler(s_handler)) {
     windows_set_error(error, "Removing access-violation handler", GetLastError());

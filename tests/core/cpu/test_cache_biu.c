@@ -1,31 +1,26 @@
 /* cupid-ps1 isolated cache access and refill regressions. */
 #include "tests/core/cpu/cpu_execution_fixture.h"
 
-static void cache_start(void)
-{
+static void cache_start(void) {
   const u32 words[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, words, 2);
 }
 
-static void cache_mode(bool tag)
-{
+static void cache_mode(bool tag) {
   cpu_set_cache_control_bits(tag ? 0x1E90C : 0x1E908);
   g_cpu_state.cop0_regs.sr.Isc = 1;
   cpu_update_memory_pointers();
 }
 
-static u32 cache_load(u32 address, memory_access_size_t size)
-{
+static u32 cache_load(u32 address, memory_access_size_t size) {
   return cpu_get_memory_read_handler(address, size)(address);
 }
 
-static void cache_store(u32 address, u32 value)
-{
+static void cache_store(u32 address, u32 value) {
   cpu_get_memory_write_handler(address, MEMORY_ACCESS_SIZE_WORD)(address, value);
 }
 
-TEST(CacheBiu, tag_words_select_metadata_without_changing_code)
-{
+TEST(CacheBiu, tag_words_select_metadata_without_changing_code) {
   cache_start();
   const u32 address = 0x31800;
   const u32 line    = cpu_get_icache_line(address);
@@ -48,8 +43,7 @@ TEST(CacheBiu, tag_words_select_metadata_without_changing_code)
   finish_cpu();
 }
 
-TEST(CacheBiu, tag_flush_retains_every_code_word)
-{
+TEST(CacheBiu, tag_flush_retains_every_code_word) {
   cache_start();
   for (u32 i = 0; i < CPU_ICACHE_SLOTS; i++)
     g_cpu_state.icache_data[i] = 0xABCD0000 | i;
@@ -64,8 +58,7 @@ TEST(CacheBiu, tag_flush_retains_every_code_word)
   finish_cpu();
 }
 
-TEST(CacheBiu, code_reads_obey_width_at_cache_end)
-{
+TEST(CacheBiu, code_reads_obey_width_at_cache_end) {
   cache_start();
   cache_mode(false);
   cache_store(0xFFC, 0x89ABCDEF);
@@ -78,8 +71,7 @@ TEST(CacheBiu, code_reads_obey_width_at_cache_end)
   finish_cpu();
 }
 
-static void check_fills(bool two_words)
-{
+static void check_fills(bool two_words) {
   const u32 address   = 0x31800;
   const u32 data[]    = {0x11111111, 0x22222222, 0x33333333, 0x44444444};
   const u32 invalid[] = {two_words ? 0xC : 0, 1, 3, 7};
@@ -102,17 +94,14 @@ static void check_fills(bool two_words)
   }
 }
 
-TEST(CacheBiu, four_word_fill_offsets)
-{
+TEST(CacheBiu, four_word_fill_offsets) {
   check_fills(false);
 }
-TEST(CacheBiu, two_word_fill_offsets)
-{
+TEST(CacheBiu, two_word_fill_offsets) {
   check_fills(true);
 }
 
-TEST(CacheBiu, matching_refills_compose_and_replace_fetched_words)
-{
+TEST(CacheBiu, matching_refills_compose_and_replace_fetched_words) {
   cache_start();
   const u32 address = 0x31800, line = cpu_get_icache_line(address);
   u32       data[] = {0x11111111, 0x22222222, 0x33333333, 0x44444444};
@@ -137,8 +126,7 @@ TEST(CacheBiu, matching_refills_compose_and_replace_fetched_words)
   finish_cpu();
 }
 
-TEST(CacheBiu, two_word_mismatch_evicts_validity_and_keeps_unfetched_code)
-{
+TEST(CacheBiu, two_word_mismatch_evicts_validity_and_keeps_unfetched_code) {
   cache_start();
   const u32 address = 0x31800, other = address + 0x1000, line = cpu_get_icache_line(address);
   const u32 first[] = {1, 2, 3, 4}, second[] = {5, 6, 7, 8};
@@ -156,8 +144,7 @@ TEST(CacheBiu, two_word_mismatch_evicts_validity_and_keeps_unfetched_code)
   finish_cpu();
 }
 
-TEST(CacheBiu, isolated_cache_state_round_trip)
-{
+TEST(CacheBiu, isolated_cache_state_round_trip) {
   cache_start();
   cache_mode(false);
   cache_store(0x31800, 0x12345678);
@@ -179,8 +166,7 @@ TEST(CacheBiu, isolated_cache_state_round_trip)
   finish_cpu();
 }
 
-static void check_mode_program(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_mode_program(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 words[] = {0xAD090000, 0x8D0B0000, 0,          0x3170001F, 0xADAC0000, 0x8D0E0000,
                        0,          0x01C08821, 0xAD0F0004, 0x8D120004, 0,          0xADBA0000,
                        0xAD090000, 0x8D130000, 0,          0x3273001F, 0x1000FFFF, 0};
@@ -218,23 +204,18 @@ static void check_mode_program(cpu_execution_mode_t mode, cpu_fastmem_mode_t fas
   }
 }
 
-TEST(CacheBiu, mode_switch_interpreter)
-{
+TEST(CacheBiu, mode_switch_interpreter) {
   check_mode_program(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(CacheBiu, mode_switch_cached)
-{
+TEST(CacheBiu, mode_switch_cached) {
   check_mode_program(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(CacheBiu, mode_switch_native)
-{
+TEST(CacheBiu, mode_switch_native) {
   check_mode_program(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);
 }
-TEST(CacheBiu, mode_switch_mmap)
-{
+TEST(CacheBiu, mode_switch_mmap) {
   check_mode_program(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);
 }
-TEST(CacheBiu, mode_switch_unlinked)
-{
+TEST(CacheBiu, mode_switch_unlinked) {
   check_mode_program(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);
 }

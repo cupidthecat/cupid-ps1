@@ -33,13 +33,13 @@
 #include "util/graphics/gpu_types.h"
 #include "util/platform/window_info.h"
 
-typedef struct Error Error;
-typedef struct opengl_texture        opengl_texture_t;
-typedef struct opengl_sampler        opengl_sampler_t;
-typedef struct opengl_texture_buffer opengl_texture_buffer_t;
+typedef struct Error                   Error;
+typedef struct opengl_texture          opengl_texture_t;
+typedef struct opengl_sampler          opengl_sampler_t;
+typedef struct opengl_texture_buffer   opengl_texture_buffer_t;
 typedef struct opengl_download_texture opengl_download_texture_t;
-typedef struct opengl_pipeline       opengl_pipeline_t;
-typedef struct opengl_shader         opengl_shader_t;
+typedef struct opengl_pipeline         opengl_pipeline_t;
+typedef struct opengl_shader           opengl_shader_t;
 
 typedef struct {
   s32 left;
@@ -48,62 +48,74 @@ typedef struct {
   s32 bottom;
 } gpu_rect_t;
 
-ALWAYS_INLINE gpu_rect_t gpu_rect_make(s32 l, s32 t, s32 r, s32 b)
-{ gpu_rect_t v = { l, t, r, b }; return v; }
-
-ALWAYS_INLINE gpu_rect_t gpu_rect_invalid(void)
-{
-  gpu_rect_t v = { INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN };
+ALWAYS_INLINE gpu_rect_t gpu_rect_make(s32 l, s32 t, s32 r, s32 b) {
+  gpu_rect_t v = {l, t, r, b};
   return v;
 }
-ALWAYS_INLINE gpu_rect_t gpu_rect_zero(void)
-{ gpu_rect_t v = { 0, 0, 0, 0 }; return v; }
 
-ALWAYS_INLINE bool gpu_rect_eq(gpu_rect_t a, gpu_rect_t b)
-{ return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom; }
+ALWAYS_INLINE gpu_rect_t gpu_rect_invalid(void) {
+  gpu_rect_t v = {INT32_MAX, INT32_MAX, INT32_MIN, INT32_MIN};
+  return v;
+}
+ALWAYS_INLINE gpu_rect_t gpu_rect_zero(void) {
+  gpu_rect_t v = {0, 0, 0, 0};
+  return v;
+}
 
-ALWAYS_INLINE bool gpu_rect_is_empty(gpu_rect_t r)
-{ return r.right <= r.left || r.bottom <= r.top; }
+ALWAYS_INLINE bool gpu_rect_eq(gpu_rect_t a, gpu_rect_t b) {
+  return a.left == b.left && a.top == b.top && a.right == b.right && a.bottom == b.bottom;
+}
 
-ALWAYS_INLINE s32 gpu_rect_width (gpu_rect_t r) { return r.right  - r.left; }
-ALWAYS_INLINE s32 gpu_rect_height(gpu_rect_t r) { return r.bottom - r.top;  }
-ALWAYS_INLINE s32 gpu_rect_area  (gpu_rect_t r)
-{ return gpu_rect_is_empty(r) ? 0 : gpu_rect_width(r) * gpu_rect_height(r); }
+ALWAYS_INLINE bool gpu_rect_is_empty(gpu_rect_t r) {
+  return r.right <= r.left || r.bottom <= r.top;
+}
 
-ALWAYS_INLINE bool gpu_rect_contains_point(gpu_rect_t r, s32 x, s32 y)
-{ return x >= r.left && x < r.right && y >= r.top && y < r.bottom; }
+ALWAYS_INLINE s32 gpu_rect_width(gpu_rect_t r) {
+  return r.right - r.left;
+}
+ALWAYS_INLINE s32 gpu_rect_height(gpu_rect_t r) {
+  return r.bottom - r.top;
+}
+ALWAYS_INLINE s32 gpu_rect_area(gpu_rect_t r) {
+  return gpu_rect_is_empty(r) ? 0 : gpu_rect_width(r) * gpu_rect_height(r);
+}
 
-ALWAYS_INLINE gpu_rect_t gpu_rect_intersect(gpu_rect_t a, gpu_rect_t b)
-{
+ALWAYS_INLINE bool gpu_rect_contains_point(gpu_rect_t r, s32 x, s32 y) {
+  return x >= r.left && x < r.right && y >= r.top && y < r.bottom;
+}
+
+ALWAYS_INLINE gpu_rect_t gpu_rect_intersect(gpu_rect_t a, gpu_rect_t b) {
   gpu_rect_t v;
-  v.left   = a.left   > b.left   ? a.left   : b.left;
-  v.top    = a.top    > b.top    ? a.top    : b.top;
-  v.right  = a.right  < b.right  ? a.right  : b.right;
+  v.left   = a.left > b.left ? a.left : b.left;
+  v.top    = a.top > b.top ? a.top : b.top;
+  v.right  = a.right < b.right ? a.right : b.right;
   v.bottom = a.bottom < b.bottom ? a.bottom : b.bottom;
   return v;
 }
 
-ALWAYS_INLINE gpu_rect_t gpu_rect_union(gpu_rect_t a, gpu_rect_t b)
-{
+ALWAYS_INLINE gpu_rect_t gpu_rect_union(gpu_rect_t a, gpu_rect_t b) {
   gpu_rect_t v;
-  v.left   = a.left   < b.left   ? a.left   : b.left;
-  v.top    = a.top    < b.top    ? a.top    : b.top;
-  v.right  = a.right  > b.right  ? a.right  : b.right;
+  v.left   = a.left < b.left ? a.left : b.left;
+  v.top    = a.top < b.top ? a.top : b.top;
+  v.right  = a.right > b.right ? a.right : b.right;
   v.bottom = a.bottom > b.bottom ? a.bottom : b.bottom;
   return v;
 }
 
-ALWAYS_INLINE bool gpu_rect_overlaps(gpu_rect_t a, gpu_rect_t b)
-{ return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top); }
+ALWAYS_INLINE bool gpu_rect_overlaps(gpu_rect_t a, gpu_rect_t b) {
+  return !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+}
 
-ALWAYS_INLINE gpu_rect_t gpu_rect_scale(gpu_rect_t r, s32 mul)
-{ return gpu_rect_make(r.left * mul, r.top * mul, r.right * mul, r.bottom * mul); }
+ALWAYS_INLINE gpu_rect_t gpu_rect_scale(gpu_rect_t r, s32 mul) {
+  return gpu_rect_make(r.left * mul, r.top * mul, r.right * mul, r.bottom * mul);
+}
 
-ALWAYS_INLINE gpu_rect_t gpu_rect_expand(gpu_rect_t r, s32 amt)
-{ return gpu_rect_make(r.left - amt, r.top - amt, r.right + amt, r.bottom + amt); }
+ALWAYS_INLINE gpu_rect_t gpu_rect_expand(gpu_rect_t r, s32 amt) {
+  return gpu_rect_make(r.left - amt, r.top - amt, r.right + amt, r.bottom + amt);
+}
 
 /* Constants for VRAM-sized rectangles. */
-#define GPU_HW_VRAM_SIZE_RECT  gpu_rect_make(0, 0, (s32)VRAM_WIDTH, (s32)VRAM_HEIGHT)
+#define GPU_HW_VRAM_SIZE_RECT gpu_rect_make(0, 0, (s32)VRAM_WIDTH, (s32)VRAM_HEIGHT)
 
 typedef struct {
   float x, y, z, w;
@@ -116,16 +128,16 @@ typedef struct {
 typedef struct {
   gpu_hw_batch_texture_mode_t texture_mode;
   gpu_transparency_mode_t     transparency_mode;
-  bool dithering;
-  bool interlacing;
-  bool set_mask_while_drawing;
-  bool check_mask_before_draw;
-  bool use_depth_buffer;
-  bool sprite_mode;
+  bool                        dithering;
+  bool                        interlacing;
+  bool                        set_mask_while_drawing;
+  bool                        check_mask_before_draw;
+  bool                        use_depth_buffer;
+  bool                        sprite_mode;
 } gpu_hw_batch_config_t;
 
 typedef struct {
-  u32   u_texture_window[4];   /* and_x, and_y, or_x, or_y */
+  u32   u_texture_window[4]; /* and_x, and_y, or_x, or_y */
   float u_src_alpha_factor;
   float u_dst_alpha_factor;
   u32   u_interlaced_displayed_field;
@@ -135,45 +147,39 @@ typedef struct {
   float u_resolution_scale_minus_one;
 } gpu_hw_batch_ubo_data_t;
 
-#define GPU_HW_BATCH_PIPELINE_DEPTHS              2u
+#define GPU_HW_BATCH_PIPELINE_DEPTHS 2u
 /* TRANSPARENCY_MODES sized to fit the raw enum (0..3 = the four blend ops,
  * 4 = DISABLED).  The encoder stores `i = i*DIM + value` and lookups pass
  * raw `(u32)trans_mode`, so a smaller dim would let the value leak into the
  * next dim and produce out-of-bounds indices into batch_pipelines.  Each
  * slot gets a pipeline with the per-mode blend state (HALF_BG / BG_PLUS_FG /
  * BG_MINUS_FG-as-REVERSE_SUBTRACT / BG_PLUS_QUARTER_FG / no-blend). */
-#define GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES  5u
+#define GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES 5u
 /* RENDER_MODES kept at 2 because the lookup at draw time always converts
  * trans_mode to a 0/1 on/off bit (`(trans != DISABLED) ? 1 : 0`).  Slots
  * 0 and 1 cover all the live combos. */
-#define GPU_HW_BATCH_PIPELINE_RENDER_MODES        2u
-#define GPU_HW_BATCH_PIPELINE_TEXTURE_MODES       (u32)GPU_HW_BATCH_TEXTURE_MODE_MAX_COUNT  /* 9 */
-#define GPU_HW_BATCH_PIPELINE_DITHERING           5u
-#define GPU_HW_BATCH_PIPELINE_INTERLACING         5u
-#define GPU_HW_BATCH_PIPELINE_CHECK_MASK          2u
+#define GPU_HW_BATCH_PIPELINE_RENDER_MODES  2u
+#define GPU_HW_BATCH_PIPELINE_TEXTURE_MODES (u32) GPU_HW_BATCH_TEXTURE_MODE_MAX_COUNT /* 9 */
+#define GPU_HW_BATCH_PIPELINE_DITHERING     5u
+#define GPU_HW_BATCH_PIPELINE_INTERLACING   5u
+#define GPU_HW_BATCH_PIPELINE_CHECK_MASK    2u
 
-#define GPU_HW_NUM_BATCH_PIPELINES                                                                 \
-  (GPU_HW_BATCH_PIPELINE_DEPTHS *                                                                  \
-   GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES *                                                      \
-   GPU_HW_BATCH_PIPELINE_RENDER_MODES *                                                            \
-   GPU_HW_BATCH_PIPELINE_TEXTURE_MODES *                                                           \
-   GPU_HW_BATCH_PIPELINE_DITHERING *                                                               \
-   GPU_HW_BATCH_PIPELINE_INTERLACING *                                                             \
+#define GPU_HW_NUM_BATCH_PIPELINES                                                                                \
+  (GPU_HW_BATCH_PIPELINE_DEPTHS * GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES * GPU_HW_BATCH_PIPELINE_RENDER_MODES * \
+   GPU_HW_BATCH_PIPELINE_TEXTURE_MODES * GPU_HW_BATCH_PIPELINE_DITHERING * GPU_HW_BATCH_PIPELINE_INTERLACING *    \
    GPU_HW_BATCH_PIPELINE_CHECK_MASK)
 /* sanity: 2*2*2*9*5*5*2 == 3600. */
 
-ALWAYS_INLINE u32 gpu_hw_batch_pipeline_index(u32 depth_test, u32 transparency_mode, u32 render_mode,
-                                              u32 texture_mode, u32 dithering, u32 interlacing,
-                                              u32 check_mask)
-{
+ALWAYS_INLINE u32 gpu_hw_batch_pipeline_index(u32 depth_test, u32 transparency_mode, u32 render_mode, u32 texture_mode,
+                                              u32 dithering, u32 interlacing, u32 check_mask) {
   u32 i = 0;
-  i = i * GPU_HW_BATCH_PIPELINE_DEPTHS              + depth_test;
-  i = i * GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES  + transparency_mode;
-  i = i * GPU_HW_BATCH_PIPELINE_RENDER_MODES        + render_mode;
-  i = i * GPU_HW_BATCH_PIPELINE_TEXTURE_MODES       + texture_mode;
-  i = i * GPU_HW_BATCH_PIPELINE_DITHERING           + dithering;
-  i = i * GPU_HW_BATCH_PIPELINE_INTERLACING         + interlacing;
-  i = i * GPU_HW_BATCH_PIPELINE_CHECK_MASK          + check_mask;
+  i     = i * GPU_HW_BATCH_PIPELINE_DEPTHS + depth_test;
+  i     = i * GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES + transparency_mode;
+  i     = i * GPU_HW_BATCH_PIPELINE_RENDER_MODES + render_mode;
+  i     = i * GPU_HW_BATCH_PIPELINE_TEXTURE_MODES + texture_mode;
+  i     = i * GPU_HW_BATCH_PIPELINE_DITHERING + dithering;
+  i     = i * GPU_HW_BATCH_PIPELINE_INTERLACING + interlacing;
+  i     = i * GPU_HW_BATCH_PIPELINE_CHECK_MASK + check_mask;
   return i;
 }
 
@@ -228,20 +234,20 @@ typedef struct gpu_hw {
   /* Capability + setting bits. */
   bool supports_dual_source_blend : 1;
   bool supports_framebuffer_fetch : 1;
-  bool true_color                 : 1;
-  bool pgxp_depth_buffer          : 1;
-  bool clamp_uvs                  : 1;
-  bool compute_uv_range           : 1;
-  bool allow_sprite_mode          : 1;
-  bool allow_shader_blend         : 1;
-  bool prefer_shader_blend        : 1;
-  bool use_rov_for_shader_blend   : 1;
-  bool write_mask_as_depth        : 1;
-  bool texture_window_active      : 1;
-  bool rov_active                 : 1;
-  bool draw_with_software_renderer: 1;
-  bool use_texture_cache          : 1;   /* Forced false. */
-  bool texture_dumping            : 1;   /* Forced false. */
+  bool true_color : 1;
+  bool pgxp_depth_buffer : 1;
+  bool clamp_uvs : 1;
+  bool compute_uv_range : 1;
+  bool allow_sprite_mode : 1;
+  bool allow_shader_blend : 1;
+  bool prefer_shader_blend : 1;
+  bool use_rov_for_shader_blend : 1;
+  bool write_mask_as_depth : 1;
+  bool texture_window_active : 1;
+  bool rov_active : 1;
+  bool draw_with_software_renderer : 1;
+  bool use_texture_cache : 1; /* Forced false. */
+  bool texture_dumping : 1;   /* Forced false. */
 
   u8   texpage_dirty;
   bool batch_ubo_dirty;
@@ -292,15 +298,15 @@ typedef struct gpu_hw {
    * supported?" sentinel).  Non-NEAREST rows live in
    * `batch_pipelines_filter[]`; row index 0 (NEAREST) is unused and stays
    * NULL throughout the program lifetime. */
-  opengl_pipeline_t* batch_pipelines        [GPU_HW_NUM_BATCH_PIPELINES];
-  opengl_pipeline_t* batch_pipelines_filter [GPU_TEXTURE_FILTER_COUNT][GPU_HW_NUM_BATCH_PIPELINES];
+  opengl_pipeline_t* batch_pipelines[GPU_HW_NUM_BATCH_PIPELINES];
+  opengl_pipeline_t* batch_pipelines_filter[GPU_TEXTURE_FILTER_COUNT][GPU_HW_NUM_BATCH_PIPELINES];
   opengl_pipeline_t* wireframe_pipeline;
-  opengl_pipeline_t* vram_fill_pipelines[2][2];           /* [wrapped][interlaced] */
-  opengl_pipeline_t* vram_write_pipelines[2];             /* [depth_test] */
-  opengl_pipeline_t* vram_copy_pipelines[2];              /* [depth_test] */
+  opengl_pipeline_t* vram_fill_pipelines[2][2]; /* [wrapped][interlaced] */
+  opengl_pipeline_t* vram_write_pipelines[2];   /* [depth_test] */
+  opengl_pipeline_t* vram_copy_pipelines[2];    /* [depth_test] */
   opengl_pipeline_t* vram_readback_pipeline;
   opengl_pipeline_t* vram_update_depth_pipeline;
-  opengl_pipeline_t* vram_extract_pipeline[3];            /* 0=15bit, 1=24bit, 2=depth */
+  opengl_pipeline_t* vram_extract_pipeline[3]; /* 0=15bit, 1=24bit, 2=depth */
   opengl_pipeline_t* copy_depth_pipeline;
   opengl_pipeline_t* clear_depth_pipeline;
 
@@ -308,13 +314,13 @@ typedef struct gpu_hw {
   opengl_shader_t* screen_quad_vertex_shader;
 
   /* Display extract textures. */
-  opengl_texture_t*           vram_extract_texture;
-  opengl_texture_t*           vram_extract_depth_texture;
-  opengl_download_texture_t*  vram_extract_download_texture;
-  u32                         vram_extract_capacity_w;
-  u32                         vram_extract_capacity_h;
+  opengl_texture_t*          vram_extract_texture;
+  opengl_texture_t*          vram_extract_depth_texture;
+  opengl_download_texture_t* vram_extract_download_texture;
+  u32                        vram_extract_capacity_w;
+  u32                        vram_extract_capacity_h;
 
-  /* Async PBO-ring readback for the display extract path.
+/* Async PBO-ring readback for the display extract path.
    *
    * On Mesa Intel iGPU the synchronous flush-and-map pattern stalls the audio
    * thread (heavy underruns + Stretcher resets).  The fix is an N=3 ring of
@@ -336,11 +342,11 @@ typedef struct gpu_hw {
    * destination scatter parameters (dst_x/y, dst_row_stride/offset, dst_max_w/h,
    * dst_stride_pixels) so the consumer side scatters into hw->display_buffer
    * even though the display rectangle may have changed in the meantime. */
-  #define GPU_HW_EXTRACT_RING_N 3u
-  opengl_download_texture_t*  vram_extract_download_ring[3];
-  u32                         vram_extract_ring_w[3];
-  u32                         vram_extract_ring_h[3];
-  bool                        vram_extract_ring_pending[3];
+#define GPU_HW_EXTRACT_RING_N 3u
+  opengl_download_texture_t* vram_extract_download_ring[3];
+  u32                        vram_extract_ring_w[3];
+  u32                        vram_extract_ring_h[3];
+  bool                       vram_extract_ring_pending[3];
   /* Destination scatter params captured at copy-issue time. */
   struct {
     u32 dst_stride_pixels;
@@ -351,7 +357,7 @@ typedef struct gpu_hw {
     u32 dst_max_w;
     u32 dst_max_h;
   } vram_extract_ring_meta[3];
-  u32                         vram_extract_ring_index;
+  u32 vram_extract_ring_index;
 
   /* Last-issued scatter parameters (copy of meta plus scaled extract size).
    * When any of these change between frames the in-flight ring slots hold
@@ -372,17 +378,17 @@ typedef struct gpu_hw {
     u32 dst_max_h;
     u32 scaled_w;
     u32 scaled_h;
-    u32 vram_off_x;       /* Source VRAM offset (changes on double-buffer flip). */
+    u32 vram_off_x; /* Source VRAM offset (changes on double-buffer flip). */
     u32 vram_off_y;
   } vram_extract_last_issued;
-  bool                        vram_extract_last_valid;
-  bool                        vram_extract_prev_disabled;
+  bool vram_extract_last_valid;
+  bool vram_extract_prev_disabled;
 
   /* Statistics. */
   gpu_hw_renderer_stats_t renderer_stats;
 
-  u32* display_buffer;            /* heap-alloc; sized for max display × scale². */
-  u32  display_buffer_capacity;   /* in pixels */
+  u32* display_buffer;          /* heap-alloc; sized for max display × scale². */
+  u32  display_buffer_capacity; /* in pixels */
   u32  display_width;
   u32  display_height;
 } gpu_hw_t;

@@ -15,8 +15,7 @@ static test_entry_t* s_head  = NULL;
 static test_entry_t* s_tail  = NULL;
 static u32           s_count = 0;
 
-void test_register(test_entry_t* entry)
-{
+void test_register(test_entry_t* entry) {
   entry->next = NULL;
   if (s_tail)
     s_tail->next = entry;
@@ -26,8 +25,7 @@ void test_register(test_entry_t* entry)
   s_count++;
 }
 
-void test_fail(const char* file, int line, const char* format, ...)
-{
+void test_fail(const char* file, int line, const char* format, ...) {
   fprintf(stderr, "    %s:%d ", file, line);
   va_list args;
   va_start(args, format);
@@ -46,8 +44,7 @@ typedef struct {
   char*         directory;
 } worker_t;
 
-static char* make_directory(const char* resources)
-{
+static char* make_directory(const char* resources) {
   const char* base = getenv("TMPDIR");
   if (!base || !*base) base = "/tmp";
   const size_t capacity  = strlen(base) + sizeof("/cupid-worker-XXXXXX");
@@ -78,8 +75,7 @@ static char* make_directory(const char* resources)
   return directory;
 }
 
-static void destroy_workers(worker_t* workers, u32 count)
-{
+static void destroy_workers(worker_t* workers, u32 count) {
   for (u32 i = 0; i < count; i++) {
     char* directory = workers[i].directory;
     if (!directory) continue;
@@ -97,8 +93,7 @@ static void destroy_workers(worker_t* workers, u32 count)
   free(workers);
 }
 
-static FILE* open_output(void)
-{
+static FILE* open_output(void) {
   const char* directory = getenv("TMPDIR");
   if (!directory || !*directory) directory = "/tmp";
   const size_t capacity = strlen(directory) + sizeof("/cupid-test-XXXXXX");
@@ -121,8 +116,7 @@ static FILE* open_output(void)
   return output;
 }
 
-static bool start_worker(worker_t* worker, test_entry_t* entry)
-{
+static bool start_worker(worker_t* worker, test_entry_t* entry) {
   FILE* output = open_output();
   if (!output) {
     fprintf(stderr, "Could not create output file for %s.%s: %s\n", entry->suite, entry->name, strerror(errno));
@@ -155,8 +149,7 @@ static bool start_worker(worker_t* worker, test_entry_t* entry)
   return true;
 }
 
-static bool emit_output(FILE* output)
-{
+static bool emit_output(FILE* output) {
   if (fseek(output, 0, SEEK_SET) != 0) return false;
   char   buffer[8192];
   size_t count;
@@ -166,8 +159,7 @@ static bool emit_output(FILE* output)
   return !ferror(output);
 }
 
-static void report_result(test_entry_t* entry, int result, u32* passed, u32* failed)
-{
+static void report_result(test_entry_t* entry, int result, u32* passed, u32* failed) {
   if (result == 0) {
     printf("[  OK  ] %s.%s\n", entry->suite, entry->name);
     (*passed)++;
@@ -181,21 +173,18 @@ static void report_result(test_entry_t* entry, int result, u32* passed, u32* fai
   fflush(stdout);
 }
 
-static bool matches(const test_entry_t* entry, const char* filter)
-{
+static bool matches(const test_entry_t* entry, const char* filter) {
   if (!filter) return true;
   char name[256];
   snprintf(name, sizeof(name), "%s.%s", entry->suite, entry->name);
   return strstr(name, filter) != NULL;
 }
 
-static void usage(const char* program, FILE* stream)
-{
+static void usage(const char* program, FILE* stream) {
   fprintf(stream, "Usage: %s [--jobs N] [filter]\n", program);
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
   const char* filter   = NULL;
   u32         jobs     = 1;
   bool        jobs_set = false;

@@ -3,8 +3,7 @@
 #include "core/cdrom/cdrom.h"
 #include "core/spu/spu.h"
 
-static void start_peripheral_bus(bool cd)
-{
+static void start_peripheral_bus(bool cd) {
   const u32 loop[] = {0x1000FFFF, 0};
   start_cpu(CPU_EXECUTION_MODE_INTERPRETER, 0xA0010000, loop, 2);
   spu_initialize();
@@ -14,27 +13,23 @@ static void start_peripheral_bus(bool cd)
   }
 }
 
-static void finish_peripheral_bus(bool cd)
-{
+static void finish_peripheral_bus(bool cd) {
   if (cd) cdrom_shutdown();
   spu_shutdown();
   finish_cpu();
 }
 
-static u32 read_bus(u32 address, memory_access_size_t size)
-{
+static u32 read_bus(u32 address, memory_access_size_t size) {
   bus_memory_read_handler_t* handlers = bus_offset_read_handler_array(g_cpu_state.memory_handlers, size);
   return handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT](address);
 }
 
-static void write_bus(u32 address, u32 value, memory_access_size_t size)
-{
+static void write_bus(u32 address, u32 value, memory_access_size_t size) {
   bus_memory_write_handler_t* handlers = bus_offset_write_handler_array(g_cpu_state.memory_handlers, size);
   handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT](address, value);
 }
 
-static void check_spu_word(bool wide, bool increment, bool write)
-{
+static void check_spu_word(bool wide, bool increment, bool write) {
   start_peripheral_bus(false);
   write_bus(0x1F801014, 0x200901E1 | (wide ? 0x1000 : 0) | (increment ? 0x2000 : 0), MEMORY_ACCESS_SIZE_WORD);
   spu_write_register(0x180, 0x1234);
@@ -59,8 +54,7 @@ static void check_spu_word(bool wide, bool increment, bool write)
   }
 }
 
-static void check_spu_byte(bool wide, bool odd)
-{
+static void check_spu_byte(bool wide, bool odd) {
   start_peripheral_bus(false);
   write_bus(0x1F801014, 0x200921E1 | (wide ? 0x1000 : 0), MEMORY_ACCESS_SIZE_WORD);
   spu_write_register(0x180, 0x1234);
@@ -73,37 +67,30 @@ static void check_spu_byte(bool wide, bool odd)
 }
 
 #define SPU_WORD_CASES(name, wide, increment) \
-  TEST(DeviceBusPeripherals, name##_read)     \
-  {                                           \
+  TEST(DeviceBusPeripherals, name##_read) {   \
     check_spu_word(wide, increment, false);   \
   }                                           \
-  TEST(DeviceBusPeripherals, name##_write)    \
-  {                                           \
+  TEST(DeviceBusPeripherals, name##_write) {  \
     check_spu_word(wide, increment, true);    \
   }
 SPU_WORD_CASES(spu16_increment, true, true)
 SPU_WORD_CASES(spu16_hold, true, false)
 SPU_WORD_CASES(spu8_increment, false, true)
 SPU_WORD_CASES(spu8_hold, false, false)
-TEST(DeviceBusPeripherals, spu16_even_byte)
-{
+TEST(DeviceBusPeripherals, spu16_even_byte) {
   check_spu_byte(true, false);
 }
-TEST(DeviceBusPeripherals, spu16_odd_byte)
-{
+TEST(DeviceBusPeripherals, spu16_odd_byte) {
   check_spu_byte(true, true);
 }
-TEST(DeviceBusPeripherals, spu8_even_byte)
-{
+TEST(DeviceBusPeripherals, spu8_even_byte) {
   check_spu_byte(false, false);
 }
-TEST(DeviceBusPeripherals, spu8_odd_byte)
-{
+TEST(DeviceBusPeripherals, spu8_odd_byte) {
   check_spu_byte(false, true);
 }
 
-static void check_cd_response(bool increment, bool word)
-{
+static void check_cd_response(bool increment, bool word) {
   start_peripheral_bus(true);
   write_bus(0x1F801018, 0x00020943 | (increment ? 0x2000 : 0), MEMORY_ACCESS_SIZE_WORD);
   cdrom_write_register(1, 0x0F); /* Getmode returns status, mode and filter fields. */
@@ -118,19 +105,15 @@ static void check_cd_response(bool increment, bool word)
   EXPECT_EQ(next, increment ? 0x20 : 0x10);
 }
 
-TEST(DeviceBusPeripherals, cd_half_increment)
-{
+TEST(DeviceBusPeripherals, cd_half_increment) {
   check_cd_response(true, false);
 }
-TEST(DeviceBusPeripherals, cd_half_hold)
-{
+TEST(DeviceBusPeripherals, cd_half_hold) {
   check_cd_response(false, false);
 }
-TEST(DeviceBusPeripherals, cd_word_increment)
-{
+TEST(DeviceBusPeripherals, cd_word_increment) {
   check_cd_response(true, true);
 }
-TEST(DeviceBusPeripherals, cd_word_hold)
-{
+TEST(DeviceBusPeripherals, cd_word_hold) {
   check_cd_response(false, true);
 }

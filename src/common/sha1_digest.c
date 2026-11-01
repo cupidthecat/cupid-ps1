@@ -16,30 +16,29 @@
 /* blk0() / blk(): byte-swap the 32-bit word on little-endian hosts (this is the
  * "expand during the round function" trick from SSLeay). */
 #define blk0(i) (block->l[i] = (rol(block->l[i], 24) & 0xFF00FF00) | (rol(block->l[i], 8) & 0x00FF00FF))
-#define blk(i) \
+#define blk(i)        \
   (block->l[i & 15] = \
-     rol(block->l[(i + 13) & 15] ^ block->l[(i + 8) & 15] ^ block->l[(i + 2) & 15] ^ block->l[i & 15], 1))
+       rol(block->l[(i + 13) & 15] ^ block->l[(i + 8) & 15] ^ block->l[(i + 2) & 15] ^ block->l[i & 15], 1))
 
 /* (R0+R1), R2, R3, R4 are the per-stage SHA-1 mixing operations. */
-#define R0(v, w, x, y, z, i) \
+#define R0(v, w, x, y, z, i)                                     \
   (z) += ((w & (x ^ y)) ^ y) + blk0(i) + 0x5A827999 + rol(v, 5); \
-  (w)  = rol(w, 30);
-#define R1(v, w, x, y, z, i) \
+  (w) = rol(w, 30);
+#define R1(v, w, x, y, z, i)                                    \
   (z) += ((w & (x ^ y)) ^ y) + blk(i) + 0x5A827999 + rol(v, 5); \
-  (w)  = rol(w, 30);
-#define R2(v, w, x, y, z, i) \
+  (w) = rol(w, 30);
+#define R2(v, w, x, y, z, i)                            \
   (z) += (w ^ x ^ y) + blk(i) + 0x6ED9EBA1 + rol(v, 5); \
-  (w)  = rol(w, 30);
-#define R3(v, w, x, y, z, i) \
+  (w) = rol(w, 30);
+#define R3(v, w, x, y, z, i)                                          \
   (z) += (((w | x) & y) | (w & x)) + blk(i) + 0x8F1BBCDC + rol(v, 5); \
-  (w)  = rol(w, 30);
-#define R4(v, w, x, y, z, i) \
+  (w) = rol(w, 30);
+#define R4(v, w, x, y, z, i)                            \
   (z) += (w ^ x ^ y) + blk(i) + 0xCA62C1D6 + rol(v, 5); \
-  (w)  = rol(w, 30);
+  (w) = rol(w, 30);
 
 /* Hash a single 512-bit block. This is the core of the algorithm. */
-static void sha1_transform(u32 state[5], const u8 buffer[64])
-{
+static void sha1_transform(u32 state[5], const u8 buffer[64]) {
   /* The union here lets the round macros index 32-bit words while we feed in raw bytes. */
   typedef union {
     u8  c[64];
@@ -144,13 +143,11 @@ static void sha1_transform(u32 state[5], const u8 buffer[64])
   state[4] += e;
 }
 
-void sha1_digest_init(sha1_digest_t* ctx)
-{
+void sha1_digest_init(sha1_digest_t* ctx) {
   sha1_digest_reset(ctx);
 }
 
-void sha1_digest_reset(sha1_digest_t* ctx)
-{
+void sha1_digest_reset(sha1_digest_t* ctx) {
   ctx->state[0] = 0x67452301;
   ctx->state[1] = 0xEFCDAB89;
   ctx->state[2] = 0x98BADCFE;
@@ -160,8 +157,7 @@ void sha1_digest_reset(sha1_digest_t* ctx)
   ctx->count[1] = 0;
 }
 
-void sha1_digest_update(sha1_digest_t* ctx, const u8* data, size_t len)
-{
+void sha1_digest_update(sha1_digest_t* ctx, const u8* data, size_t len) {
   /* Implementation tracks bit count in two u32s; cap each call at u32 range to
    * preserve the original semantics. */
   Assert(len <= UINT32_MAX);
@@ -169,28 +165,23 @@ void sha1_digest_update(sha1_digest_t* ctx, const u8* data, size_t len)
 
   u32 i;
   u32 j = ctx->count[0];
-  if ((ctx->count[0] += ulen << 3) < j)
-    ctx->count[1]++;
+  if ((ctx->count[0] += ulen << 3) < j) ctx->count[1]++;
   ctx->count[1] += (ulen >> 29);
   j = (j >> 3) & 63;
 
-  if ((j + ulen) > 63)
-  {
+  if ((j + ulen) > 63) {
     memcpy(&ctx->buffer[j], data, (i = 64 - j));
     sha1_transform(ctx->state, ctx->buffer);
     for (; i + 63 < ulen; i += 64)
       sha1_transform(ctx->state, &data[i]);
     j = 0;
-  }
-  else
-  {
+  } else {
     i = 0;
   }
   memcpy(&ctx->buffer[j], &data[i], ulen - i);
 }
 
-void sha1_digest_final(sha1_digest_t* ctx, u8 out[SHA1_DIGEST_LENGTH])
-{
+void sha1_digest_final(sha1_digest_t* ctx, u8 out[SHA1_DIGEST_LENGTH]) {
   u8 finalcount[8];
 
   /* Big-endian length-in-bits so it's host endianness independent. */
@@ -199,8 +190,7 @@ void sha1_digest_final(sha1_digest_t* ctx, u8 out[SHA1_DIGEST_LENGTH])
 
   u8 c = 0x80;
   sha1_digest_update(ctx, &c, 1);
-  while ((ctx->count[0] & 504) != 448)
-  {
+  while ((ctx->count[0] & 504) != 448) {
     c = 0x00;
     sha1_digest_update(ctx, &c, 1);
   }
@@ -210,19 +200,16 @@ void sha1_digest_final(sha1_digest_t* ctx, u8 out[SHA1_DIGEST_LENGTH])
     out[i] = (u8)((ctx->state[i >> 2] >> ((3 - (i & 3)) * 8)) & 255);
 }
 
-void sha1_digest_compute(const u8* data, size_t len, u8 out[SHA1_DIGEST_LENGTH])
-{
+void sha1_digest_compute(const u8* data, size_t len, u8 out[SHA1_DIGEST_LENGTH]) {
   sha1_digest_t ctx;
   sha1_digest_init(&ctx);
   sha1_digest_update(&ctx, data, len);
   sha1_digest_final(&ctx, out);
 }
 
-void sha1_digest_to_string(const u8 digest[SHA1_DIGEST_LENGTH], char out[41])
-{
+void sha1_digest_to_string(const u8 digest[SHA1_DIGEST_LENGTH], char out[41]) {
   static const char hex[] = "0123456789abcdef";
-  for (size_t i = 0; i < SHA1_DIGEST_LENGTH; ++i)
-  {
+  for (size_t i = 0; i < SHA1_DIGEST_LENGTH; ++i) {
     out[i * 2]     = hex[(digest[i] >> 4) & 0xf];
     out[i * 2 + 1] = hex[digest[i] & 0xf];
   }

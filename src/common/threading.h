@@ -35,31 +35,29 @@ bool threading_set_nice_level(int level);
 
 typedef struct {
 #if defined(_WIN32)
-  void*     native_handle; /* Owned by threading_thread_t; NULL for a borrowed ID. */
-  u32       native_id;
+  void* native_handle; /* Owned by threading_thread_t; NULL for a borrowed ID. */
+  u32   native_id;
 #else
   pthread_t native_handle;
-  int       native_id;     /* gettid() result; 0 if unset */
+  int       native_id; /* gettid() result; 0 if unset */
 #endif
-  bool      valid;
+  bool valid;
 } threading_thread_handle_t;
 
 threading_thread_handle_t threading_thread_handle_get_for_calling_thread(void);
 
 bool threading_thread_handle_is_valid(const threading_thread_handle_t* h);
-bool threading_thread_handle_equals(const threading_thread_handle_t* a,
-                                    const threading_thread_handle_t* b);
+bool threading_thread_handle_equals(const threading_thread_handle_t* a, const threading_thread_handle_t* b);
 
 u64  threading_thread_handle_get_cpu_time(const threading_thread_handle_t* h);
-bool threading_thread_handle_set_affinity(const threading_thread_handle_t* h,
-                                          u64 processor_mask);
+bool threading_thread_handle_set_affinity(const threading_thread_handle_t* h, u64 processor_mask);
 bool threading_thread_handle_is_calling_thread(const threading_thread_handle_t* h);
 
 typedef struct {
   threading_thread_handle_t handle;
   u32                       stack_size;
-  void                    (*entry_fn)(void* arg);
-  void*                     entry_arg;
+  void (*entry_fn)(void* arg);
+  void* entry_arg;
 } threading_thread_t;
 
 void threading_thread_init(threading_thread_t* t);
@@ -71,8 +69,7 @@ u32  threading_thread_get_stack_size(const threading_thread_t* t);
 /* No-op once the thread is started.  Pass 0 for the platform default. */
 void threading_thread_set_stack_size(threading_thread_t* t, u32 size);
 
-bool threading_thread_start(threading_thread_t* t,
-                            void (*fn)(void* arg), void* arg);
+bool threading_thread_start(threading_thread_t* t, void (*fn)(void* arg), void* arg);
 void threading_thread_detach(threading_thread_t* t);
 void threading_thread_join(threading_thread_t* t);
 

@@ -21,8 +21,7 @@ static map3_t      s_map3;
 static unmap2_t    s_unmap2;
 static INIT_ONCE   s_api_once = INIT_ONCE_STATIC_INIT;
 
-static BOOL CALLBACK initialize_mapping_api(PINIT_ONCE once, PVOID parameter, PVOID* context)
-{
+static BOOL CALLBACK initialize_mapping_api(PINIT_ONCE once, PVOID parameter, PVOID* context) {
   (void)once;
   (void)parameter;
   (void)context;
@@ -39,14 +38,12 @@ static BOOL CALLBACK initialize_mapping_api(PINIT_ONCE once, PVOID parameter, PV
   return TRUE;
 }
 
-static bool mapping_api_available(void)
-{
+static bool mapping_api_available(void) {
   InitOnceExecuteOnce(&s_api_once, initialize_mapping_api, NULL, NULL);
   return s_allocate2 && s_map3 && s_unmap2;
 }
 
-static DWORD page_protection(memmap_page_protect_t mode)
-{
+static DWORD page_protection(memmap_page_protect_t mode) {
   switch (mode) {
     case MEMMAP_PAGE_PROTECT_NONE:
       return PAGE_NOACCESS;
@@ -63,21 +60,18 @@ static DWORD page_protection(memmap_page_protect_t mode)
   }
 }
 
-u32 memmap_get_runtime_page_size(void)
-{
+u32 memmap_get_runtime_page_size(void) {
   SYSTEM_INFO info;
   GetSystemInfo(&info);
   return info.dwPageSize;
 }
 
-size_t memmap_get_file_mapping_name(char* buf, size_t buf_size, const char* prefix)
-{
+size_t memmap_get_file_mapping_name(char* buf, size_t buf_size, const char* prefix) {
   const int length = snprintf(buf, buf_size, "%s_%lu", prefix ? prefix : "", (unsigned long)GetCurrentProcessId());
   return length < 0 ? 0 : (size_t)length;
 }
 
-void* memmap_create_shared_memory(const char* name, size_t size, Error* error)
-{
+void* memmap_create_shared_memory(const char* name, size_t size, Error* error) {
   wchar_t* wide = name && *name ? windows_utf8_to_wide(name, error) : NULL;
   if (name && *name && !wide) return NULL;
   SetLastError(ERROR_SUCCESS);
@@ -93,40 +87,33 @@ void* memmap_create_shared_memory(const char* name, size_t size, Error* error)
   return handle;
 }
 
-void memmap_destroy_shared_memory(void* ptr)
-{
+void memmap_destroy_shared_memory(void* ptr) {
   if (ptr) CloseHandle(ptr);
 }
-void memmap_delete_shared_memory(const char* name)
-{
+void memmap_delete_shared_memory(const char* name) {
   (void)name;
 }
 
-bool memmap_mem_protect(void* baseaddr, size_t size, memmap_page_protect_t mode)
-{
+bool memmap_mem_protect(void* baseaddr, size_t size, memmap_page_protect_t mode) {
   DWORD previous;
   return VirtualProtect(baseaddr, size, page_protection(mode), &previous) != 0;
 }
 
-void* memmap_map_shared_memory(void* handle, size_t offset, void* baseaddr, size_t size, memmap_page_protect_t mode)
-{
+void* memmap_map_shared_memory(void* handle, size_t offset, void* baseaddr, size_t size, memmap_page_protect_t mode) {
   if (!mapping_api_available() || !size) return NULL;
   return s_map3(handle, GetCurrentProcess(), baseaddr, offset, size, 0, page_protection(mode), NULL, 0);
 }
 
-void memmap_unmap_shared_memory(void* baseaddr, size_t size)
-{
+void memmap_unmap_shared_memory(void* baseaddr, size_t size) {
   (void)size;
   if (!UnmapViewOfFile(baseaddr)) Panic("Unmapping shared memory failed");
 }
 
-const void* memmap_get_base_address(void)
-{
+const void* memmap_get_base_address(void) {
   return GetModuleHandleW(NULL);
 }
 
-void* memmap_allocate_jit_memory(size_t size)
-{
+void* memmap_allocate_jit_memory(size_t size) {
   const uintptr_t base  = (uintptr_t)memmap_get_base_address();
   const uintptr_t step  = 64u * 1024u * 1024u;
   const uintptr_t limit = 0x80000000u;
@@ -142,24 +129,20 @@ void* memmap_allocate_jit_memory(size_t size)
   return VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 }
 
-void memmap_release_jit_memory(void* ptr, size_t size)
-{
+void memmap_release_jit_memory(void* ptr, size_t size) {
   (void)size;
   if (ptr && !VirtualFree(ptr, 0, MEM_RELEASE)) Panic("Releasing executable storage failed");
 }
 
-void memmap_flush_instruction_cache(void* address, size_t size)
-{
+void memmap_flush_instruction_cache(void* address, size_t size) {
   if (!FlushInstructionCache(GetCurrentProcess(), address, size)) Panic("Flushing executable storage failed");
 }
 
-void memmap_shared_memory_area_init(memmap_shared_memory_area_t* a)
-{
+void memmap_shared_memory_area_init(memmap_shared_memory_area_t* a) {
   memset(a, 0, sizeof(*a));
 }
 
-bool memmap_shared_memory_area_create(memmap_shared_memory_area_t* a, size_t size)
-{
+bool memmap_shared_memory_area_create(memmap_shared_memory_area_t* a, size_t size) {
   if (!size || (size & HOST_PAGE_MASK) || !mapping_api_available()) return false;
   memmap_shared_memory_area_destroy(a);
   mapping_range_t* range = calloc(1, sizeof(*range));
@@ -178,8 +161,7 @@ bool memmap_shared_memory_area_create(memmap_shared_memory_area_t* a, size_t siz
   return true;
 }
 
-void memmap_shared_memory_area_destroy(memmap_shared_memory_area_t* a)
-{
+void memmap_shared_memory_area_destroy(memmap_shared_memory_area_t* a) {
   AssertMsg(a->num_mappings == 0, "Mapped views must be removed before releasing their arena");
   mapping_range_t* range = a->platform_data;
   while (range) {
@@ -191,15 +173,13 @@ void memmap_shared_memory_area_destroy(memmap_shared_memory_area_t* a)
   memset(a, 0, sizeof(*a));
 }
 
-static bool contains_range(const memmap_shared_memory_area_t* a, const void* base, size_t size)
-{
+static bool contains_range(const memmap_shared_memory_area_t* a, const void* base, size_t size) {
   const uintptr_t address = (uintptr_t)base, start = (uintptr_t)a->base_ptr;
   return a->base_ptr && size && !(address & HOST_PAGE_MASK) && !(size & HOST_PAGE_MASK) && address >= start &&
          address - start < a->size && size <= a->size - (address - start);
 }
 
-static bool merge_placeholders(memmap_shared_memory_area_t* a)
-{
+static bool merge_placeholders(memmap_shared_memory_area_t* a) {
   for (mapping_range_t* range = a->platform_data; range && range->next;) {
     mapping_range_t* next = range->next;
     if (range->mapped || next->mapped) {
@@ -215,8 +195,7 @@ static bool merge_placeholders(memmap_shared_memory_area_t* a)
   return true;
 }
 
-static bool split_placeholder(memmap_shared_memory_area_t* a, mapping_range_t* range, size_t left_size)
-{
+static bool split_placeholder(memmap_shared_memory_area_t* a, mapping_range_t* range, size_t left_size) {
   mapping_range_t* right = malloc(sizeof(*right));
   if (!right) return false;
   if (!VirtualFree(a->base_ptr + range->offset, left_size, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER)) {
@@ -230,8 +209,7 @@ static bool split_placeholder(memmap_shared_memory_area_t* a, mapping_range_t* r
 }
 
 u8* memmap_shared_memory_area_map(memmap_shared_memory_area_t* a, void* file_handle, size_t file_offset, void* map_base,
-                                  size_t map_size, memmap_page_protect_t mode)
-{
+                                  size_t map_size, memmap_page_protect_t mode) {
   if (!contains_range(a, map_base, map_size) || (file_offset & HOST_PAGE_MASK) || !merge_placeholders(a)) return NULL;
   const size_t     offset = (uintptr_t)map_base - (uintptr_t)a->base_ptr;
   mapping_range_t* range  = a->platform_data;
@@ -251,8 +229,7 @@ u8* memmap_shared_memory_area_map(memmap_shared_memory_area_t* a, void* file_han
   return result;
 }
 
-bool memmap_shared_memory_area_unmap(memmap_shared_memory_area_t* a, void* map_base, size_t map_size)
-{
+bool memmap_shared_memory_area_unmap(memmap_shared_memory_area_t* a, void* map_base, size_t map_size) {
   if (!contains_range(a, map_base, map_size)) return false;
   const size_t     offset = (uintptr_t)map_base - (uintptr_t)a->base_ptr;
   mapping_range_t* range  = a->platform_data;

@@ -11,16 +11,14 @@ static const u8 reserved_secondary[] = {
     0x2E, 0x2F, 0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x3B, 0x3C, 0x3D, 0x3E, 0x3F,
 };
 
-static void install_ri_handler(void)
-{
+static void install_ri_handler(void) {
   const u32 handler[] = {0x26100001, 0x1000FFFF, 0};
   memcpy(bus_get_unprotected_ram_pointer() + 0x80, handler, sizeof(handler));
   g_cpu_state.cop0_regs.sr.BEV   = 0;
   g_cpu_state.cop0_regs.BadVaddr = 0x12345678;
 }
 
-static void check_native_ri_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_native_ri_progress(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   if (mode == CPU_EXECUTION_MODE_RECOMPILER) {
     EXPECT_TRUE(cpu_execution_stats_get()->native_blocks_completed >= 10);
     EXPECT_EQ(cpu_execution_stats_get()->interpreted_instructions, 0);
@@ -29,8 +27,7 @@ static void check_native_ri_progress(cpu_execution_mode_t mode, cpu_fastmem_mode
 }
 
 static void check_ri_program(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking, u32 entry,
-                             u32 instruction, u32 branch, bool rewrite, bool cache, bool store_cached)
-{
+                             u32 instruction, u32 branch, bool rewrite, bool cache, bool store_cached) {
   const u32 fault       = branch ? 3 : 2;
   const u32 replacement = 0x24140063; /* addiu s4,zero,99 */
   u32       words[7]    = {0};
@@ -84,8 +81,7 @@ static void check_ri_program(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastm
   finish_cpu();
 }
 
-static void check_stale_primary(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_stale_primary(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 branch = 0; branch < 3; branch++) {
     for (u32 segment = 0; segment < 2; segment++) {
       for (u32 store = 0; store < 2; store++)
@@ -95,29 +91,25 @@ static void check_stale_primary(cpu_execution_mode_t mode, cpu_fastmem_mode_t fa
   }
 }
 
-static void check_primary_encodings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_primary_encodings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 i = 0; i < sizeof(reserved_primary); i++)
     check_ri_program(mode, fastmem, linking, 0x80010200, ((u32)reserved_primary[i] << 26) | 0x012A5100, i % 3, false,
                      true, false);
 }
 
-static void check_secondary_encodings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_secondary_encodings(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 i = 0; i < sizeof(reserved_secondary); i++)
     check_ri_program(mode, fastmem, linking, 0x80010200, 0x01095100 | reserved_secondary[i], i % 3, false, true, false);
 }
 
-static void check_bypass(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_bypass(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   for (u32 branch = 0; branch < 3; branch++) {
     check_ri_program(mode, fastmem, linking, 0xA0010200, 0x74000000, branch, true, true, false);
     check_ri_program(mode, fastmem, linking, 0x80010200, 0x74000000, branch, true, false, true);
   }
 }
 
-static void check_restored_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking)
-{
+static void check_restored_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem, bool linking) {
   const u32 entry   = 0xA0010200;
   const u32 words[] = {0x74000000, 0x26310001, 0x1000FFFF, 0};
   start_cpu_with_fastmem(mode, fastmem, entry, words, 4);
@@ -159,28 +151,22 @@ static void check_restored_fetch(cpu_execution_mode_t mode, cpu_fastmem_mode_t f
 }
 
 #define RI_MODES(name, function)                                                      \
-  TEST(ReservedInstruction, name##_interpreter)                                       \
-  {                                                                                   \
+  TEST(ReservedInstruction, name##_interpreter) {                                     \
     function(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true);        \
   }                                                                                   \
-  TEST(ReservedInstruction, name##_cached)                                            \
-  {                                                                                   \
+  TEST(ReservedInstruction, name##_cached) {                                          \
     function(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED, true); \
   }                                                                                   \
-  TEST(ReservedInstruction, name##_native)                                            \
-  {                                                                                   \
+  TEST(ReservedInstruction, name##_native) {                                          \
     function(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, true);         \
   }                                                                                   \
-  TEST(ReservedInstruction, name##_lut)                                               \
-  {                                                                                   \
+  TEST(ReservedInstruction, name##_lut) {                                             \
     function(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_LUT, true);              \
   }                                                                                   \
-  TEST(ReservedInstruction, name##_mmap)                                              \
-  {                                                                                   \
+  TEST(ReservedInstruction, name##_mmap) {                                            \
     function(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP, true);             \
   }                                                                                   \
-  TEST(ReservedInstruction, name##_unlinked)                                          \
-  {                                                                                   \
+  TEST(ReservedInstruction, name##_unlinked) {                                        \
     function(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED, false);        \
   }
 
@@ -191,24 +177,20 @@ RI_MODES(cache_bypass, check_bypass)
 RI_MODES(restored_fetch, check_restored_fetch)
 
 static u32  reserved_fallback_calls;
-static void reserved_fallback(cpu_recompiler_t* r)
-{
+static void reserved_fallback(cpu_recompiler_t* r) {
   reserved_fallback_calls++;
   r->block_ended = true;
 }
-static void reserved_fetch_hook(cpu_recompiler_t* r)
-{
+static void reserved_fetch_hook(cpu_recompiler_t* r) {
   (void)r;
 }
-static void forbid_reserved_exception(cpu_recompiler_t* r, cpu_exception_t code)
-{
+static void forbid_reserved_exception(cpu_recompiler_t* r, cpu_exception_t code) {
   (void)r;
   (void)code;
   test_fail(__FILE__, __LINE__, "incomplete backend emitted a reserved exception");
 }
 
-TEST(ReservedInstruction, incomplete_backend_keeps_fallback)
-{
+TEST(ReservedInstruction, incomplete_backend_keeps_fallback) {
   for (u32 missing = 0; missing < 2; missing++) {
     cpu_recompiler_vtable_t hooks = {
         .generate_instruction_fetch = missing == 0 ? NULL : reserved_fetch_hook,

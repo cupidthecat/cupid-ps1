@@ -5,27 +5,23 @@
 static u32  segments, submissions;
 static bool shaded_vertices;
 
-static u32 point(u32 i)
-{
+static u32 point(u32 i) {
   return (32u + (i % 32u) * 3u) | ((24u + (i / 32u % 100u) * 3u) << 16);
 }
 
-static u32 color(u32 i)
-{
+static u32 color(u32 i) {
   if (!shaded_vertices) i = 0;
   return ((i * 13u + 17u) & 255u) | (((i * 7u + 31u) & 255u) << 8) | (((i * 3u + 61u) & 255u) << 16);
 }
 
-static void check_vertex(s32 x, s32 y, u32 rgb, u32 index)
-{
+static void check_vertex(s32 x, s32 y, u32 rgb, u32 index) {
   EXPECT_EQ(x, point(index) & 0xFFFFu);
   EXPECT_EQ(y, point(index) >> 16);
   EXPECT_EQ(rgb, color(index));
 }
 
 static void capture_lines(gpu_backend_t* backend, const gpu_backend_draw_line_cmd_t* command,
-                          const gpu_backend_line_vertex_t* vertices)
-{
+                          const gpu_backend_line_vertex_t* vertices) {
   (void)backend;
   EXPECT_TRUE(command->base.num_vertices <= 2048);
   EXPECT_EQ(command->base.num_vertices % 2, 0);
@@ -38,8 +34,7 @@ static void capture_lines(gpu_backend_t* backend, const gpu_backend_draw_line_cm
 }
 
 static void capture_precise_lines(gpu_backend_t* backend, const gpu_backend_draw_precise_line_cmd_t* command,
-                                  const gpu_backend_precise_line_vertex_t* vertices)
-{
+                                  const gpu_backend_precise_line_vertex_t* vertices) {
   (void)backend;
   EXPECT_TRUE(command->base.num_vertices <= 2048);
   EXPECT_EQ(command->base.num_vertices % 2, 0);
@@ -53,8 +48,7 @@ static void capture_precise_lines(gpu_backend_t* backend, const gpu_backend_draw
   submissions++;
 }
 
-static void restore_pending(void)
-{
+static void restore_pending(void) {
   const size_t capacity = 2 * 1024 * 1024;
   u8*          before   = malloc(capacity);
   u8*          after    = malloc(capacity);
@@ -75,8 +69,7 @@ static void restore_pending(void)
   free(after);
 }
 
-static void write_vertex_word(u32 index, u32 value)
-{
+static void write_vertex_word(u32 index, u32 value) {
   if (index % 3 == 0) {
     gpu_dma_write(0x1000 + index * 4, value);
     gpu_end_dma_write();
@@ -85,8 +78,7 @@ static void write_vertex_word(u32 index, u32 value)
   }
 }
 
-static void check_batches(bool precise, bool shaded, bool restore)
-{
+static void check_batches(bool precise, bool shaded, bool restore) {
   const u32 counts[] = {2, 3, 513, 1025, 2048, 2049, 4096, 4097, 9000};
   for (u32 sample = 0; sample < sizeof(counts) / sizeof(counts[0]); sample++) {
     display_fixture_t fixture;
@@ -121,29 +113,23 @@ static void check_batches(bool precise, bool shaded, bool restore)
   }
 }
 
-TEST(GpuPolylineBatches, flat)
-{
+TEST(GpuPolylineBatches, flat) {
   check_batches(false, false, false);
 }
-TEST(GpuPolylineBatches, shaded)
-{
+TEST(GpuPolylineBatches, shaded) {
   check_batches(false, true, false);
 }
-TEST(GpuPolylineBatches, precise_flat)
-{
+TEST(GpuPolylineBatches, precise_flat) {
   check_batches(true, false, false);
 }
-TEST(GpuPolylineBatches, precise_shaded)
-{
+TEST(GpuPolylineBatches, precise_shaded) {
   check_batches(true, true, false);
 }
-TEST(GpuPolylineBatches, restored_flat)
-{
+TEST(GpuPolylineBatches, restored_flat) {
   check_batches(false, false, true);
   check_batches(true, false, true);
 }
-TEST(GpuPolylineBatches, restored_shaded)
-{
+TEST(GpuPolylineBatches, restored_shaded) {
   check_batches(false, true, true);
   check_batches(true, true, true);
 }
