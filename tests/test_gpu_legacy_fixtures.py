@@ -7,8 +7,8 @@ import tempfile
 import unittest
 import zlib
 
-from .integration.gpu import legacy_polyline_program
-from .integration.guest_program import write_inputs
+from tests.integration.gpu import legacy_polyline_program
+from tests.integration.guest_program import write_inputs
 
 
 class GpuLegacyFixtureTest(unittest.TestCase):
