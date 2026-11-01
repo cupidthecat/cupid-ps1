@@ -1,6 +1,7 @@
 /*
  * Error values for errno, socket and application messages. Formatted messages
- * use printf-style arguments. Native Windows error conversion is not implemented.
+ * use printf-style arguments. Windows backends attach numeric system codes
+ * to application messages through their platform helper.
  *
  * All Error_* setters accept NULL and discard the message.
  *

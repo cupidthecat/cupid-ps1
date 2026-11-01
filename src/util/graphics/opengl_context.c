@@ -111,10 +111,15 @@ opengl_context_t* opengl_context_create(window_info_t* wi, opengl_surface_handle
   }
 
   opengl_context_t* context = NULL;
+#if defined(_WIN32)
+  (void)wi; (void)out_surface; (void)versions_to_try; (void)version_count;
+  Error_set_string(err, "Native Windows OpenGL contexts are not implemented.");
+#else
   if (wi->type == WINDOW_INFO_TYPE_XLIB || wi->type == WINDOW_INFO_TYPE_SURFACELESS)
     context = opengl_context_egl_xlib_create(wi, out_surface, versions_to_try, version_count, err);
   else
     Error_set_string(err, "Unsupported window_info type for OpenGL context (Linux EGL+X11 only).");
+#endif
 
   if (!context)
     return NULL;

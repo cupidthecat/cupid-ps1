@@ -7,7 +7,7 @@
  * mul/div, lxx/sxx, cop0, cop2.
  *
  * RBP is the cpu_state pointer.  RBX is reserved for the fastmem base.
- * RDI/RSI/RDX/RCX are call args under the SysV ABI (Linux).
+ * Calls use the platform ABI; argument registers are reserved below.
  */
 
 #include "x64_backend.h"
@@ -34,15 +34,27 @@
 LOG_CHANNEL(Recompiler);
 
 #define RWRET    X64_RAX
+#if defined(_WIN32)
+#define RWARG1   X64_RCX
+#define RWARG2   X64_RDX
+#define RWARG3   X64_R8
+#define RWARG4   X64_R9
+#else
 #define RWARG1   X64_RDI
 #define RWARG2   X64_RSI
 #define RWARG3   X64_RDX
 #define RWARG4   X64_RCX
+#endif
 #define RXRET    X64_RAX
-#define RXARG1   X64_RDI
-#define RXARG2   X64_RSI
-#define RXARG3   X64_RDX
-#define RXARG4   X64_RCX
+#define RXARG1   RWARG1
+#define RXARG2   RWARG2
+#define RXARG3   RWARG3
+#define RXARG4   RWARG4
+#if defined(_WIN32)
+#define RFASTSCRATCH X64_R8
+#else
+#define RFASTSCRATCH X64_RCX
+#endif
 #define RSTATE   X64_RBP   /* &g_cpu_state */
 #define RMEMBASE X64_RBX   /* fastmem base; reserved */
 
@@ -171,22 +183,22 @@ static void hook_reset(cpu_recompiler_t* r, cpu_code_cache_block_t* block,
   b->is_far = false;
   b->block_near_start = near_buf;
 
-  /* Repopulate USABLE / CALLEE_SAVED.  The reserved registers (RAX/RDI/RSI/
-   * RDX call args, RSP, RBP=cpu_state, RBX=fastmem-or-reserved, RCX=shift
-   * amount) must remain non-USABLE so the allocator never picks them. */
+  /* Keep call arguments, scratch/result, stack, state and shift registers
+   * outside the allocator. */
   for (u32 i = 0; i < CPU_RECOMP_NUM_HOST_REGS; i++) {
     cpu_recomp_host_reg_alloc_t* ra = &r->host_regs[i];
     ra->flags &= (u8)CPU_RC_HR_IMMUTABLE_FLAGS;
-    if (i == X64_RAX || i == X64_RDI || i == X64_RSI || i == X64_RDX ||
+    if (i == X64_RAX || i == RWARG1 || i == RWARG2 || i == RWARG3 || i == RWARG4 ||
         i == X64_RSP || i == X64_RBP || i == X64_RBX || i == X64_RCX) {
       ra->flags &= (u8)~CPU_RC_HR_USABLE;
       continue;
     }
-    /* Mark usable, set callee-saved bit per SysV calling convention.
-     * SysV callee-saved: RBX (excluded), RBP (excluded), R12-R15.
-     * Caller-saved: R8-R11, plus the call-arg regs we already excluded. */
     u8 fl = (u8)CPU_RC_HR_USABLE;
-    if (i >= X64_R12 && i <= X64_R15)
+    if ((i >= X64_R12 && i <= X64_R15)
+#if defined(_WIN32)
+        || i == X64_RDI || i == X64_RSI
+#endif
+       )
       fl |= (u8)CPU_RC_HR_CALLEE_SAVED;
     ra->flags |= fl;
   }
@@ -1292,13 +1304,13 @@ static void compile_mult_inner(cpu_recompiler_t* r,
    *   muldiv_completion_tick = pending_ticks + r->cycles + cycles(rs)
    * Mirrors interp's cpu_add_muldiv_ticks(cpu_get_mult_ticks_*(rs)). */
   emit_compute_mult_cycles_to_rcx(e, sign);
-  x64_mov_r_m(e, X64_SZ_32, RWARG1,
+  x64_mov_r_m(e, X64_SZ_32, RWARG2,
               x64_mem(RSTATE, STATE_DISP(pending_ticks)));
-  if (r->cycles == 1)      x64_inc_r(e, X64_SZ_32, RWARG1);
-  else if (r->cycles > 0)  x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG1, r->cycles);
-  x64_alu_r_r(e, X64_ALU_ADD, X64_SZ_32, RWARG1, X64_RCX);
+  if (r->cycles == 1)      x64_inc_r(e, X64_SZ_32, RWARG2);
+  else if (r->cycles > 0)  x64_alu_r_imm(e, X64_ALU_ADD, X64_SZ_32, RWARG2, r->cycles);
+  x64_alu_r_r(e, X64_ALU_ADD, X64_SZ_32, RWARG2, X64_RCX);
   x64_mov_m_r(e, X64_SZ_32,
-              x64_mem(RSTATE, STATE_DISP(muldiv_completion_tick)), RWARG1);
+              x64_mem(RSTATE, STATE_DISP(muldiv_completion_tick)), RWARG2);
   r->dirty_muldiv_done_cycle = true;
 
   if (cf.valid_host_t) {
@@ -1532,26 +1544,26 @@ static x64_mem_bis_t fastmem_operand(x64_emit_t* e, x64_reg_t address)
   if (g_settings.cpu_fastmem_mode != CPU_FASTMEM_MODE_LUT) return x64_msib(RMEMBASE, address, 1, 0);
 
   /* Keep the original guest address available to a fault-recovery stub. */
-  DebugAssert(address != X64_RCX);
-  x64_mov_r_r(e, X64_SZ_32, X64_RCX, address);
-  x64_shift_r_imm(e, X64_SH_SHR, X64_SZ_32, X64_RCX, BUS_FASTMEM_LUT_PAGE_SHIFT);
-  x64_mov_r_msib(e, X64_SZ_64, X64_RCX, x64_msib(RMEMBASE, X64_RCX, 8, 0));
-  return x64_msib(X64_RCX, address, 1, 0);
+  DebugAssert(address != RFASTSCRATCH);
+  x64_mov_r_r(e, X64_SZ_32, RFASTSCRATCH, address);
+  x64_shift_r_imm(e, X64_SH_SHR, X64_SZ_32, RFASTSCRATCH, BUS_FASTMEM_LUT_PAGE_SHIFT);
+  x64_mov_r_msib(e, X64_SZ_64, RFASTSCRATCH, x64_msib(RMEMBASE, RFASTSCRATCH, 8, 0));
+  return x64_msib(RFASTSCRATCH, address, 1, 0);
 }
 
 static void emit_lut_access_count(x64_emit_t* e, bool store)
 {
   if (g_settings.cpu_fastmem_mode != CPU_FASTMEM_MODE_LUT || !cpu_execution_stats_is_enabled()) return;
   u64* counter = store ? &cpu_execution_stats_get()->native_lut_stores : &cpu_execution_stats_get()->native_lut_loads;
-  x64_mov_r_imm64(e, X64_RCX, (u64)(uintptr_t)counter);
-  x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(X64_RCX, 0), 1);
+  x64_mov_r_imm64(e, RFASTSCRATCH, (u64)(uintptr_t)counter);
+  x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_64, x64_mem(RFASTSCRATCH, 0), 1);
 }
 
 static void emit_fastmem_load(cpu_recompiler_t* r, x64_reg_t address, x64_reg_t destination, memory_access_size_t size,
                               bool sign)
 {
   x64_emit_t* e = current_emit(be_from(r));
-  DebugAssert(destination != X64_RCX);
+  DebugAssert(destination != RFASTSCRATCH);
   x64_alu_m_imm(e, X64_ALU_ADD, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(pending_ticks)), BUS_RAM_READ_TICKS);
   const x64_mem_bis_t memory = fastmem_operand(e, address);
   void*               site   = x64_emit_cursor(e);
@@ -1582,7 +1594,7 @@ static void emit_fastmem_load(cpu_recompiler_t* r, x64_reg_t address, x64_reg_t 
 static void emit_fastmem_store(cpu_recompiler_t* r, x64_reg_t address, x64_reg_t value, memory_access_size_t size)
 {
   x64_emit_t* e = current_emit(be_from(r));
-  DebugAssert(value != X64_RCX);
+  DebugAssert(value != RFASTSCRATCH);
   const x64_mem_bis_t memory = fastmem_operand(e, address);
   void*               site   = x64_emit_cursor(e);
   x64_mov_msib_r(e,
@@ -2309,7 +2321,12 @@ static u32 emit_asm_functions(void* code, u32 code_size)
   x64_emit_t e;
   x64_emit_init(&e, code, code_size);
 
+  /* Align calls to 16 bytes and retain the Windows caller's home area. */
+#if defined(_WIN32)
+  const s32 stack_size = 32 + 8;
+#else
   const s32 stack_size = 8;
+#endif
 
   {
     void* const cur = x64_emit_cursor(&e);

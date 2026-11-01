@@ -1,5 +1,6 @@
 /*
- * Path manipulation for Linux paths, using '/' as the native separator.
+ * Path manipulation using '/' internally. Windows also accepts backslashes,
+ * drive roots and UNC paths at input boundaries.
  * Functions return heap strings for the caller to free or write into supplied
  * small_string_t buffers. String views use (data, len) pairs.
  * ToNativePath collapses repeated slashes and removes trailing slashes.
@@ -14,7 +15,7 @@
 #define FS_OSPATH_SEPARATOR_CHARACTER '/'
 #define FS_OSPATH_SEPARATOR_STR "/"
 
-/* Returns true if path is absolute (starts with '/'). */
+/* Returns true for rooted paths, including Windows drive and UNC roots. */
 bool path_is_absolute_view(const char* data, u32 len);
 bool path_is_absolute_cstr(const char* path);
 

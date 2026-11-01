@@ -1657,8 +1657,7 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
   system_flush_save_states();
 
   /* .sav.gz / .sav.zst / .sav.xz: outer-wrap the entire save-state file.
-   * Read whole file → decompress to memory → fmemopen so the existing
-   * header parser works unchanged. */
+   * Decompress into a seekable read-only stream for the shared header parser. */
   const compress_type_t outer = compress_helpers_type_from_path(path);
   FILE* fp;
   u8*   wrapped_buf = NULL;
@@ -1682,10 +1681,10 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
       return 0;
     }
     free(fbuf);
-    fp = fmemopen(wrapped_buf, fsize, "rb");
+    fp = fs_open_readonly_buffer(wrapped_buf, fsize, error);
     if (!fp) {
       free(wrapped_buf);
-      Error_set_errno(error, errno);
+      Error_add_prefix(error, "Creating state input stream: ");
       return 0;
     }
   }
@@ -1769,10 +1768,8 @@ bool system_save_state(const char* path, Error* error, bool backup_existing_save
     small_string_destroy(&bak.s);
   }
 
-  /* .sav.gz / .sav.zst / .sav.xz: serialize to a tmpfile (the writer seeks
-   * back to rewrite the header. glibc open_memstream truncates on
-   * back-seek so we need a real seekable file), read it back into memory,
-   * then compress as the outer wrapper. */
+  /* Outer compression uses an anonymous seekable stream, since serialization
+   * rewrites the header before the complete file is compressed. */
   const compress_type_t outer = compress_helpers_type_from_path(path);
   FILE* fp;
   if (outer == COMPRESS_TYPE_UNCOMPRESSED) {
@@ -1782,10 +1779,10 @@ bool system_save_state(const char* path, Error* error, bool backup_existing_save
       return false;
     }
   } else {
-    fp = tmpfile();
+    fp = fs_open_anonymous_file(error);
     if (!fp) {
       free(state_data);
-      Error_set_errno(error, errno);
+      Error_add_prefix(error, "Creating state scratch stream: ");
       return false;
     }
   }

@@ -34,7 +34,11 @@
 
 #if defined(__GNUC__) || defined(__clang__)
 #define OFFSETOF(st, m) __builtin_offsetof(st, m)
+#if defined(__MINGW32__)
+#define PRINTFLIKE(n, m) __attribute__((format(gnu_printf, n, m)))
+#else
 #define PRINTFLIKE(n, m) __attribute__((format(printf, n, m)))
+#endif
 #else
 #define OFFSETOF(st, m) offsetof(st, m)
 #define PRINTFLIKE(n, m)

@@ -32,9 +32,25 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-zstd
+            mingw-w64-x86_64-xz
+            mingw-w64-x86_64-python
       - name: Build native platform components and isolated headers
         run: |
           cmake -S tests/platform/windows -B build/windows-platform -G Ninja -DCMAKE_C_COMPILER=gcc
           cmake --build build/windows-platform --parallel 2
       - name: Check memory, faults, clocks, threads and library loading
         run: ctest --test-dir build/windows-platform --output-on-failure
+      - name: Build pinned audio dependency
+        run: python scripts/dependencies/build_soundtouch.py --output build/dependencies/soundtouch --compiler "$(cygpath -m /mingw64/bin/g++.exe)"
+      - name: Build native emulator and isolated headers
+        run: |
+          cmake -S . -B build/windows-native -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCUPID_SOUNDTOUCH_ROOT="$(cygpath -m "$PWD/build/dependencies/soundtouch/build")"
+          cmake --build build/windows-native --parallel 2
+      - name: Check generated firmware, CPU paths, memory faults and restored states
+        run: |
+          export CUPID_TEST_BINARY="$(cygpath -m "$PWD/build/windows-native/cupid-ps1.exe")"
+          python -m unittest discover -s tests -p test_frontend_cli.py
+          python -m unittest discover -s tests -p test_compare_execution_live.py

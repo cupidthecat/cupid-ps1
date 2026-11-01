@@ -10,6 +10,9 @@
 #include "types.h"
 
 #include <stdlib.h>
+#if defined(_WIN32)
+#include <malloc.h>
+#endif
 
 /* Macros so a single name handles every integer width without templates. */
 
@@ -55,15 +58,24 @@ ALWAYS_INLINE u64 NextPow2_u64(u64 v)
 
 ALWAYS_INLINE void* AlignedMalloc(size_t size, size_t alignment)
 {
+#if defined(_WIN32)
+  if (alignment < sizeof(void*) || (alignment & (alignment - 1))) return NULL;
+  return _aligned_malloc(size ? size : 1, alignment);
+#else
   void* p = NULL;
   if (posix_memalign(&p, alignment, size) != 0)
     return NULL;
   return p;
+#endif
 }
 
 ALWAYS_INLINE void AlignedFree(void* ptr)
 {
+#if defined(_WIN32)
+  _aligned_free(ptr);
+#else
   free(ptr);
+#endif
 }
 
 #endif /* CUPID_COMMON_ALIGN_H */

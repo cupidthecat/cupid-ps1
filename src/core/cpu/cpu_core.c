@@ -28,6 +28,10 @@
 #include "common/log.h"
 #include "common/types.h"
 
+/* Execution exits across generated frames without SEH unwind metadata. */
+#if defined(_WIN32) && defined(__MINGW32__)
+#define __USE_MINGW_SETJMP_NON_SEH
+#endif
 #include <setjmp.h>
 #include <stdarg.h>
 #include <stdio.h>

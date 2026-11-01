@@ -4,6 +4,7 @@
  * fmt::, std::vector / std::mutex.  Console output uses ANSI escape codes on
  * stderr/stdout based on level.
  */
+#include "common/file_system.h"
 #include "log.h"
 
 #include "assert.h"
@@ -225,7 +226,7 @@ void log_set_file_output_params(bool enabled, const char* filename, bool timesta
     return;
   }
   if (enabled) {
-    FILE* f = fopen(filename, "wb");
+    FILE* f = fs_open_file(filename, "wb", NULL);
     if (!f) {
       pthread_mutex_unlock(&s_log.mu);
       fprintf(stderr, "log: failed to open %s\n", filename);

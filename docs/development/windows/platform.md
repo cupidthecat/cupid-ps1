@@ -1,7 +1,8 @@
 # Native Windows platform components
 
-The Windows x86-64 platform layer has standalone C11 checks. It is not yet
-integrated into an emulator executable. The remaining port is tracked in
+The Windows x86-64 platform layer supports an experimental native emulator
+build and standalone C11 checks. See the [build instructions](building.md).
+Remaining runtime qualification is tracked in
 [issue #13](https://github.com/cupidthecat/cupid-ps1/issues/13).
 
 ## Build and check
@@ -17,7 +18,7 @@ ctest --test-dir build/windows-platform --output-on-failure
 ```
 
 Hosted CI builds the same components with project warnings treated as
-errors, compiles the shared headers separately and runs all three test
+errors, compiles the shared headers separately and runs all six test
 executables. These checks use generated data and a generated DLL. They do
 not require a BIOS or disc.
 
@@ -43,6 +44,18 @@ not require a BIOS or disc.
   cross-group affinity on systems with more than 64 processors is unqualified.
 - Library names and module paths cross the Windows API boundary as UTF-16
   converted from UTF-8. Failed loads preserve an already loaded module.
+- File streams and directory operations convert UTF-8 paths to wide Windows
+  APIs, including long drive and UNC paths. Metadata and offsets retain 64-bit
+  sizes. File sharing, exclusive creation and replacement preserve open-file
+  ownership. Recursive deletion removes directory junctions without traversing
+  their targets; recursive searches track directory identities to avoid loops.
+- Save-state wrappers use seekable anonymous streams and read-only buffer
+  streams. Aligned buffers use matching Windows allocation/free functions.
+  Crash diagnostics report exceptions and cleanup to stderr.
+- The native entry point converts Unicode command-line arguments to UTF-8.
+  Generated x64 calls use Windows argument registers, nonvolatile register
+  classification and caller home space. Execution exits bypass SEH unwinding
+  across generated frames. The bus maps its RAM aliases into owned placeholders.
 
 The implementations live in `src/common/windows/` and
 `src/util/platform/windows/`. The Linux build retains its existing platform
@@ -64,10 +77,17 @@ protected-page writes. The loader executable calls an exported C function
 from a generated DLL with a Unicode filename and checks failed loads,
 ownership transfer and symbol lookup.
 
-These are host component results. They do not qualify the CPU recompiler's
-Windows calling convention, the bus's fastmem arena integration, guest
-execution, frontend video/audio, cards, state restoration or gameplay on
-Windows. Filesystem, aligned allocation, graphics setup, crash reporting and
-the native emulator build still need implementation and integration. See
-the [audio dependency recipe](../dependencies/soundtouch.md) for that separate
-component.
+The filesystem executable checks binary bytes, Unicode and long names,
+sparse offsets beyond 4 GB, mandatory sharing, replacement over an open target,
+temporary cleanup and junction traversal/deletion boundaries. The path
+executable checks drive/UNC roots, parent components, mixed separators and
+aligned allocation. An isolated crash child checks exception reporting,
+one cleanup invocation, repeated installation and previous-filter chaining.
+
+Generated firmware tests exercise the integrated CPU, bus and state paths;
+see [their commands and scope](building.md#automated-checks). Dummy SDL drivers
+do not qualify native desktop video/audio, physical input, persistent cards or
+gameplay. The experimental OpenGL backend has no Windows context implementation;
+Windows uses software rendering. Physical CD access returns an explicit error.
+Disc-image readers remain shared. See the
+[audio dependency recipe](../dependencies/soundtouch.md) for its separate checks.

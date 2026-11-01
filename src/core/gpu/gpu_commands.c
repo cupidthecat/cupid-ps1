@@ -12,6 +12,7 @@
 /* When clangd / LSP parses this file standalone (Makefile excludes it from
  * the build), pull common headers so it isn't drowning in red.  Idempotent
  * via header guards when included from gpu.c. */
+#include "common/file_system.h"
 #include "common/types.h"
 #include "common/intrin.h"
 #include <stdbool.h>
@@ -973,7 +974,7 @@ static void gp0_trace_open_lazy(void)
     s_gp0_trace_evaluated = 2;
     return;
   }
-  s_gp0_trace_file = fopen(path, "w");
+  s_gp0_trace_file = fs_open_file(path, "w", NULL);
   s_gp0_trace_evaluated = (s_gp0_trace_file != NULL) ? 1 : 2;
   if (s_gp0_trace_file != NULL)
     setvbuf(s_gp0_trace_file, NULL, _IOLBF, 0);

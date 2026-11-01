@@ -20,7 +20,7 @@ renderer. Complete hardware accuracy and game compatibility remain unverified.
 |----------|--------|
 | Linux x86-64 | Supported build. |
 | Windows through WSL | Uses the Linux build. |
-| Native Windows x86-64 | Planned; still needs to be implemented and added. See the [implementation checklist](docs/development/building.md#native-windows-support-planned). |
+| Native Windows x86-64 | Experimental MinGW64 build with software rendering. See [native build instructions](docs/development/windows/building.md). |
 
 Install the [build dependencies](docs/development/building.md), then run:
 

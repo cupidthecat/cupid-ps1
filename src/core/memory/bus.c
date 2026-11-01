@@ -23,7 +23,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+#if !defined(_WIN32)
 #include <sys/mman.h>
+#endif
 
 LOG_CHANNEL(Bus);
 
@@ -183,6 +185,10 @@ static u8** s_fastmem_lut = NULL;
  * BUS_FASTMEM_ARENA_SIZE lives in bus.h so the code cache can reference it. */
 static u8*  s_fastmem_arena_base   = NULL;
 static bool s_fastmem_arena_active = false;  /* views currently mapped */
+#if defined(_WIN32)
+static memmap_shared_memory_area_t s_windows_arena;
+static u32 s_windows_mirrors;
+#endif
 
 static bool s_kernel_initialize_hook_run = false;
 
@@ -614,6 +620,10 @@ static bool allocate_fastmem_arena(void)
   if (s_fastmem_arena_base)
     return true;
 
+#if defined(_WIN32)
+  if (!memmap_shared_memory_area_create(&s_windows_arena, BUS_FASTMEM_ARENA_SIZE)) return false;
+  void* base = s_windows_arena.base_ptr;
+#else
   void* base = mmap(NULL, BUS_FASTMEM_ARENA_SIZE, PROT_NONE,
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
   if (base == MAP_FAILED)
@@ -622,6 +632,7 @@ static bool allocate_fastmem_arena(void)
               (size_t)BUS_FASTMEM_ARENA_SIZE);
     return false;
   }
+#endif
 
   s_fastmem_arena_base = (u8*)base;
   INFO_LOG("Fastmem arena reserved: %p (%zu bytes)",
@@ -633,7 +644,12 @@ static void release_fastmem_arena(void)
 {
   if (!s_fastmem_arena_base)
     return;
+#if defined(_WIN32)
+  unmap_fastmem_views_mmap();
+  memmap_shared_memory_area_destroy(&s_windows_arena);
+#else
   munmap(s_fastmem_arena_base, BUS_FASTMEM_ARENA_SIZE);
+#endif
   s_fastmem_arena_base   = NULL;
   s_fastmem_arena_active = false;
 }
@@ -650,9 +666,16 @@ static void unmap_fastmem_views_mmap(void)
   {
     const u32 base_address = s_fastmem_mirror_bases[b];
     void* slot = s_fastmem_arena_base + base_address;
+#if defined(_WIN32)
+    if (!(s_windows_mirrors & (1u << b))) continue;
+    if (!memmap_shared_memory_area_unmap(&s_windows_arena, slot, BUS_RAM_2MB_SIZE))
+      Panic("Unmapping a Windows RAM mirror failed");
+    s_windows_mirrors &= ~(1u << b);
+#else
     void* p = mmap(slot, BUS_RAM_2MB_SIZE, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED | MAP_NORESERVE, -1, 0);
     if (p == MAP_FAILED)
       WARNING_LOG("Failed to unmap fastmem mirror at %p (%m)", slot);
+#endif
   }
   s_fastmem_arena_active = false;
 }
@@ -673,14 +696,23 @@ static void map_fastmem_views_mmap(void)
       continue;
 
     u8* slot = s_fastmem_arena_base + base_address;
+#if defined(_WIN32)
+    void* mapped = memmap_shared_memory_area_map(&s_windows_arena, s_shmem_handle,
+                                                MEMMAP_RAM_OFFSET + (base_address & s_ram_mask), slot,
+                                                BUS_RAM_2MB_SIZE, MEMMAP_PAGE_PROTECT_READ_WRITE);
+#else
     void* mapped = memmap_map_shared_memory(s_shmem_handle, MEMMAP_RAM_OFFSET + (base_address & s_ram_mask), slot,
                                             BUS_RAM_2MB_SIZE, MEMMAP_PAGE_PROTECT_READ_WRITE);
+#endif
     if (!mapped)
     {
       ERROR_LOG("Failed to map fastmem mirror %u (base=0x%08X) at %p", b, base_address, slot);
       failed = true;
       break;
     }
+#if defined(_WIN32)
+    s_windows_mirrors |= 1u << b;
+#endif
   }
   s_fastmem_arena_active = true;
   if (failed) {

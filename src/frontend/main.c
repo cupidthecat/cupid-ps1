@@ -11,6 +11,7 @@
  */
 
 #include "frontend/input_map.h"
+#include "frontend/entry.h"
 
 #include "core/input/controllers/analog_controller.h"
 #include "core/bios/bios.h"
@@ -46,6 +47,7 @@
 #include "common/error.h"
 #include "common/file_system.h"
 #include "common/log.h"
+#include "common/path.h"
 #include "common/small_string.h"
 #include "common/types.h"
 
@@ -64,8 +66,6 @@
 #include <unistd.h>
 
 LOG_CHANNEL(Host);
-
-int  main(int argc, char** argv);
 
 /* host hook overrides (non-weak; link before system.c's weak defaults). */
 void host_pump_messages_on_core_thread(void);
@@ -195,6 +195,22 @@ static void quit_signal_handler(int sig)
   s_quit_signal = 1;
 }
 
+static void install_quit_handlers(bool restart)
+{
+#if defined(_WIN32)
+  (void)restart;
+  signal(SIGINT, quit_signal_handler);
+  signal(SIGTERM, quit_signal_handler);
+#else
+  struct sigaction sa = {0};
+  sa.sa_handler = quit_signal_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = restart ? SA_RESTART : 0;
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+#endif
+}
+
 static void print_usage(FILE* fp, const char* argv0)
 {
   fprintf(fp,
@@ -225,8 +241,7 @@ static void print_usage(FILE* fp, const char* argv0)
 
 static bool file_exists(const char* path)
 {
-  struct stat st;
-  return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+  return path && fs_file_exists(path);
 }
 
 static char* xstrdup(const char* s)
@@ -424,7 +439,10 @@ static parse_args_result_t parse_args(int argc, char** argv)
  * out_dir and out_file are heap-owned; caller frees. */
 static void split_path(const char* full, char** out_dir, char** out_file)
 {
-  const char* slash = strrchr(full, '/');
+  const char* filename;
+  u32 filename_len;
+  path_get_file_name_cstr(full, &filename, &filename_len);
+  const char* slash = filename == full ? NULL : filename - 1;
   if (!slash) {
     *out_dir  = xstrdup(".");
     *out_file = xstrdup(full);
@@ -445,8 +463,7 @@ static void split_path(const char* full, char** out_dir, char** out_file)
 
 static bool ensure_dir(const char* path)
 {
-  struct stat st;
-  if (stat(path, &st) == 0) return S_ISDIR(st.st_mode);
+  if (fs_directory_exists(path)) return true;
   Error e; Error_init(&e);
   const bool ok = fs_create_directory(path, true, &e);
   if (!ok) {
@@ -469,9 +486,10 @@ void core_get_string_setting_value(const char* section, const char* key,
    * for any of them so the BIOS loader picks up our --bios path. */
   (void)section; (void)key; (void)def;
   const char* path = s_fe.bios_path ? s_fe.bios_path : "";
-  const char* slash = strrchr(path, '/');
-  const char* fname = slash ? (slash + 1) : path;
-  small_string_assign_cstr(out, fname);
+  const char* fname;
+  u32 length;
+  path_get_file_name_cstr(path, &fname, &length);
+  small_string_assign_view(out, fname, length);
 }
 
 /* INI bootstrap: load ./settings.ini into g_settings if it exists, otherwise
@@ -655,6 +673,10 @@ static void apply_vsync_for_fast_forward(bool ff_active)
  * of display_buffer) instead of SDL_Renderer, so there's no GL/GLX contention. */
 static bool try_init_hw_opengl_backend(void)
 {
+#if defined(_WIN32)
+  fprintf(stderr, "[gpu] OpenGL context setup is not yet available on Windows.\n");
+  return false;
+#else
   SDL_SysWMinfo wm;
   SDL_VERSION(&wm.version);
   if (!SDL_GetWindowWMInfo(s_fe.window, &wm)) {
@@ -697,25 +719,20 @@ static bool try_init_hw_opengl_backend(void)
   Error_destroy(&e2);
   /* gpu_backend_create_hardware_opengl already publishes via g_gpu_backend. */
   return true;
+#endif
 }
 
 static bool sdl_setup(void)
 {
   /* Stop SDL from hijacking SIGINT so our handler still runs on ^C. */
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+  SDL_SetMainReady();
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     return false;
   }
   /* Re-install in case SDL still touched them. */
-  {
-    struct sigaction sa = {0};
-    sa.sa_handler = quit_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;  /* no SA_RESTART; want syscalls to EINTR so loop unwinds */
-    sigaction(SIGINT,  &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-  }
+  install_quit_handlers(false);
 
   Uint32 win_flags = SDL_WINDOW_RESIZABLE;
   if (g_settings.gpu_renderer == GPU_RENDERER_HARDWARE_OPENGL)
@@ -1053,7 +1070,7 @@ static void sdl_present_frame(void)
     const u32 trigger_at = dump_at ? (u32)atoi(dump_at) : 600u;
     if (dump_path && pixels && w && h) {
       if (dump_n == trigger_at) {
-        FILE* f = fopen(dump_path, "wb");
+        FILE* f = fs_open_file(dump_path, "wb", NULL);
         if (f) {
           fprintf(f, "P6\n%u %u\n255\n", w, h);
           for (u32 y = 0; y < h; y++) {
@@ -1070,7 +1087,7 @@ static void sdl_present_frame(void)
         const char* vram_path = getenv("CUPID_DUMP_VRAM_PPM");
         if (vram_path) {
           extern u16 g_vram[];
-          FILE* vf = fopen(vram_path, "wb");
+          FILE* vf = fs_open_file(vram_path, "wb", NULL);
           if (vf) {
             fprintf(vf, "P6\n%d %d\n255\n", 1024, 512);
             for (int yy = 0; yy < 512; yy++) {
@@ -1461,7 +1478,7 @@ static void execution_checkpoint_tick(void)
   Error error;
   Error_init(&error);
   if (frame != target || length < 0 || (size_t)length >= sizeof(path) ||
-      access(path, F_OK) == 0 || !system_save_state(path, &error, false, true)) {
+      (fs_file_exists(path) || fs_directory_exists(path)) || !system_save_state(path, &error, false, true)) {
     fprintf(stderr, "[execution-checkpoint] failed frame=%u expected=%u: %s\n",
             frame, target, Error_get_description(&error));
     s_fe.checkpoint_failed = true;
@@ -1756,7 +1773,7 @@ static bool boot_and_run(void)
   return true;
 }
 
-int main(int argc, char** argv)
+int frontend_run(int argc, char** argv)
 {
   memset(&s_fe, 0, sizeof(s_fe));
   s_fe.current_save_slot = 1;
@@ -1770,14 +1787,7 @@ int main(int argc, char** argv)
 
   atexit(dump_debug_ringbuffers);
 
-  {
-    struct sigaction sa = {0};
-    sa.sa_handler = quit_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(SIGINT,  &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-  }
+  install_quit_handlers(true);
 
   /* Crash handler: backtrace on SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS via
    * common/crash_handler.  page_fault_handler (installed by the JIT init)

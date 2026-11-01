@@ -144,7 +144,7 @@ GL_SMOKE_LIB_OBJ := $(BUILD)/util/graphics/opengl_context.o $(BUILD)/util/graphi
                     $(BUILD)/common/error.o $(BUILD)/common/log.o \
                     $(BUILD)/common/dynamic_library.o $(BUILD)/common/small_string.o \
                     $(BUILD)/common/string_util.o $(BUILD)/common/assert.o $(BUILD)/common/timer.o \
-                    $(BUILD)/common/file_system.o $(BUILD)/common/path.o $(BUILD)/common/threading.o \
+                    $(BUILD)/common/file_system.o $(BUILD)/common/file_system_streams.o $(BUILD)/common/path.o $(BUILD)/common/threading.o \
                     $(BUILD)/common/memmap.o
 gl-smoke: dirs $(BUILD)/cupid-ps1-gl-smoke
 

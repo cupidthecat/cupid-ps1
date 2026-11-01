@@ -1,6 +1,7 @@
 #include "cpu_diff_runner.h"
 
 #include "cpu_core.h"
+#include "common/file_system.h"
 #include "core/config/settings.h"
 #include "core/system/system.h"
 #include "core/scheduler/timing_event.h"
@@ -37,7 +38,7 @@ bool cpu_diff_initialize(void)
     }
     s_limit = s_limit * 10u + (u32)(*p - '0');
   }
-  if (!s_limit || !(s_file = fopen(path, "wx"))) {
+  if (!s_limit || !(s_file = fs_open_file(path, "wbx", NULL))) {
     fprintf(stderr, "[cpu-trace] cannot create trace or invalid zero count (errno=%d)\n", errno);
     s_failed = true;
     return false;

@@ -15,5 +15,7 @@
 typedef struct Error Error;
 void                 windows_set_error(Error* error, const char* operation, DWORD code);
 wchar_t*             windows_utf8_to_wide(const char* text, Error* error);
+char* windows_wide_to_utf8(const wchar_t* text, Error* error);
+wchar_t* windows_path_to_wide(const char* path, Error* error);
 #endif
 #endif

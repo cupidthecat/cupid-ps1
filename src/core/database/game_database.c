@@ -327,7 +327,11 @@ static bool parse_release_date(const char* s, size_t n, u64* out)
   t.tm_mon  = m - 1;
   t.tm_mday = d;
   t.tm_isdst = 0;
+#if defined(_WIN32)
+  time_t v = (time_t)_mkgmtime64(&t);
+#else
   time_t v = timegm(&t);
+#endif
   if (v == (time_t)-1) return false;
   *out = (u64)v;
   return true;
@@ -1387,9 +1391,9 @@ static void bind_disc_sets_to_entries(void)
 /* Returns mtime as unix-epoch-seconds, or 0 if the file is missing. */
 static u64 get_yaml_mtime(const char* path)
 {
-  struct stat st;
-  if (stat(path, &st) != 0) return 0;
-  return (u64)st.st_mtime;
+  fs_stat_data_t st;
+  if (!fs_stat_path_data(path, &st, NULL)) return 0;
+  return (u64)st.modification_time;
 }
 
 static bool cache_read_string(binary_span_reader_t* r, const char** out_str, u32* out_len)

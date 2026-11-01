@@ -6,6 +6,7 @@
  * when no compiler backend is registered.
  */
 
+#include "common/file_system.h"
 #include "cpu_code_cache.h"
 
 #include "core/memory/bus.h"
@@ -25,6 +26,7 @@
 #include "util/platform/page_fault_handler.h"
 
 #include "common/assert.h"
+#include "common/align.h"
 #include "common/error.h"
 #include "common/log.h"
 #include "common/memmap.h"
@@ -387,7 +389,7 @@ void cpu_code_cache_dbg_maybe_install_low_ram_watch(void)
   /* Optional log-file redirection. */
   const char* log_env = getenv("CUPID_TRACE_LOW_RAM_LOG");
   if (log_env != NULL && log_env[0] != '\0') {
-    FILE* fp = fopen(log_env, "w");
+    FILE* fp = fs_open_file(log_env, "w", NULL);
     if (fp != NULL) s_low_ram_watch_fp = fp;
     else fprintf(stderr, "[low-ram-watch] fopen('%s') failed; logging to stderr\n",
                  log_env);
@@ -972,7 +974,7 @@ static void clear_blocks(void)
   block_links_clear();
 
   for (u32 i = 0; i < s_blocks_count; i++)
-    free(s_blocks[i]);
+    AlignedFree(s_blocks[i]);
   s_blocks_count = 0u;
 
   if (s_lut_block_pointers)
@@ -1006,7 +1008,7 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
     }
     if (block->size != size) {
       blocks_unregister(block);
-      free(block);
+      AlignedFree(block);
       block = NULL;
     }
   }
@@ -1015,9 +1017,7 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
     const size_t bytes = sizeof(cpu_code_cache_block_t) +
                          CPU_INSTRUCTION_SIZE * size +
                          sizeof(cpu_code_cache_inst_info_t) * size;
-    /* posix_memalign for 16-byte alignment (alignas(16) struct). */
-    void* mem = NULL;
-    if (posix_memalign(&mem, 16u, bytes) != 0) mem = NULL;
+    void* mem = AlignedMalloc(bytes, 16u);
     AssertMsg(mem != NULL, "block allocation failed");
     block = (cpu_code_cache_block_t*)mem;
     memset(block, 0, sizeof(*block));
@@ -1850,10 +1850,13 @@ static void fastmem_backpatch_clear_all(void)
   s_fastmem_faulted_at_zero    = false;
 }
 
-/* x64 register IDs of the SysV caller-saved set we must spill across the
+/* x64 register IDs of the caller-saved set we must spill across the
  * C thunk call (excluding RAX which holds the thunk's return value). */
 static const x64_reg_t s_caller_saved_for_stub[] = {
-  X64_RDI, X64_RSI, X64_RDX, X64_RCX, X64_R8, X64_R9, X64_R10, X64_R11,
+#if !defined(_WIN32)
+  X64_RDI, X64_RSI,
+#endif
+  X64_RDX, X64_RCX, X64_R8, X64_R9, X64_R10, X64_R11,
 };
 enum { CALLER_SAVED_FOR_STUB_COUNT = sizeof(s_caller_saved_for_stub) /
                                      sizeof(s_caller_saved_for_stub[0]) };
@@ -1911,20 +1914,32 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
    *    !is_load: RWARG1 = addr, RWARG2 = data. */
   const x64_reg_t addr_reg = (x64_reg_t)info->address_register;
   const x64_reg_t data_reg = (x64_reg_t)info->data_register;
+#if defined(_WIN32)
+  const x64_reg_t arg1 = X64_RCX, arg2 = X64_RDX;
+#else
+  const x64_reg_t arg1 = X64_RDI, arg2 = X64_RSI;
+#endif
   if (info->is_load) {
     x64_push_r(&e, addr_reg);
-    x64_pop_r (&e, X64_RDI);
+    x64_pop_r (&e, arg1);
   } else {
     x64_push_r(&e, addr_reg);
     x64_push_r(&e, data_reg);
-    x64_pop_r (&e, X64_RSI);
-    x64_pop_r (&e, X64_RDI);
+    x64_pop_r (&e, arg2);
+    x64_pop_r (&e, arg1);
   }
 
   /* 3. Call the appropriate C thunk via abs64. */
   const void* thunk = fastmem_thunk_for(info->size, info->is_load != 0u);
   if (thunk == NULL || e.overflow) return NULL;
+#if defined(_WIN32)
+  /* The register spills occupy the dispatcher's original home area. */
+  x64_alu_r_imm(&e, X64_ALU_SUB, X64_SZ_64, X64_RSP, 32);
+#endif
   x64_call_abs64(&e, thunk);
+#if defined(_WIN32)
+  x64_alu_r_imm(&e, X64_ALU_ADD, X64_SZ_64, X64_RSP, 32);
+#endif
 
   /* 4. For loads, sign/zero-extend the result IN-PLACE in RAX (which is
    *    NOT in the spilled set, so it survives the pop sequence), then

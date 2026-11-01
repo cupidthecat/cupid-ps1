@@ -1,5 +1,6 @@
 /* PC-trigger GPR-dump hook.  See header for the contract. */
 
+#include "common/file_system.h"
 #include "core/cpu/cpu_pc_trigger.h"
 
 #include "core/cpu/cpu_core.h"
@@ -82,7 +83,7 @@ void cpu_pc_trigger_install(void)
     path_env = "/tmp/cupid-ps1-pctrig.log";
   strncpy(s_log_path, path_env, sizeof(s_log_path) - 1);
   s_log_path[sizeof(s_log_path) - 1] = '\0';
-  s_log = fopen(s_log_path, "w");
+  s_log = fs_open_file(s_log_path, "w", NULL);
   if (s_log == NULL) {
     fprintf(stderr,
             "[pc-trigger] failed to open log %s; falling back to stderr.\n",

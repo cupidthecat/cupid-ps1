@@ -3,6 +3,7 @@ import importlib.util
 import os
 from pathlib import Path
 import struct
+import shutil
 import tempfile
 import unittest
 
@@ -17,8 +18,8 @@ class LiveExecutionComparisonTest(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
-        self.bios = self.root / "generated.bin"
-        self.media = self.root / "generated.exe"
+        self.bios = self.root / "generated-\u03bb-\u732b.bin"
+        self.media = self.root / "generated-\u03bb-\u732b.exe"
         # Store/load RAM, consume the load delay, then stay in a stable branch loop.
         words = (0x3C08A003, 0x24091234, 0xAD090000, 0x8D0A0000, 0,
                  0x254B0001, 0x1000FFFF, 0)
@@ -45,6 +46,30 @@ class LiveExecutionComparisonTest(unittest.TestCase):
 
     def test_generated_instruction_trace(self):
         self.run_pair(('interp', 'cached'), 'trace')
+
+    def test_native_multiply_and_unaligned_load_results(self):
+        words = [0x3C08FFFF, 0x3508F800, 0x24090003, 0x3C0AA003]
+        start = len(words)
+        words.extend(((8 << 21) | (9 << 16) | 0x18, 0x00008012, 0x00008810,
+                      (8 << 21) | (9 << 16) | 0x19, 0x00009012, 0x00009810,
+                      0xAD500000, 0x95540000, 0, 0x91550001, 0,
+                      0x89560003, 0x99560000, 0))
+        words.extend((0x10000000 | ((start - len(words) - 1) & 0xFFFF), 0))
+        self.write_program(words)
+        for fastmem in ('off', 'lut', 'mmap'):
+            with self.subTest(fastmem=fastmem):
+                directory = self.root / f'multiply-{fastmem}'
+                result = compare.run_comparison(self.binary, self.bios, self.media, directory,
+                                                kind='state', modes=('recomp', 'recomp'), fastmem=fastmem,
+                                                interval=2, checkpoints=2, min_blocks=10, restore_at=1, timeout=30)
+                self.assertTrue(result['passed'], result)
+                for side in ('left', 'right'):
+                    data = (directory / side / 'checkpoint-00000004.sav').read_bytes()
+                    cpu = struct.unpack_from('<I', data, 212)[0] + 39
+                    self.assertEqual(data[cpu:cpu + 7], b'\x03\0\0\0CPU')
+                    regs = struct.unpack_from('<32I', data, cpu + 7 + 16)
+                    self.assertEqual(regs[16:23], (0xFFFFE800, 0xFFFFFFFF, 0xFFFFE800, 2,
+                                                   0xE800, 0xE8, 0xFFFFE800))
 
     def test_reserved_cached_word_faults_after_a_ram_rewrite(self):
         words = []
@@ -201,7 +226,8 @@ class LiveExecutionComparisonTest(unittest.TestCase):
     def test_disabled_native_instruction_cache_cannot_qualify(self):
         directory = self.root / 'disabled-cache'
         directory.mkdir()
-        (directory / 'data').symlink_to(compare.ROOT / 'data', target_is_directory=True)
+        if os.name == 'nt': shutil.copytree(compare.ROOT / 'data', directory / 'data')
+        else: (directory / 'data').symlink_to(compare.ROOT / 'data', target_is_directory=True)
         env = {key: value for key, value in os.environ.items() if not key.startswith('CUPID_')}
         env.update(SDL_VIDEODRIVER='dummy', SDL_AUDIODRIVER='dummy', CUPID_GPU_SW_ISA='SCALAR',
                    CUPID_CPU_STATS='1', CUPID_CHECKPOINT_DIR=str(directory), CUPID_CHECKPOINT_SCHEDULE='2,2')

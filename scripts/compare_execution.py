@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import struct
 import subprocess
 import time
@@ -50,19 +51,21 @@ def wait_child(command, directory, env, timeout):
     with (directory / "boot.log").open("wb") as log:
         try:
             child = subprocess.Popen(command, cwd=directory, env=env, stdout=log,
-                                     stderr=subprocess.STDOUT, start_new_session=True)
+                                     stderr=subprocess.STDOUT, start_new_session=(os.name == "posix"))
             try:
                 child.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 result["timed_out"] = True
                 try:
-                    os.killpg(child.pid, signal.SIGTERM)
+                    if os.name == "posix": os.killpg(child.pid, signal.SIGTERM)
+                    else: child.terminate()
                 except ProcessLookupError:
                     pass
                 try:
                     child.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-                    os.killpg(child.pid, signal.SIGKILL)
+                    if os.name == "posix": os.killpg(child.pid, signal.SIGKILL)
+                    else: child.kill()
                     child.wait()
             result["exit_code"] = child.returncode
         except OSError as error:
@@ -223,7 +226,8 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
     for label, mode in zip(("left", "right"), modes):
         directory = output / label
         directory.mkdir()
-        (directory / "data").symlink_to(ROOT / "data", target_is_directory=True)
+        if os.name == "nt": shutil.copytree(ROOT / "data", directory / "data")
+        else: (directory / "data").symlink_to(ROOT / "data", target_is_directory=True)
         command = [str(binary), "--cpu-mode", mode, "--fastmem", fastmem,
                    "--gpu-renderer", "software", "--pgxp", "off", "--bios", str(bios)]
         if not linking:
@@ -278,8 +282,6 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--hash-input", type=Path, action="append", default=[])
     args = parser.parse_args()
-    if os.name != "posix":
-        parser.error("run in the supported Linux build environment")
     output = args.output or ROOT / ".local-research" / ("compare-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     try:
         result = run_comparison(args.binary, args.bios, args.media, output, kind=args.kind,

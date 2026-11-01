@@ -1,3 +1,4 @@
+#include "common/file_system.h"
 #include "fmv_dump.h"
 
 #ifdef CUPID_FMV_DUMP_BUILD
@@ -37,7 +38,7 @@ static FILE* fmv_open_stage(const char* stage)
   if (s_fmv.num_stages >= FMV_MAX_STAGES) return NULL;
   char path[1024];
   snprintf(path, sizeof(path), "%s.%s", s_fmv.env_path, stage);
-  FILE* fp = fopen(path, "w");
+  FILE* fp = fs_open_file(path, "w", NULL);
   if (!fp) return NULL;
   snprintf(s_fmv.stages[s_fmv.num_stages].name,
            sizeof(s_fmv.stages[s_fmv.num_stages].name), "%s", stage);

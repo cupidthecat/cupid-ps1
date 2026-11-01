@@ -27,6 +27,11 @@
 #include <time.h>
 
 typedef struct Error Error;
+#if defined(_WIN32)
+typedef struct _stat64 fs_native_stat_t;
+#else
+typedef struct stat fs_native_stat_t;
+#endif
 
 enum {
   FS_FILE_ATTRIBUTE_DIRECTORY  = (1u << 0),
@@ -76,8 +81,8 @@ bool fs_find_files(const char* path, const char* pattern, u32 flags,
                    fs_find_data_t** out_results, size_t* out_count);
 void fs_free_find_data_array(fs_find_data_t* arr, size_t count);
 
-bool fs_stat_path(const char* path, struct stat* st, Error* error);
-bool fs_stat_file(FILE* fp, struct stat* st, Error* error);
+bool fs_stat_path(const char* path, fs_native_stat_t* st, Error* error);
+bool fs_stat_file(FILE* fp, fs_native_stat_t* st, Error* error);
 bool fs_stat_path_data(const char* path, fs_stat_data_t* sd, Error* error);
 bool fs_stat_file_data(FILE* fp, fs_stat_data_t* sd, Error* error);
 s64  fs_get_path_file_size(const char* path);
@@ -94,6 +99,10 @@ bool fs_recursive_delete_directory(const char* path, Error* error);
 
 /* mode is fopen mode string.  Returns NULL on failure.  Caller must fclose. */
 FILE* fs_open_file(const char* path, const char* mode, Error* error);
+/* Seekable binary scratch stream, removed when closed. */
+FILE* fs_open_anonymous_file(Error* error);
+/* Read-only binary stream. Keep data alive until fclose. */
+FILE* fs_open_readonly_buffer(const void* data, size_t size, Error* error);
 
 FILE* fs_open_shared_file(const char* path, const char* mode,
                           fs_file_share_mode_t share_mode, Error* error);

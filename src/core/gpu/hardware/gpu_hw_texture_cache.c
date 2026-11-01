@@ -9,6 +9,7 @@
 
 #include "common/assert.h"
 #include "common/error.h"
+#include "common/file_system.h"
 #include "common/log.h"
 #include "core/gpu/gpu_helpers.h"
 #include "core/gpu/hardware/gpu_hw.h"
@@ -1500,8 +1501,7 @@ void gpu_texture_cache_reload_texture_replacements(bool show_info, bool show_inf
     const int fn = snprintf(fp, sizeof fp, "%s/%s", dir, e->d_name);
     if (fn < 0 || (size_t)fn >= sizeof fp) continue;
 
-    struct stat st;
-    if (stat(fp, &st) != 0 || !S_ISREG(st.st_mode))
+    if (!fs_file_exists(fp))
       continue;
 
     tc_replacement_t r;

@@ -7,6 +7,7 @@
  * by convention; if the project ever needs JPG/TGA/BMP/GIF, drop the define.
  */
 
+#include "common/file_system.h"
 #include "core/gpu/hardware/tc_image_loader.h"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -20,7 +21,7 @@
 
 static u8* slurp_file(const char* path, size_t* out_size)
 {
-  FILE* f = fopen(path, "rb");
+  FILE* f = fs_open_file(path, "rb", NULL);
   if (!f) return NULL;
   if (fseek(f, 0, SEEK_END) != 0) { fclose(f); return NULL; }
   const long len = ftell(f);

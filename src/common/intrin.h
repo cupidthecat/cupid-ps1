@@ -1,5 +1,5 @@
 /*
- * SIMD intrinsics and compiler helpers for Linux on x86 and ARM.
+ * SIMD intrinsics and compiler helpers for supported host architectures.
  */
 #ifndef CUPID_COMMON_INTRIN_H
 #define CUPID_COMMON_INTRIN_H
@@ -30,7 +30,11 @@
 #  include <arm_neon.h>
 #endif
 
+#if defined(_WIN32)
+#include <malloc.h>
+#else
 #include <alloca.h>
+#endif
 
 #if defined(__clang__)
 #  define DONT_VECTORIZE_THIS_LOOP _Pragma("clang loop vectorize(disable)")

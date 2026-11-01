@@ -22,7 +22,11 @@ LOG_CHANNEL(SIO);
 extern void bus_add_tty_character(char c) __attribute__((weak));
 
 /* Optional settings flag for redirecting serial output to the TTY. */
+#if defined(_WIN32)
+bool g_sio_redirect_to_tty __attribute__((weak)) = false;
+#else
 extern bool g_sio_redirect_to_tty __attribute__((weak));
+#endif
 
 static u16 s_sio_ctrl;
 static u32 s_sio_stat;
@@ -86,7 +90,11 @@ void sio_write_register(u32 offset, u32 value)
   switch (offset)
   {
     case 0x00: /* SIO_DATA */
+#if defined(_WIN32)
+      if (g_sio_redirect_to_tty && (&bus_add_tty_character != NULL))
+#else
       if ((&g_sio_redirect_to_tty != NULL) && g_sio_redirect_to_tty && (&bus_add_tty_character != NULL))
+#endif
         bus_add_tty_character((char)value);
       else
         WARNING_LOG("SIO_DATA (W) <- 0x%02X", value);

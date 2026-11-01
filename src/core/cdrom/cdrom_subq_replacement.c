@@ -215,7 +215,7 @@ static const file_loader_t s_loaders[] = {
 static bool try_path(cdrom_subq_replacement_t* out, bool* result,
                      const char* path, loader_fn_t func, Error* error)
 {
-  FILE* fp = fopen(path, "rb");
+  FILE* fp = fs_open_file(path, "rb", NULL);
   if (!fp)
     return false;
 

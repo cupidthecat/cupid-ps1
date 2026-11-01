@@ -1,12 +1,13 @@
 /*
  * Buffers guest audio and uses SoundTouch for resampling and time stretching.
  * Sample conversion, volume scaling and tempo averaging use scalar loops.
- * Aligned buffers use posix_memalign. Display names live in audio_stream.c.
+ * Buffers use the platform aligned allocator. Display names live in audio_stream.c.
  */
 
 #include "core_audio_stream.h"
 
 #include "common/error.h"
+#include "common/align.h"
 #include "common/log.h"
 #include "common/timer.h"
 #include "common/types.h"
@@ -111,18 +112,14 @@ static inline bool is_stretch_enabled(const core_audio_stream_t* s)
 
 static s16* aligned_alloc_s16(size_t n_samples)
 {
-  void* p = NULL;
   size_t bytes = align_up_pow2((u32)(n_samples * sizeof(s16)), ALIGNMENT);
-  if (posix_memalign(&p, ALIGNMENT, bytes) != 0) return NULL;
-  return (s16*)p;
+  return AlignedMalloc(bytes, ALIGNMENT);
 }
 
 static float* aligned_alloc_f32(size_t n_samples)
 {
-  void* p = NULL;
   size_t bytes = align_up_pow2((u32)(n_samples * sizeof(float)), ALIGNMENT);
-  if (posix_memalign(&p, ALIGNMENT, bytes) != 0) return NULL;
-  return (float*)p;
+  return AlignedMalloc(bytes, ALIGNMENT);
 }
 
 static void s16_chunk_to_float(const s16* src, float* dst, u32 num_samples)
@@ -383,9 +380,9 @@ static void allocate_buffer(core_audio_stream_t* self)
 
 static void destroy_buffer(core_audio_stream_t* self)
 {
-  free(self->staging_buffer); self->staging_buffer = NULL;
-  free(self->float_buffer);   self->float_buffer   = NULL;
-  free(self->buffer);         self->buffer         = NULL;
+  AlignedFree(self->staging_buffer); self->staging_buffer = NULL;
+  AlignedFree(self->float_buffer);   self->float_buffer   = NULL;
+  AlignedFree(self->buffer);         self->buffer         = NULL;
   self->buffer_size = 0;
   self->staging_buffer_pos = 0;
   atomic_store_explicit(&self->wpos, 0, memory_order_release);
