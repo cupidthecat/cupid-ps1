@@ -13,6 +13,14 @@ Programmatic API: `system_save_state(path, error, backup_existing, ignore_memcar
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
+Version 91 adds the memory card's pending 128-byte write sector and SIO0's
+selected device and in-flight byte, separately from its queued transmit byte. Interrupted
+or rejected card writes no longer alter committed data. Earlier states retain
+their already-saved card image and seed any remaining write from that sector;
+they cannot recover data that an older emulator already overwrote or a shift
+latch that an older format never stored. Card state
+loads reject invalid protocol states, transfer cursors and read-data addresses.
+
 Version 90 records the independent SPU transfer event. Legacy loads rebuild
 its deadline after restoring the saved clock. Version 89 preserves the SPU's
 fractional transfer tick balance. Earlier

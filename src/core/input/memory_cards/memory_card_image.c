@@ -171,9 +171,7 @@ bool memory_card_image_load_from_file(u8* data, const char* filename, Error* err
 
 bool memory_card_image_save_to_file(const u8* data, const char* filename, Error* error)
 {
-  /* Atomic-rename helper isn't ported yet; a plain write is good enough for
-   * the SaveIfChanged path; on partial failure the OSD layer surfaces it. */
-  if (!fs_write_binary_file(filename, data, DATA_SIZE, error))
+  if (!fs_write_binary_file_atomic(filename, data, DATA_SIZE, error))
   {
     const char* fname_d;
     u32 fname_l;

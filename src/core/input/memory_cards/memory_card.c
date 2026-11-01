@@ -64,6 +64,7 @@ static char* mc_strdup(const char* s)
 static bool memory_card_save_if_changed(memory_card_t* mc, bool display_osd_message);
 static void memory_card_queue_file_save(memory_card_t* mc);
 static void memory_card_save_event_cb (void* user, tick_count_t ticks, tick_count_t ticks_late);
+static void memory_card_copy_transfer_state(memory_card_t* dst, const memory_card_t* src);
 
 static void memory_card_init(memory_card_t* mc, u32 index)
 {
@@ -154,23 +155,51 @@ void memory_card_reset(memory_card_t* mc)
 
 bool memory_card_do_state(memory_card_t* mc, state_wrapper_t* sw)
 {
-  /* On load we may be replacing a card mid-flight; flush first so we don't
-   * silently lose pending writes from the outgoing instance. */
-  if (state_wrapper_is_reading(sw))
-    memory_card_save_if_changed(mc, true);
-
-  u8 state_u8 = (u8)mc->state;
+  const bool reading = state_wrapper_is_reading(sw);
+  memory_card_t* target = mc;
+  if (reading) {
+    target = malloc(sizeof(*target));
+    if (!target) { sw->error = true; return false; }
+    memcpy(target, mc, sizeof(*target));
+  }
+  u8 state_u8 = (u8)target->state;
   state_wrapper_do_u8(sw, &state_u8);
-  mc->state = (memory_card_state_t)state_u8;
-
-  state_wrapper_do_u8(sw, &mc->flag);
-  state_wrapper_do_u16(sw, &mc->address);
-  state_wrapper_do_u8(sw, &mc->sector_offset);
-  state_wrapper_do_u8(sw, &mc->checksum);
-  state_wrapper_do_u8(sw, &mc->last_byte);
-  state_wrapper_do_bytes(sw, mc->data, sizeof(mc->data));
-  state_wrapper_do_bool(sw, &mc->changed);
-
+  target->state = (memory_card_state_t)state_u8;
+  state_wrapper_do_u8(sw, &target->flag);
+  state_wrapper_do_u16(sw, &target->address);
+  state_wrapper_do_u8(sw, &target->sector_offset);
+  state_wrapper_do_u8(sw, &target->checksum);
+  state_wrapper_do_u8(sw, &target->last_byte);
+  state_wrapper_do_bytes(sw, target->data, sizeof(target->data));
+  state_wrapper_do_bool(sw, &target->changed);
+  if (state_wrapper_get_version(sw) >= 91)
+    state_wrapper_do_bytes(sw, target->write_buffer, sizeof(target->write_buffer));
+  else if (reading) {
+    /* Older records already applied incoming bytes directly to the image.
+     * Keep those saved bytes and seed the remaining transfer from that sector. */
+    memset(target->write_buffer, 0, sizeof(target->write_buffer));
+    if (target->state >= MEMORY_CARD_STATE_WRITE_DATA && target->state <= MEMORY_CARD_STATE_WRITE_END &&
+        target->address < MEMORY_CARD_IMAGE_NUM_FRAMES)
+      memcpy(target->write_buffer, target->data + (u32)target->address * MEMORY_CARD_IMAGE_FRAME_SIZE,
+             sizeof(target->write_buffer));
+    /* These legacy phases did not retain the received checksum. Their image
+     * was already committed; preserve that historical completed write. */
+    if (target->state >= MEMORY_CARD_STATE_WRITE_ACK1 && target->state <= MEMORY_CARD_STATE_WRITE_END)
+      target->checksum = 0;
+  }
+  if (reading) {
+    if (state_u8 > MEMORY_CARD_STATE_GET_ID4 || target->sector_offset >= MEMORY_CARD_IMAGE_FRAME_SIZE ||
+        ((target->state == MEMORY_CARD_STATE_READ_DATA || target->state == MEMORY_CARD_STATE_READ_CHECKSUM) &&
+         target->address >= MEMORY_CARD_IMAGE_NUM_FRAMES))
+      sw->error = true;
+    if (!state_wrapper_has_error(sw)) {
+      memory_card_save_if_changed(mc, true);
+      memory_card_copy_transfer_state(mc, target);
+      memcpy(mc->data, target->data, sizeof(mc->data));
+      if (mc->changed) memory_card_queue_file_save(mc);
+    }
+    free(target);
+  }
   return !state_wrapper_has_error(sw);
 }
 
@@ -179,6 +208,11 @@ void memory_card_copy_state(memory_card_t* dst, const memory_card_t* src)
   /* Used for runahead/rewind state copies; the data array is assumed to */
   DebugAssert(memcmp(dst->data, src->data, sizeof(dst->data)) == 0);
 
+  memory_card_copy_transfer_state(dst, src);
+}
+
+static void memory_card_copy_transfer_state(memory_card_t* dst, const memory_card_t* src)
+{
   dst->state         = src->state;
   dst->flag          = src->flag;
   dst->address       = src->address;
@@ -186,6 +220,7 @@ void memory_card_copy_state(memory_card_t* dst, const memory_card_t* src)
   dst->checksum      = src->checksum;
   dst->last_byte     = src->last_byte;
   dst->changed       = src->changed;
+  memcpy(dst->write_buffer, src->write_buffer, sizeof(dst->write_buffer));
 }
 
 void memory_card_reset_transfer_state(memory_card_t* mc)
@@ -195,6 +230,7 @@ void memory_card_reset_transfer_state(memory_card_t* mc)
   mc->sector_offset = 0;
   mc->checksum      = 0;
   mc->last_byte     = 0;
+  memset(mc->write_buffer, 0, sizeof(mc->write_buffer));
 }
 
 bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
@@ -214,14 +250,14 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
     case MEMORY_CARD_STATE_READ_ADDRESS_MSB:
       *data_out = 0x00;
       ack = true;
-      mc->address = (u16)(((mc->address & 0x00FFu) | (ZeroExtend16(data_in) << 8)) & 0x3FFu);
+      mc->address = (u16)((mc->address & 0x00FFu) | (ZeroExtend16(data_in) << 8));
       mc->state = MEMORY_CARD_STATE_READ_ADDRESS_LSB;
       break;
 
     case MEMORY_CARD_STATE_READ_ADDRESS_LSB:
       *data_out = mc->last_byte;
       ack = true;
-      mc->address = (u16)(((mc->address & 0xFF00u) | ZeroExtend16(data_in)) & 0x3FFu);
+      mc->address = (u16)((mc->address & 0xFF00u) | ZeroExtend16(data_in));
       mc->sector_offset = 0;
       mc->state = MEMORY_CARD_STATE_READ_ACK1;
       break;
@@ -232,12 +268,16 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
       *data_out = 0x5D; ack = true; mc->state = MEMORY_CARD_STATE_READ_CONFIRM_ADDRESS_MSB; break;
 
     case MEMORY_CARD_STATE_READ_CONFIRM_ADDRESS_MSB:
-      *data_out = Truncate8(mc->address >> 8); ack = true;
+      *data_out = mc->address < MEMORY_CARD_IMAGE_NUM_FRAMES ? Truncate8(mc->address >> 8) : 0xFF; ack = true;
       mc->state = MEMORY_CARD_STATE_READ_CONFIRM_ADDRESS_LSB;
       break;
     case MEMORY_CARD_STATE_READ_CONFIRM_ADDRESS_LSB:
-      *data_out = Truncate8(mc->address); ack = true;
-      mc->state = MEMORY_CARD_STATE_READ_DATA;
+      if (mc->address < MEMORY_CARD_IMAGE_NUM_FRAMES) {
+        *data_out = Truncate8(mc->address); ack = true;
+        mc->state = MEMORY_CARD_STATE_READ_DATA;
+      } else {
+        *data_out = 0xFF; ack = false; mc->state = MEMORY_CARD_STATE_IDLE;
+      }
       break;
 
     case MEMORY_CARD_STATE_READ_DATA:
@@ -270,7 +310,7 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
     case MEMORY_CARD_STATE_READ_CHECKSUM:
       *data_out = mc->checksum; ack = true; mc->state = MEMORY_CARD_STATE_READ_END; break;
     case MEMORY_CARD_STATE_READ_END:
-      *data_out = 0x47; ack = true; mc->state = MEMORY_CARD_STATE_IDLE; break;
+      *data_out = 0x47; ack = false; mc->state = MEMORY_CARD_STATE_IDLE; break;
 
     case MEMORY_CARD_STATE_WRITE_CARD_ID1:
       *data_out = 0x5A; ack = true; mc->state = MEMORY_CARD_STATE_WRITE_CARD_ID2; break;
@@ -280,14 +320,14 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
     case MEMORY_CARD_STATE_WRITE_ADDRESS_MSB:
       *data_out = 0x00;
       ack = true;
-      mc->address = (u16)(((mc->address & 0x00FFu) | (ZeroExtend16(data_in) << 8)) & 0x3FFu);
+      mc->address = (u16)((mc->address & 0x00FFu) | (ZeroExtend16(data_in) << 8));
       mc->state = MEMORY_CARD_STATE_WRITE_ADDRESS_LSB;
       break;
 
     case MEMORY_CARD_STATE_WRITE_ADDRESS_LSB:
       *data_out = mc->last_byte;
       ack = true;
-      mc->address = (u16)(((mc->address & 0xFF00u) | ZeroExtend16(data_in)) & 0x3FFu);
+      mc->address = (u16)((mc->address & 0xFF00u) | ZeroExtend16(data_in));
       mc->sector_offset = 0;
       mc->state = MEMORY_CARD_STATE_WRITE_DATA;
       break;
@@ -298,8 +338,6 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
       {
         INFO_LOG("Writing memory card sector %u", (unsigned)mc->address);
         mc->checksum = (u8)(Truncate8(mc->address >> 8) ^ Truncate8(mc->address) ^ data_in);
-        /* Clear the "no write yet" flag the moment the host actually writes. */
-        mc->flag &= (u8)~MEMORY_CARD_FLAG_NO_WRITE_YET;
         memory_card_on_accessed();
       }
       else
@@ -307,9 +345,7 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
         mc->checksum ^= data_in;
       }
 
-      const u32 offset = ZeroExtend32(mc->address) * MEMORY_CARD_IMAGE_FRAME_SIZE + mc->sector_offset;
-      mc->changed = mc->changed || (mc->data[offset] != data_in);
-      mc->data[offset] = data_in;
+      mc->write_buffer[mc->sector_offset] = data_in;
 
       *data_out = mc->last_byte;
       ack = true;
@@ -319,22 +355,34 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
       {
         mc->state = MEMORY_CARD_STATE_WRITE_CHECKSUM;
         mc->sector_offset = 0;
-        if (mc->changed)
-          memory_card_queue_file_save(mc);
       }
       break;
     }
 
     case MEMORY_CARD_STATE_WRITE_CHECKSUM:
-      *data_out = mc->checksum; ack = true; mc->state = MEMORY_CARD_STATE_WRITE_ACK1; break;
+      *data_out = mc->last_byte;
+      mc->checksum ^= data_in;
+      ack = true; mc->state = MEMORY_CARD_STATE_WRITE_ACK1; break;
     case MEMORY_CARD_STATE_WRITE_ACK1:
       *data_out = 0x5C; ack = true; mc->state = MEMORY_CARD_STATE_WRITE_ACK2; break;
     case MEMORY_CARD_STATE_WRITE_ACK2:
       *data_out = 0x5D; ack = true; mc->state = MEMORY_CARD_STATE_WRITE_END; break;
     case MEMORY_CARD_STATE_WRITE_END:
-      /* WRITE_END returns 0x47 *without* asserting /ACK; the host
-       * deselects the card here, so any further byte starts a new command. */
-      *data_out = 0x47; ack = false; mc->state = MEMORY_CARD_STATE_IDLE; break;
+      /* The result ends the transaction without another /ACK. */
+      if (mc->checksum != 0) *data_out = 0x4E;
+      else if (mc->address >= MEMORY_CARD_IMAGE_NUM_FRAMES) *data_out = 0xFF;
+      else {
+        *data_out = 0x47;
+        mc->flag &= (u8)~MEMORY_CARD_FLAG_NO_WRITE_YET;
+        u8* sector = mc->data + (u32)mc->address * MEMORY_CARD_IMAGE_FRAME_SIZE;
+        if (memcmp(sector, mc->write_buffer, sizeof(mc->write_buffer))) {
+          memcpy(sector, mc->write_buffer, sizeof(mc->write_buffer));
+          mc->changed = true;
+          memory_card_queue_file_save(mc);
+        }
+      }
+      memset(mc->write_buffer, 0, sizeof(mc->write_buffer));
+      ack = false; mc->state = MEMORY_CARD_STATE_IDLE; break;
 
     case MEMORY_CARD_STATE_GET_ID_CARD_ID1:
       *data_out = 0x5A; ack = true; mc->state = MEMORY_CARD_STATE_GET_ID_CARD_ID2; break;
@@ -351,7 +399,7 @@ bool memory_card_transfer(memory_card_t* mc, u8 data_in, u8* data_out)
     case MEMORY_CARD_STATE_GET_ID3:
       *data_out = 0x00; ack = true; mc->state = MEMORY_CARD_STATE_GET_ID4; break;
     case MEMORY_CARD_STATE_GET_ID4:
-      *data_out = 0x80; ack = true; mc->state = MEMORY_CARD_STATE_COMMAND; break;
+      *data_out = 0x80; ack = false; mc->state = MEMORY_CARD_STATE_IDLE; break;
 
     case MEMORY_CARD_STATE_IDLE:
       /* SIO0 device-select byte for memory cards is 0x81. */
@@ -431,8 +479,6 @@ static bool memory_card_save_if_changed(memory_card_t* mc, bool display_osd_mess
   if (!mc->changed)
     return true;
 
-  mc->changed = false;
-
   if (!mc->path || mc->path[0] == '\0')
     return false;
 
@@ -447,10 +493,11 @@ static bool memory_card_save_if_changed(memory_card_t* mc, bool display_osd_mess
     ERROR_LOG("Failed to save memory card %u: %s",
               (unsigned)(mc->index + 1u), Error_get_description(&err));
     Error_destroy(&err);
+    memory_card_queue_file_save(mc);
     return false;
   }
   Error_destroy(&err);
-
+  mc->changed = false;
   return true;
 }
 

@@ -284,6 +284,15 @@ bool fs_ftruncate64(FILE* fp, s64 size, Error* error)
   return code == 0;
 }
 
+bool fs_flush_file(FILE* fp, Error* error)
+{
+  if (fflush(fp) != 0) { Error_set_errno(error, errno); return false; }
+  const intptr_t handle = _get_osfhandle(_fileno(fp));
+  if (handle == -1) { Error_set_errno(error, errno); return false; }
+  if (FlushFileBuffers((HANDLE)handle)) return true;
+  windows_set_error(error, "Synchronizing file", GetLastError()); return false;
+}
+
 static volatile LONG s_temp_serial;
 FILE* fs_open_temporary_file(const char* base, u32 length, char** out_path, Error* error)
 {

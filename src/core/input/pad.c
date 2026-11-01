@@ -5,6 +5,7 @@
  */
 
 #include "core/input/pad.h"
+#include "core/input/memory_cards/memory_card.h"
 #include "core/input/controllers/controller.h"
 #include "core/interrupts/interrupt_controller.h"
 #include "core/input/multitap.h"
@@ -618,6 +619,7 @@ bool pad_do_state(state_wrapper_t* sw, bool is_memory_state)
 
   u32 state_value = (u32)s_pad.state;
   state_wrapper_do_u32(sw, &state_value);
+  if (state_value > PAD_STATE_WAITING_FOR_ACK) { sw->error = true; return false; }
   s_pad.state = (pad_state_t)state_value;
 
   state_wrapper_do_u16(sw, &s_pad.joy_ctrl);
@@ -631,8 +633,23 @@ bool pad_do_state(state_wrapper_t* sw, bool is_memory_state)
   state_wrapper_do_bool(sw, &s_pad.receive_buffer_full);
   state_wrapper_do_bool(sw, &s_pad.transmit_buffer_full);
 
-  if (state_wrapper_is_reading(sw) && pad_is_transmitting())
-    timing_event_activate(&s_pad.transfer_event);
+  if (state_wrapper_get_version(sw) >= 91) {
+    u8 device = (u8)s_pad.active_device;
+    state_wrapper_do_u8(sw, &device);
+    state_wrapper_do_u8(sw, &s_pad.transmit_value);
+    if (device > PAD_ACTIVE_MULTITAP) { sw->error = true; return false; }
+    s_pad.active_device = (pad_active_device_t)device;
+  } else if (state_wrapper_is_reading(sw)) {
+    /* Old records lack the shift latch and selected-device identity. Recover
+     * the card selection when its protocol state identifies it; a separately
+     * queued byte cannot reconstruct the missing in-flight byte. */
+    const memory_card_t* card = s_pad.memory_cards[joy_ctrl_slot(s_pad.joy_ctrl)];
+    s_pad.active_device = card && card->state != MEMORY_CARD_STATE_IDLE ? PAD_ACTIVE_MEMORY_CARD : PAD_ACTIVE_NONE;
+    s_pad.transmit_value = s_pad.transmit_buffer;
+  }
+
+  if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw))
+    timing_event_set_state(&s_pad.transfer_event, pad_is_transmitting());
 
   return !state_wrapper_has_error(sw);
 }

@@ -557,6 +557,7 @@ FILE* fs_open_temporary_file(const char* base_path_data, u32 base_path_len, char
   if (!fp) {
     Error_set_errno_prefix(error, "fdopen() failed: ", errno);
     close(fd);
+    unlink(name_buf);
     free(name_buf);
     return NULL;
   }
@@ -626,6 +627,15 @@ bool fs_ftruncate64(FILE* fp, s64 size, Error* error)
   }
   if (ftruncate(fd, (off_t)size) < 0) {
     Error_set_errno_prefix(error, "ftruncate() failed: ", errno);
+    return false;
+  }
+  return true;
+}
+
+bool fs_flush_file(FILE* fp, Error* error)
+{
+  if (fflush(fp) != 0 || fsync(fileno(fp)) != 0) {
+    Error_set_errno_prefix(error, "Synchronizing file failed: ", errno);
     return false;
   }
   return true;

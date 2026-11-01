@@ -125,6 +125,8 @@ bool fs_fseek64_e(FILE* fp, s64 offset, int whence, Error* error);
 s64  fs_ftell64(FILE* fp);
 s64  fs_fsize64(FILE* fp, Error* error);
 bool fs_ftruncate64(FILE* fp, s64 size, Error* error);
+/* Flush the stream and synchronize its file data with the host filesystem. */
+bool fs_flush_file(FILE* fp, Error* error);
 
  /* Read whole file as bytes; allocates *out_data on heap (caller frees with
  * free()).  *out_len receives byte count.  Returns false on error. */
@@ -138,6 +140,9 @@ bool fs_read_file_to_string_path(const char* path, char** out_data, size_t* out_
 bool fs_read_file_to_string     (FILE* fp,         char** out_data, size_t* out_len, Error* error);
 
 bool fs_write_binary_file(const char* path, const void* data, size_t data_length, Error* error);
+/* Publish a complete, synchronized sibling temporary file by replacement.
+ * A write/flush/close/rename failure leaves the original path untouched. */
+bool fs_write_binary_file_atomic(const char* path, const void* data, size_t data_length, Error* error);
 bool fs_write_string_to_file_view(const char* path, const char* data, u32 len, Error* error);
 bool fs_write_string_to_file_cstr(const char* path, const char* str, Error* error);
 

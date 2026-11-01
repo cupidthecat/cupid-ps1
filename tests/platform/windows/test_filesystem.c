@@ -135,6 +135,30 @@ static void check_large_file(const char* root)
   free(path);
 }
 
+static void check_atomic_replacement(const char* root)
+{
+  char* path = child(root, "atomic-\xCE\xBB.mcd");
+  CHECK(fs_write_binary_file_atomic(path, "original", 8, NULL));
+  FILE* previous = fs_open_file(path, "rb", NULL); CHECK(previous);
+  CHECK(fs_write_binary_file_atomic(path, "replacement", 11, NULL));
+  char old[8]; CHECK(fread(old, 1, sizeof(old), previous) == sizeof(old) && !memcmp(old, "original", 8));
+  fclose(previous); check_content(path, "replacement", 11);
+  /* A reader that denies deletion must prevent replacement without damaging
+   * the destination or leaving a sibling temporary file. */
+  wchar_t* wide = windows_path_to_wide(path, NULL); CHECK(wide);
+  HANDLE locked = CreateFileW(wide, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+  CHECK(locked != INVALID_HANDLE_VALUE); free(wide);
+  Error error = ERROR_INIT;
+  CHECK(!fs_write_binary_file_atomic(path, "discard", 7, &error) && Error_is_valid(&error));
+  CloseHandle(locked); check_content(path, "replacement", 11); Error_destroy(&error);
+  fs_find_data_t* leftovers = NULL; size_t count = 0;
+  CHECK(!fs_find_files(root, "atomic-*.mcd.*", FS_FIND_FILES | FS_FIND_HIDDEN_FILES, &leftovers, &count) && count == 0);
+  fs_free_find_data_array(leftovers, count);
+  CHECK(!fs_write_binary_file_atomic(path, NULL, 1, NULL));
+  check_content(path, "replacement", 11);
+  free(path);
+}
+
 static void check_temporary(const char* root)
 {
   char* base = child(root, "temporary-\xCE\xBB");
@@ -236,6 +260,7 @@ int main(void)
   CHECK(fs_write_string_to_file_cstr(sentinel, "preserve", NULL));
   check_streams(root);
   check_large_file(root);
+  check_atomic_replacement(root);
   check_temporary(root);
   check_directories(root, outside);
   CHECK(fs_set_working_directory(root));

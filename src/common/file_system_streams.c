@@ -172,6 +172,26 @@ bool fs_write_string_to_file_view(const char* path, const char* data, u32 len, E
   return fs_write_binary_file(path, data, (size_t)len, error);
 }
 
+bool fs_write_binary_file_atomic(const char* path, const void* data, size_t data_length, Error* error)
+{
+  if (!path || (data_length && !data) || strlen(path) > UINT32_MAX) {
+    Error_set_errno(error, EINVAL); return false;
+  }
+  char* temporary = NULL;
+  FILE* fp = fs_open_temporary_file(path, (u32)strlen(path), &temporary, error);
+  if (!fp) return false;
+  bool ok = !data_length || fwrite(data, 1, data_length, fp) == data_length;
+  if (!ok) Error_set_errno_prefix(error, "Writing temporary file failed: ", errno ? errno : EIO);
+  if (ok) ok = fs_flush_file(fp, error);
+  if (fclose(fp) != 0 && ok) {
+    Error_set_errno_prefix(error, "Closing temporary file failed: ", errno); ok = false;
+  }
+  if (ok) ok = fs_rename_path(temporary, path, error);
+  if (!ok) fs_delete_file(temporary, NULL);
+  free(temporary);
+  return ok;
+}
+
 bool fs_write_string_to_file_cstr(const char* path, const char* str, Error* error)
 {
   return fs_write_binary_file(path, str, str ? strlen(str) : 0, error);
