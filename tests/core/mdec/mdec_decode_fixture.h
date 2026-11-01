@@ -11,6 +11,7 @@ typedef struct {
   u16  qscale;
   u8   decoder;
   bool pending;
+  u8 output_row_words, output_word;
   u8   iq_uv[64], iq_y[64];
   s16  scale[64];
   s16  blocks[6][64];
@@ -44,6 +45,8 @@ static coefficient_snapshot_t read_coefficients(void)
   state_wrapper_do_u16(&state, &result.qscale);
   state_wrapper_do_array(&state, result.rgb, sizeof(u32), 256);
   state_wrapper_do_bool(&state, &result.pending);
+  state_wrapper_do_u8(&state, &result.output_row_words);
+  state_wrapper_do_u8(&state, &result.output_word);
   EXPECT_FALSE(state_wrapper_has_error(&state));
   EXPECT_EQ(state_wrapper_get_position(&state), size);
   return result;

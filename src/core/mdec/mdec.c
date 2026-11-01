@@ -178,11 +178,6 @@ static ALWAYS_INLINE u32 mdec_fifo_out_pop(mdec_fifo_out_t* f)
   f->size--;
   return v;
 }
-static void mdec_fifo_out_pop_range(mdec_fifo_out_t* f, u32* out, u32 count)
-{
-  for (u32 i = 0; i < count; i++)
-    out[i] = mdec_fifo_out_pop(f);
-}
 
  /*
  * fixed-size POD; we mirror that on disk so loaders interoperate.  Layout:
@@ -229,6 +224,8 @@ typedef struct {
 
   ALIGN_TO_CACHE_LINE u32 block_rgb[256];
   timing_event_t block_copy_out_event;
+  u8 output_dma_row_words;
+  u8 output_dma_word;
 
 #if !defined(NDEBUG)
   u32 total_blocks_decoded;
@@ -294,6 +291,12 @@ void mdec_reset(void)
 
 bool mdec_do_state(state_wrapper_t* sw)
 {
+  if (!state_wrapper_is_reading(sw) && state_wrapper_get_version(sw) < 93 &&
+      s_state.output_dma_row_words &&
+      (!mdec_fifo_out_empty(&s_state.data_out_fifo) || s_state.output_dma_word)) {
+    sw->error = true;
+    return false;
+  }
   state_wrapper_do_u32 (sw, &s_state.status.raw);
   state_wrapper_do_bool(sw, &s_state.enable_dma_in);
   state_wrapper_do_bool(sw, &s_state.enable_dma_out);
@@ -328,6 +331,14 @@ bool mdec_do_state(state_wrapper_t* sw)
 
   bool block_copy_out_pending = mdec_has_pending_block_copy_out();
   state_wrapper_do_bool(sw, &block_copy_out_pending);
+  if (state_wrapper_get_version(sw) >= 93) {
+    state_wrapper_do_u8(sw, &s_state.output_dma_row_words);
+    state_wrapper_do_u8(sw, &s_state.output_dma_word);
+  } else if (state_wrapper_is_reading(sw)) {
+    /* Older queued output already has raster order and needs no DMA offset. */
+    s_state.output_dma_row_words = 0;
+    s_state.output_dma_word = 0;
+  }
   if (state_wrapper_is_reading(sw)) {
     if (!state_wrapper_has_error(sw)) {
       const bool valid =
@@ -340,6 +351,10 @@ bool mdec_do_state(state_wrapper_t* sw)
           s_state.state <= MDEC_STATE_NO_COMMAND && s_state.remaining_halfwords <= 0x20000u &&
           s_state.current_block <= MDEC_NUM_BLOCKS && s_state.current_coefficient <= 64 &&
           s_state.current_q_scale <= 63 &&
+          ((s_state.output_dma_row_words == 0 && s_state.output_dma_word == 0) ||
+           ((s_state.output_dma_row_words == 4 || s_state.output_dma_row_words == 6) &&
+            s_state.output_dma_word < 32u * s_state.output_dma_row_words &&
+            s_state.data_out_fifo.size <= 32u * s_state.output_dma_row_words)) &&
           (!block_copy_out_pending || s_state.state == MDEC_STATE_WRITING_MACROBLOCK);
       if (!valid) sw->error = true;
     }
@@ -402,6 +417,23 @@ void mdec_write_register(u32 offset, u32 value)
   }
 }
 
+bool mdec_dma_read_word(u32* word, s32* address_offset_words)
+{
+  if (mdec_fifo_out_empty(&s_state.data_out_fifo)) return false;
+  *address_offset_words = 0;
+  if (s_state.output_dma_row_words) {
+    const u32 width = s_state.output_dma_row_words;
+    const u32 row = s_state.output_dma_word / width;
+    *address_offset_words = (s32)((row & 7u) * width) - ((row & 8u) ? (s32)(width * 7u) : 0);
+    s_state.output_dma_word = (u8)((s_state.output_dma_word + 1u) % (width * 32u));
+  }
+  *word = mdec_fifo_out_pop(&s_state.data_out_fifo);
+  FMV_DUMP("T4", word, sizeof(*word), (UINT64_C(1) << 32) | 1u);
+  if (mdec_fifo_out_empty(&s_state.data_out_fifo)) mdec_execute();
+  else mdec_update_status();
+  return true;
+}
+
 void mdec_dma_read(u32* words, u32 word_count)
 {
   if (mdec_fifo_out_size(&s_state.data_out_fifo) < word_count)
@@ -409,12 +441,13 @@ void mdec_dma_read(u32* words, u32 word_count)
                 word_count, mdec_fifo_out_size(&s_state.data_out_fifo));
 
   const u32 words_to_read = mdec_min_u32(word_count, mdec_fifo_out_size(&s_state.data_out_fifo));
-  if (words_to_read > 0)
-    mdec_fifo_out_pop_range(&s_state.data_out_fifo, words, words_to_read);
-  FMV_DUMP("T4", words, words_to_read * 4u, ((u64)word_count << 32) | words_to_read);
+  for (u32 i = 0; i < words_to_read; i++) {
+    s32 offset;
+    mdec_dma_read_word(&words[i], &offset);
+  }
 
   DEBUG_LOG("DMA read complete, %u bytes left", mdec_fifo_out_size(&s_state.data_out_fifo) * (u32)sizeof(u32));
-  if (mdec_fifo_out_empty(&s_state.data_out_fifo))
+  if (words_to_read == 0 && mdec_fifo_out_empty(&s_state.data_out_fifo))
     mdec_execute();
 }
 
@@ -468,6 +501,8 @@ static void mdec_soft_reset(void)
   s_state.current_block = 0;
   s_state.current_coefficient = 64;
   s_state.current_q_scale = 0;
+  s_state.output_dma_row_words = 0;
+  s_state.output_dma_word = 0;
   timing_event_deactivate(&s_state.block_copy_out_event);
   mdec_update_status();
 }
@@ -489,6 +524,10 @@ static void mdec_update_status(void)
   s_state.status.bits.parameter_words_remaining =
       (u32)Truncate16((s_state.remaining_halfwords / 2u) - (no_function ? 0u : 1u));
   s_state.status.bits.current_block = (s_state.current_block + 4u) % MDEC_NUM_BLOCKS;
+  if (s_state.output_dma_row_words && !mdec_fifo_out_empty(&s_state.data_out_fifo)) {
+    const u32 total = 32u * s_state.output_dma_row_words;
+    s_state.status.bits.current_block = (total - s_state.data_out_fifo.size) / (8u * s_state.output_dma_row_words);
+  }
 
   /* Always request data-in if input is enabled and we have room for a
    * burst of 32 words (64 halfwords). */
@@ -561,13 +600,18 @@ static void mdec_execute(void)
         s_state.status.bits.data_output_bit15  = cw.bits.data_output_bit15;
         mdec_fifo_in_remove(&s_state.data_in_fifo, 2);
         /* No-function commands leave already decoded output available. */
-        if (cw.bits.command >= MDEC_COMMAND_DECODE_MACROBLOCK && cw.bits.command <= MDEC_COMMAND_SET_SCALE)
+        if (cw.bits.command >= MDEC_COMMAND_DECODE_MACROBLOCK && cw.bits.command <= MDEC_COMMAND_SET_SCALE) {
           mdec_fifo_out_clear(&s_state.data_out_fifo);
+          s_state.output_dma_row_words = 0;
+          s_state.output_dma_word = 0;
+        }
 
         u32 num_words;
         mdec_state_e new_state;
         switch ((mdec_command_t)cw.bits.command) {
           case MDEC_COMMAND_DECODE_MACROBLOCK:
+            s_state.output_dma_row_words = cw.bits.data_output_depth == MDEC_DATA_OUTPUT_DEPTH_15BIT ? 4 :
+                                          cw.bits.data_output_depth == MDEC_DATA_OUTPUT_DEPTH_24BIT ? 6 : 0;
             num_words = ZeroExtend32(cw.bits.parameter_word_count);
             new_state = MDEC_STATE_DECODING_MACROBLOCK;
             break;
@@ -736,11 +780,26 @@ static void mdec_schedule_block_copy_out(tick_count_t ticks)
   timing_event_set_interval_and_schedule(&s_state.block_copy_out_event, ticks);
 }
 
+static u32 mdec_color_output_pixel(u32 index)
+{
+  const u32 block = index / 64u;
+  const u32 within = index % 64u;
+  return s_state.block_rgb[((block / 2u) * 8u + within / 8u) * 16u + (block % 2u) * 8u + within % 8u];
+}
+
 static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ticks_late)
 {
   (void)param; (void)ticks; (void)ticks_late;
   Assert(s_state.state == MDEC_STATE_WRITING_MACROBLOCK);
   timing_event_deactivate(&s_state.block_copy_out_event);
+
+  const u8 row_words = s_state.status.bits.data_output_depth == MDEC_DATA_OUTPUT_DEPTH_15BIT ? 4 :
+                      s_state.status.bits.data_output_depth == MDEC_DATA_OUTPUT_DEPTH_24BIT ? 6 : 0;
+  /* A pre-version-93 pending copy has no saved DMA geometry yet. */
+  if (s_state.output_dma_row_words == 0 && row_words) {
+    s_state.output_dma_row_words = row_words;
+    s_state.output_dma_word = 0;
+  }
 
   switch ((mdec_data_output_depth_t)s_state.status.bits.data_output_depth) {
     /* Keep every monochrome source pixel within its byte before packing. */
@@ -784,25 +843,25 @@ static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ti
       while (index < 256u) {
         switch (state) {
           case 0:
-            rgb = s_state.block_rgb[index++]; /* RGB- */
+            rgb = mdec_color_output_pixel(index++); /* RGB- */
             state = 1;
             break;
           case 1:
-            rgb |= (s_state.block_rgb[index] & 0xFFu) << 24; /* RGBR */
+            rgb |= (mdec_color_output_pixel(index) & 0xFFu) << 24; /* RGBR */
             mdec_fifo_out_push(&s_state.data_out_fifo, rgb);
-            rgb = s_state.block_rgb[index] >> 8; /* GB-- */
+            rgb = mdec_color_output_pixel(index) >> 8; /* GB-- */
             index++;
             state = 2;
             break;
           case 2:
-            rgb |= s_state.block_rgb[index] << 16; /* GBRG */
+            rgb |= mdec_color_output_pixel(index) << 16; /* GBRG */
             mdec_fifo_out_push(&s_state.data_out_fifo, rgb);
-            rgb = s_state.block_rgb[index] >> 16;
+            rgb = mdec_color_output_pixel(index) >> 16;
             index++;
             state = 3;
             break;
           case 3:
-            rgb |= s_state.block_rgb[index] << 8; /* BRGB */
+            rgb |= mdec_color_output_pixel(index) << 8; /* BRGB */
             mdec_fifo_out_push(&s_state.data_out_fifo, rgb);
             index++;
             state = 0;
@@ -818,13 +877,13 @@ static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ti
         /* The older path extracts five-bit channels at bit offsets 3, 11 and 19. */
         const u16 a = (u16)((u16)s_state.status.bits.data_output_bit15 << 15);
         for (u32 i = 0; i < 256u;) {
-          u32 color = s_state.block_rgb[i++];
+          u32 color = mdec_color_output_pixel(i++);
           u16 r = (u16)((color >>  3) & 0x1Fu);
           u16 g = (u16)((color >> 11) & 0x1Fu);
           u16 b = (u16)((color >> 19) & 0x1Fu);
           const u16 color15a = (u16)(r | (g << 5) | (b << 10) | a);
 
-          color = s_state.block_rgb[i++];
+          color = mdec_color_output_pixel(i++);
           r = (u16)((color >>  3) & 0x1Fu);
           g = (u16)((color >> 11) & 0x1Fu);
           b = (u16)((color >> 19) & 0x1Fu);
@@ -838,13 +897,13 @@ static void mdec_copy_out_block(void* param, tick_count_t ticks, tick_count_t ti
         const u32 a = ZeroExtend32(s_state.status.bits.data_output_bit15) << 15;
         for (u32 i = 0; i < 256u;) {
 #define MDEC_E8TO5(color) (mdec_min_u32((((color) + 4u) >> 3), 0x1Fu))
-          u32 color = s_state.block_rgb[i++];
+          u32 color = mdec_color_output_pixel(i++);
           u32 r = MDEC_E8TO5(color & 0xFFu);
           u32 g = MDEC_E8TO5((color >>  8) & 0xFFu);
           u32 b = MDEC_E8TO5((color >> 16) & 0xFFu);
           const u32 color15a = r | (g << 5) | (b << 10) | a;
 
-          color = s_state.block_rgb[i++];
+          color = mdec_color_output_pixel(i++);
           r = MDEC_E8TO5(color & 0xFFu);
           g = MDEC_E8TO5((color >>  8) & 0xFFu);
           b = MDEC_E8TO5((color >> 16) & 0xFFu);

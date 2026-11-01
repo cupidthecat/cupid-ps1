@@ -113,6 +113,10 @@ The `MdecColorPacking` filter checks every output byte in generated 15- and
 24-bit color blocks, including signed components, manual and DMA interfaces,
 and restored copy-out deadlines. See [MDEC color packing](../mdec/color-packing.md).
 
+Colored output checks distinguish CPU tile order from DMA raster placement,
+including partial-transfer restoration and generated native Windows boots.
+See [MDEC output order](../mdec/output-order.md).
+
 The `SpuDmaRead` filter checks every output halfword, FIFO bounds and DMA
 completion for exact and oversized reads, including restored components.
 Generated guest programs configure channel 4 across CPU execution modes and

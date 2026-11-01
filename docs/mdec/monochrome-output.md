@@ -6,8 +6,9 @@ value. Four-bit and eight-bit FIFO packing mask each input pixel to that byte,
 so a negative sample cannot set bits belonging to neighboring pixels.
 
 The FIFO mask also handles pending pixel records written by a version that
-stored sign-extended values. The state layout remains version 92. This does
-not repair bytes already packed incorrectly into an older state's output FIFO.
+stored sign-extended values. This fix did not change the version-92
+state layout. This does not repair bytes already packed incorrectly into
+an older state's output FIFO.
 
 Component regressions use constant and checkerboard blocks with independently
 known luma across both decoder routines. They cover signed/unsigned output,

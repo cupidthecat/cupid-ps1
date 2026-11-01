@@ -20,9 +20,12 @@ void mdec_end_frame(void);
 u32  mdec_read_register(u32 offset);
 void mdec_write_register(u32 offset, u32 value);
 
-/* DMA channel 1 (MDECout): the decoder pulls up to `word_count` words out
- * of its 768-byte output queue into `words`. */
+/* Read up to word_count raw device words, without applying RAM placement.
+ * DMA channel 1 uses the per-word offsets below. */
 void mdec_dma_read(u32* words, u32 word_count);
+/* Read one device word and its raster-placement offset from the DMA address.
+ * Returns false without consuming data when the output queue is empty. */
+bool mdec_dma_read_word(u32* word, s32* address_offset_words);
 
 /* DMA channel 0 (MDECin): caller hands us `word_count` 32-bit words; we
  * unpack them as halfwords into the 1024-byte input FIFO and kick the

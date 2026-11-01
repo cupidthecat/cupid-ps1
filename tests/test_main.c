@@ -226,6 +226,15 @@ int main(int argc, char** argv)
     }
   }
 
+  /* File-backed fixtures stay in the source tree when workers change cwd. */
+  char* source_directory = realpath(".", NULL);
+  if (!source_directory || setenv("CUPID_TEST_SOURCE_DIR", source_directory, 1) != 0) {
+    free(source_directory);
+    fprintf(stderr, "Could not resolve test source directory.\n");
+    return 1;
+  }
+  free(source_directory);
+
   u32 selected = 0;
   for (test_entry_t* entry = s_head; entry; entry = entry->next)
     selected += matches(entry, filter);

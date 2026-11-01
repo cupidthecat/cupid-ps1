@@ -7,8 +7,8 @@ static void load_legacy_pending_pixels(void)
   state_wrapper_init_write(&sw, bytes, sizeof(bytes), SAVE_STATE_VERSION);
   EXPECT_TRUE(mdec_do_state(&sw));
   const size_t size = state_wrapper_get_position(&sw);
-  /* The RGB array precedes the final pending-copy flag in the existing record. */
-  const size_t start = size - 256 * sizeof(u32) - sizeof(u8);
+  /* The RGB array precedes the pending-copy flag and two DMA layout bytes in the existing record. */
+  const size_t start = size - 256 * sizeof(u32) - 3 * sizeof(u8);
   for (u32 sample = 0; sample < 64; sample++) {
     u32 value; memcpy(&value, bytes + start + sample * sizeof(value), sizeof(value));
     value = (u32)(s32)(s8)(u8)value;

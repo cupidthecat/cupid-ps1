@@ -8,7 +8,8 @@ another command, even when the header's low bits are nonzero.
 See the [MDEC command specification](https://psx-spx.consoledev.net/macroblockdecodermdec/#mdec0-no-function).
 
 The latched no-function state retains its status bits across control writes
-and save/load. The state layout remains version 92. Data already discarded
+and save/load. This fix did not change the version-92 state layout. Data already
+discarded
 by an older command model cannot be recovered from an older state.
 
 Component checks cover all five codes, all output flags and boundary count

@@ -33,7 +33,7 @@ COVERAGE = {
         "excluded": ["CPU host-dispatch flags/pointers and PGXP CPU shadow arrays not written by cpu_do_state",
                      "host mappings, generated native code, external BIOS/disc contents",
                      "host audio/video/input queues and asynchronous host reader state"],
-        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87/88/89/90/91/92; see subsystem do_state functions",
+        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87/88/89/90/91/92/93; see subsystem do_state functions",
         "boundary": "frontend frame checkpoint; CPU event overshoot and engine flags remain compared",
         "limits": "A difference can reflect engine bookkeeping or timing. Equality covers serialized state only.",
     },
@@ -93,7 +93,7 @@ def validate_checkpoint(path):
     with path.open("rb") as stream:
         header = stream.read(216)
     if (len(header) != 216 or struct.unpack_from("<I", header)[0] != 0x43435544
-            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87, 88, 89, 90, 91, 92)):
+            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87, 88, 89, 90, 91, 92, 93)):
         raise ValueError("missing or unsupported checkpoint header")
     compression, size, unpacked, offset = struct.unpack_from("<4I", header, 200)
     if compression != 0 or size == 0 or size != unpacked or offset < 216 or offset + size != path.stat().st_size:
@@ -198,9 +198,11 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
 
 def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp", "cached"),
                    instructions=50000, interval=60, checkpoints=5, min_blocks=100,
-                   fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=(), restore_at=0):
+                   fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=(), restore_at=0,
+                   mdec_old_routines=False):
     if (kind not in COVERAGE or len(modes) != 2 or any(mode not in ("interp", "cached", "recomp") for mode in modes)
-            or (kind == "trace" and "recomp" in modes) or fastmem not in ("off", "lut", "mmap")):
+            or (kind == "trace" and "recomp" in modes) or fastmem not in ("off", "lut", "mmap")
+            or not isinstance(mdec_old_routines, bool)):
         raise ValueError("unsupported comparison configuration")
     if (not math.isfinite(timeout) or timeout <= 0 or not 0 < instructions <= 0xffffffffffffffff or interval <= 0
             or not 1 <= checkpoints <= 32 or interval * checkpoints > 0xffffffff or min_blocks <= 0):
@@ -219,6 +221,7 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
                                 "checkpoints": checkpoints, "minimum_blocks": min_blocks,
                                 "right_restore_at": restore_at,
                                 "instruction_cache": True,
+                                "mdec_old_routines": mdec_old_routines,
                                 "fastmem": fastmem, "linking": linking, "timeout_seconds": timeout,
                                 "timing": "native", "renderer": "scalar software", "pgxp": False},
               "runs": [], "differences": []}
@@ -226,6 +229,8 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
     for label, mode in zip(("left", "right"), modes):
         directory = output / label
         directory.mkdir()
+        (directory / "settings.ini").write_text(
+            "[Hacks]\nUseOldMDECRoutines = " + ("true" if mdec_old_routines else "false") + "\n")
         if os.name == "nt": shutil.copytree(ROOT / "data", directory / "data")
         else: (directory / "data").symlink_to(ROOT / "data", target_is_directory=True)
         command = [str(binary), "--cpu-mode", mode, "--fastmem", fastmem,

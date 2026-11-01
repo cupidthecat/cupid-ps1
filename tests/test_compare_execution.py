@@ -13,7 +13,7 @@ spec.loader.exec_module(compare)
 
 @unittest.skipUnless(os.name == "posix", "Linux process runner")
 class ExecutionComparisonTest(unittest.TestCase):
-    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0, fastmem='off'):
+    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0, fastmem='off', mdec_old_routines=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary, bios, media = (root / name for name in ("emulator", "bios", "media"))
@@ -65,10 +65,20 @@ print(cached)
             binary.chmod(0o700)
             return compare.run_comparison(binary, bios, media, root / "run", kind=kind,
                                           modes=modes, instructions=4, interval=2, checkpoints=2,
-                                          min_blocks=1, timeout=timeout, restore_at=restore_at, fastmem=fastmem)
+                                          min_blocks=1, timeout=timeout, restore_at=restore_at, fastmem=fastmem,
+                                          mdec_old_routines=mdec_old_routines)
 
     def test_complete_trace(self):
         self.assertTrue(self.run_fake()["passed"])
+
+    def test_requested_mdec_routine_is_written_and_recorded(self):
+        for old in (False, True):
+            with self.subTest(old=old):
+                setting = "true" if old else "false"
+                change = f"assert pathlib.Path('settings.ini').read_text() == '[Hacks]\\nUseOldMDECRoutines = {setting}\\n'"
+                result = self.run_fake(change, mdec_old_routines=old)
+                self.assertTrue(result['passed'], result)
+                self.assertEqual(result['configuration']['mdec_old_routines'], old)
 
     def test_complete_state(self):
         self.assertTrue(self.run_fake(kind="state", modes=("interp", "recomp"))["passed"])
@@ -117,18 +127,18 @@ print(cached)
                 compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
 
     def test_current_state_version(self):
-        self.assertTrue(self.run_fake("state_version = 92", kind="state")["passed"])
+        self.assertTrue(self.run_fake("state_version = 93", kind="state")["passed"])
 
     def test_previous_state_version(self):
-        for version in (85, 86, 87, 88, 89, 90, 91):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92):
             with self.subTest(version=version):
                 self.assertTrue(self.run_fake(f"state_version = {version}", kind="state")["passed"])
 
     def test_unsupported_state_version(self):
-        self.assertFalse(self.run_fake("state_version = 93", kind="state")["passed"])
+        self.assertFalse(self.run_fake("state_version = 94", kind="state")["passed"])
 
     def test_state_version_difference_is_not_normalized(self):
-        for version in (85, 86, 87, 88, 89, 90, 91, 92):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93):
             with self.subTest(version=version):
                 result = self.run_fake(f"if right: state_version = {version}", kind="state")
                 self.assertFalse(result["passed"])

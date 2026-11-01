@@ -869,6 +869,22 @@ static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 add
   /* TODO-style note: may not be quite right for OTC. */
   address &= mask;
 
+  if (channel == DMA_CHANNEL_MDECOUT) {
+    u8* ram = bus_get_ram_pointer();
+    for (u32 i = 0; i < word_count; i++) {
+      u32 word;
+      s32 offset;
+      if (!mdec_dma_read_word(&word, &offset)) break;
+      const u32 target = (address + (u32)(offset * 4)) & mask;
+      const u32 page = target >> HOST_PAGE_SHIFT;
+      if (bus_is_ram_code_page(page) && cpu_code_cache_invalidate_blocks_with_page_index)
+        cpu_code_cache_invalidate_blocks_with_page_index(page);
+      memcpy(ram + target, &word, sizeof(word));
+      address = (address + increment) & mask;
+    }
+    return bus_get_dma_ram_tick_count(word_count);
+  }
+
   if (channel == DMA_CHANNEL_OTC)
   {
     /* Build the ordering table: each word points to the previous, except
@@ -920,10 +936,6 @@ static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 add
 
     case DMA_CHANNEL_SPU:
       spu_dma_read(dest_pointer, word_count);
-      break;
-
-    case DMA_CHANNEL_MDECOUT:
-      mdec_dma_read(dest_pointer, word_count);
       break;
 
     default:

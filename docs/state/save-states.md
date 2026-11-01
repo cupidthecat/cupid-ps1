@@ -13,6 +13,10 @@ Programmatic API: `system_save_state(path, error, backup_existing, ignore_memcar
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
+Version 93 records colored MDEC DMA placement and its partial-transfer cursor.
+Earlier queued pixels retain their saved order until drained. See
+[MDEC state records](../mdec/state-records.md) for compatibility and checks.
+
 Version 92 records the SPU noise divider and step-counter phase. Earlier
 records retain their saved noise level and restart that missing phase at zero.
 See [shared noise](../spu/noise.md) for rates, continuation and qualification.

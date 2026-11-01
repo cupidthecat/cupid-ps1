@@ -50,13 +50,16 @@ TEST(MdecState, truncated_reads_cancel_copy_out)
   for (u32 legacy = 0; legacy < 2; legacy++) {
     begin_decode(false);
     mdec_write_register(0, 0x28000001); mdec_write_register(0, 0xFE000000);
-    u8 bytes[8192]; const size_t size = save_mdec_record(bytes,sizeof(bytes),SAVE_STATE_VERSION);
+    u8 modern[8192], bytes[8192];
+    const size_t modern_size = save_mdec_record(modern, sizeof(modern), SAVE_STATE_VERSION);
+    const u32 version = legacy ? 65 : SAVE_STATE_VERSION;
+    const size_t size = save_mdec_record(bytes, sizeof(bytes), version);
     const size_t lengths[] = {0,RECORD_IN+8,RECORD_SCALE+1,size-1};
     for (u32 index = 0; index < countof(lengths); index++) {
-      state_wrapper_t sw; state_wrapper_init_read(&sw,bytes,size,SAVE_STATE_VERSION);
+      state_wrapper_t sw; state_wrapper_init_read(&sw,modern,modern_size,SAVE_STATE_VERSION);
       EXPECT_TRUE(mdec_do_state(&sw));
       timing_event_t* event = find_mdec_copy_event();
-      state_wrapper_init_read(&sw,bytes,lengths[index],legacy ? 65 : SAVE_STATE_VERSION);
+      state_wrapper_init_read(&sw,bytes,lengths[index],version);
       const bool accepted = mdec_do_state(&sw);
       failures += accepted || !state_wrapper_has_error(&sw) || timing_event_is_active(event);
     }

@@ -13,7 +13,8 @@ phase and command latency remain unqualified.
 
 The existing idle counter encoding stores halfwords with a one-word bias.
 Reset initializes that representation to two halfwords; this is register
-state, not queued data. The state layout stays at version 92. Older states
+state, not queued data. This reset fix did not change the version-92
+state layout. Older states
 retain their saved count until an explicit reset.
 
 Component regressions cover power/reset status, control rewrites, cancellation
