@@ -1068,7 +1068,7 @@ bool bus_inject_executable(const u8* buffer, size_t buffer_size, bool set_pc, Er
     const u32 r_gp = header.initial_gp;
     const u32 r_sp = header.initial_sp_base + header.initial_sp_offset;
     g_cpu_state.regs.named.gp = r_gp;
-    if (r_sp != 0u) {
+    if (header.initial_sp_base != 0u) {
       g_cpu_state.regs.named.sp = r_sp;
       g_cpu_state.regs.named.fp = r_sp;
     }
