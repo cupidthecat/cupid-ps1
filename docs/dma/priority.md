@@ -27,7 +27,9 @@ guard; the guard never changes the saved payload format.
 RAM writes expose the final writer, and competing RAM reads expose whether a
 GPU interrupt command is delivered before OTC overwrites it. It also checks
 master enables, shared-halt restoration and coincident GPU/SPU chopped resumes
-using actual RAM, VRAM and sound RAM effects.
+using actual RAM, VRAM and sound RAM effects. The coincident-resume fixture
+changes priority during the pause and puts the GPU callback first, including
+cases where the SPU must win.
 
 The generated priority guest runs both matrices through CPU MMIO. Its first
 pair is saved while armed with both master enables clear. Every CPU execution

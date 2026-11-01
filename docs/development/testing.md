@@ -25,7 +25,7 @@ are not test results for this emulator.
 
 Hosted CI builds the emulator, standalone headers and OpenGL smoke binary,
 then runs the suite using GCC, Clang, and Clang with address and undefined
-behavior sanitizers. Each toolchain uses two C-test workers. CI treats project
+behavior sanitizers. Each toolchain uses four C-test workers. CI treats project
 compiler warnings as errors and checks empty selections, the filtered runner,
 concurrent execution, cache isolation,
 output capture and failure reporting. It does not boot private inputs, run an

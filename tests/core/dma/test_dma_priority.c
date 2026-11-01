@@ -146,9 +146,11 @@ TEST(DmaPriority, coincident_chop_deadlines_use_priority_before_callback_order) 
     dma_write_register(0x40, ADDRESS);
     dma_write_register(0x44, 2);
     dma_write_register(0x48, 0x11700101);
-    dma_write_register(0x70, (gpu | 8) << 8 | 11u << 16);
+    /* Start GPU first, then change priority while both channels are paused. */
+    dma_write_register(0x70, 8u << 8 | 15u << 16);
     EXPECT_EQ(dma_read_register(0x24), 1);
     EXPECT_EQ(dma_read_register(0x44), 1);
+    dma_write_register(0x70, (gpu | 8) << 8 | 11u << 16);
     u8              saved[256];
     state_wrapper_t state;
     state_wrapper_init_write(&state, saved, sizeof(saved), SAVE_STATE_VERSION);
@@ -159,11 +161,25 @@ TEST(DmaPriority, coincident_chop_deadlines_use_priority_before_callback_order) 
     memcpy(saved + 119, &pause, 4);
     state_wrapper_init_read(&state, saved, size, SAVE_STATE_VERSION);
     EXPECT_TRUE(dma_do_state(&state));
+    timing_event_t* gpu_event = NULL;
+    timing_event_t* spu_event = NULL;
+    for (timing_event_t* event = *timing_events_get_head_event_ptr(); event; event = event->next) {
+      if (event->name_len == 12 && !memcmp(event->name_data, "DMA Chop GPU", 12)) gpu_event = event;
+      if (event->name_len == 12 && !memcmp(event->name_data, "DMA Chop SPU", 12)) {
+        EXPECT_NOT_NULL(gpu_event);
+        spu_event = event;
+      }
+    }
+    EXPECT_NOT_NULL(gpu_event);
+    EXPECT_NOT_NULL(spu_event);
+    EXPECT_EQ(gpu_event->next_run_time, spu_event->next_run_time);
     cpu_add_pending_ticks(128);
     timing_events_run_events();
     cpu_add_pending_ticks(32);
     timing_events_run_events();
     u32 actual;
+    memcpy(&actual, spu_get_ram() + 0x10000, 4);
+    EXPECT_EQ(actual, PIXEL);
     memcpy(&actual, spu_get_ram() + 0x10004, 4);
     EXPECT_EQ(actual, gpu < 3 ? PIXEL + 1 : old_word);
     memcpy(&actual, bus_get_unprotected_ram_pointer() + ADDRESS + 4, 4);
