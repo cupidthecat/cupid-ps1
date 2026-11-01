@@ -271,6 +271,25 @@ static void gpu_hw_init_screen_quad_config(gpu_hw_t* hw, gpu_pipeline_graphics_c
   cfg->render_pass_flags                   = GPU_PIPELINE_RENDER_PASS_NONE;
 }
 
+static bool gpu_hw_compile_mask_depth_pipeline(gpu_hw_t* hw, Error* err) {
+  if (!hw->write_mask_as_depth) return true;
+  gpu_pipeline_graphics_config_t cfg;
+  gpu_hw_init_screen_quad_config(hw, &cfg);
+  cfg.vertex_shader          = (gpu_shader_t*)hw->fullscreen_quad_vertex_shader;
+  cfg.color_formats[0]       = GPU_TEXTURE_FORMAT_UNKNOWN;
+  cfg.depth_format           = VRAM_DS_FORMAT;
+  cfg.depth.bits.depth_test  = GPU_DEPTH_FUNC_ALWAYS;
+  cfg.depth.bits.depth_write = true;
+  gpu_shader_t* fs           = compile_shader_str(
+      GPU_SHADER_STAGE_FRAGMENT,
+      gpu_hw_shadergen_generate_vram_update_depth_fragment_shader(gpu_hw_get_shadergen(), false), err);
+  if (!fs) return false;
+  cfg.fragment_shader            = fs;
+  hw->vram_update_depth_pipeline = (opengl_pipeline_t*)opengl_device_create_pipeline(&cfg, err);
+  opengl_shader_destroy((opengl_shader_t*)fs);
+  return hw->vram_update_depth_pipeline != NULL;
+}
+
 static bool gpu_hw_compile_vram_fill_pipelines(gpu_hw_t* hw, Error* err) {
   gpu_hw_shadergen_t*            sg = gpu_hw_get_shadergen();
   gpu_pipeline_graphics_config_t cfg;
@@ -507,8 +526,8 @@ static bool gpu_hw_compile_batch_vertex_shaders(gpu_hw_t* hw, opengl_shader_t* s
   };
   for (u32 i = 0; i < GPU_HW_VS_CACHE_SLOTS; i++) {
     char* src = gpu_hw_shadergen_generate_batch_vertex_shader(
-        sg, /*upscaled=*/false, /*msaa=*/false, /*per_sample_shading=*/false, kCfgs[i].textured, kCfgs[i].palette,
-        kCfgs[i].page,
+        sg, /*upscaled=*/hw->resolution_scale > 1, /*msaa=*/false, /*per_sample_shading=*/false, kCfgs[i].textured,
+        kCfgs[i].palette, kCfgs[i].page,
         /*uv_limits=*/kCfgs[i].uv_limits, /*force_round_texcoords=*/false,
         /*pgxp_depth=*/false, /*disable_color_perspective=*/false);
     slots[i] = (opengl_shader_t*)compile_shader_str(GPU_SHADER_STAGE_VERTEX, src, err);
@@ -818,7 +837,7 @@ static bool gpu_hw_compile_batch_pipelines(gpu_hw_t* hw, Error* err) {
 
                   char* fs_src = gpu_hw_shadergen_generate_batch_fragment_shader(
                       sg, rm, shader_trans, tm, filter,
-                      /*is_blended_texture_filtering=*/fs_is_blended_filter, /*upscaled=*/false,
+                      /*is_blended_texture_filtering=*/fs_is_blended_filter, /*upscaled=*/hw->resolution_scale > 1,
                       /*msaa=*/false, /*per_sample_shading=*/false, /*uv_limits=*/fs_uv_limits,
                       /*force_round_texcoords=*/false, /*modulation_crop=*/false,
                       /*true_color=*/fs_true_color, /*dithering=*/fs_dithering,
@@ -939,7 +958,31 @@ static void gpu_hw_unmap_batch_buffers(gpu_hw_t* hw) {
   hw->batch_index_space  = 0;
 }
 
+static void gpu_hw_destroy_batch_pipelines(gpu_hw_t* hw) {
+  /* Walk the eager-compiled batch pipeline matrix and tear down the
+   * per-filter mirror rows (rows 1..11 of `batch_pipelines_filter[]`;
+   * row 0 is unused). */
+  for (u32 i = 0; i < (u32)GPU_HW_NUM_BATCH_PIPELINES; i++) {
+    if (hw->batch_pipelines[i]) {
+      opengl_device_destroy_pipeline((gpu_pipeline_t*)hw->batch_pipelines[i]);
+      hw->batch_pipelines[i] = NULL;
+    }
+  }
+  for (u32 f = 0; f < (u32)GPU_TEXTURE_FILTER_COUNT; f++) {
+    for (u32 i = 0; i < (u32)GPU_HW_NUM_BATCH_PIPELINES; i++) {
+      if (hw->batch_pipelines_filter[f][i]) {
+        opengl_device_destroy_pipeline((gpu_pipeline_t*)hw->batch_pipelines_filter[f][i]);
+        hw->batch_pipelines_filter[f][i] = NULL;
+      }
+    }
+  }
+}
+
 static void gpu_hw_destroy_pipelines(gpu_hw_t* hw) {
+  if (hw->vram_update_depth_pipeline) {
+    opengl_device_destroy_pipeline((gpu_pipeline_t*)hw->vram_update_depth_pipeline);
+    hw->vram_update_depth_pipeline = NULL;
+  }
   for (u32 w = 0; w < 2u; w++) {
     for (u32 i = 0; i < 2u; i++) {
       if (hw->vram_fill_pipelines[w][i]) {
@@ -964,23 +1007,7 @@ static void gpu_hw_destroy_pipelines(gpu_hw_t* hw) {
       hw->vram_extract_pipeline[s] = NULL;
     }
   }
-  /* Walk the eager-compiled batch pipeline matrix and tear down the
-   * per-filter mirror rows (rows 1..11 of `batch_pipelines_filter[]`;
-   * row 0 is unused). */
-  for (u32 i = 0; i < (u32)GPU_HW_NUM_BATCH_PIPELINES; i++) {
-    if (hw->batch_pipelines[i]) {
-      opengl_device_destroy_pipeline((gpu_pipeline_t*)hw->batch_pipelines[i]);
-      hw->batch_pipelines[i] = NULL;
-    }
-  }
-  for (u32 f = 0; f < (u32)GPU_TEXTURE_FILTER_COUNT; f++) {
-    for (u32 i = 0; i < (u32)GPU_HW_NUM_BATCH_PIPELINES; i++) {
-      if (hw->batch_pipelines_filter[f][i]) {
-        opengl_device_destroy_pipeline((gpu_pipeline_t*)hw->batch_pipelines_filter[f][i]);
-        hw->batch_pipelines_filter[f][i] = NULL;
-      }
-    }
-  }
+  gpu_hw_destroy_batch_pipelines(hw);
   if (hw->fullscreen_quad_vertex_shader) {
     opengl_shader_destroy(hw->fullscreen_quad_vertex_shader);
     hw->fullscreen_quad_vertex_shader = NULL;
@@ -1033,6 +1060,28 @@ static void gpu_hw_update_vram_read_texture(gpu_hw_t* hw) {
   opengl_device_copy_texture_region(&hw->vram_read_texture->base, sx, sy, 0, 0, &hw->vram_texture->base, sx, sy, 0, 0,
                                     w, h);
   hw->vram_dirty_draw_rect = gpu_rect_invalid();
+}
+
+/* Rebuild destination protection from the rendered mask bits. Color remains
+ * detached while it is sampled, and only the affected depth region is written. */
+static void gpu_hw_restore_mask_depth(gpu_hw_t* hw, gpu_rect_t bounds) {
+  if (!hw->write_mask_as_depth || !hw->vram_depth_texture || !hw->vram_update_depth_pipeline) return;
+  const s32           scale    = hw->resolution_scale;
+  const opengl_rect_t viewport = {0, 0, (s32)VRAM_WIDTH * scale, (s32)VRAM_HEIGHT * scale};
+  opengl_device_set_render_targets(NULL, 0, &hw->vram_depth_texture->base);
+  opengl_device_set_pipeline((gpu_pipeline_t*)hw->vram_update_depth_pipeline);
+  opengl_device_set_texture_sampler(0, &hw->vram_texture->base, NULL);
+  opengl_device_set_viewport(viewport);
+  opengl_device_set_scissor(
+      (opengl_rect_t){bounds.left * scale, bounds.top * scale, bounds.right * scale, bounds.bottom * scale});
+  opengl_device_draw(3, 0);
+
+  gpu_texture_t* rts[] = {&hw->vram_texture->base};
+  opengl_device_set_render_targets(rts, 1, &hw->vram_depth_texture->base);
+  opengl_device_set_texture_sampler(0, &hw->vram_read_texture->base, NULL);
+  opengl_device_set_scissor((opengl_rect_t){
+      (s32)hw->base.clamped_drawing_area.left * scale, (s32)hw->base.clamped_drawing_area.top * scale,
+      ((s32)hw->base.clamped_drawing_area.right + 1) * scale, ((s32)hw->base.clamped_drawing_area.bottom + 1) * scale});
 }
 
 /* Push-constant block matching the VRAMFill UBO. */
@@ -1132,7 +1181,9 @@ static void gpu_hw_fill_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 heigh
   opengl_device_set_scissor((opengl_rect_t){0, 0, 1, 1});
   opengl_device_set_scissor(vp);
 
-  gpu_hw_mark_vram_dirty(hw, gpu_hw_vram_transfer_bounds(x, y, width, height));
+  const gpu_rect_t bounds = gpu_hw_vram_transfer_bounds(x, y, width, height);
+  gpu_hw_restore_mask_depth(hw, bounds);
+  gpu_hw_mark_vram_dirty(hw, bounds);
 }
 
 static void gpu_hw_update_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 height, const u16* data, bool set_mask,
@@ -1188,6 +1239,7 @@ static void gpu_hw_update_vram_gl(gpu_hw_t* hw, u32 x, u32 y, u32 width, u32 hei
   }
   (void)opengl_texture_update(hw->vram_texture, dst_x, dst_y, dst_w, dst_h, rgba, dst_w * (u32)sizeof(u32), 0u, 0u);
   free(rgba);
+  gpu_hw_restore_mask_depth(hw, bounds);
   gpu_hw_mark_vram_dirty(hw, bounds);
 }
 
@@ -1236,6 +1288,7 @@ static void gpu_hw_copy_vram_gl(gpu_hw_t* hw, u32 src_x, u32 src_y, u32 dst_x, u
                                       ch);
   }
 
+  gpu_hw_restore_mask_depth(hw, dst_bounds);
   gpu_hw_mark_vram_dirty(hw, dst_bounds);
 }
 
@@ -1803,10 +1856,7 @@ ALWAYS_INLINE static bool gpu_hw_check_depth_counter(gpu_hw_t* hw, u32 required_
   if ((u32)hw->current_depth + required_vertices <= GPU_HW_MAX_VERTEX_DEPTH_COUNTER) return false;
   /* Flush so the current batch drains with the existing depth map. */
   if (hw->base.vtable->flush_render) hw->base.vtable->flush_render(&hw->base);
-  /* TODO: rebuild depth from vram_texture.alpha to preserve mask history.
-   * Clearing depth to zero currently loses that history but prevents stale
-   * GE depths from rejecting subsequent check_mask draws. */
-  if (hw->vram_depth_texture) opengl_device_clear_depth(&hw->vram_depth_texture->base, 0.0f);
+  gpu_hw_restore_mask_depth(hw, gpu_rect_make(0, 0, VRAM_WIDTH, VRAM_HEIGHT));
   hw->current_depth = 1;
   return true;
 }
@@ -2842,19 +2892,17 @@ static bool hw_do_state(gpu_backend_t* self, state_wrapper_t* sw) {
    * SW mirror is already up to date because every draw dual-wrote g_vram. */
   hw_flush_render(self);
 
-  /* Cache contents are never persisted; we drop them here so the
-   * post-load state starts clean.  On save (writing) this only avoids
-   * leaking stale GPU resources past the snapshot point; on load the
-   * "everything dirty" rect markers below force re-upload from VRAM on the
-   * next draw, so any cached entries would be invalid anyway. */
+  /* Cache contents are not persisted. Restored VRAM invalidates any
+   * textures decoded from the preceding pixels. */
   if (hw->use_texture_cache) gpu_texture_cache_invalidate();
 
   state_wrapper_do_bytes(sw, g_vram, sizeof(g_vram));
   state_wrapper_do_bytes(sw, g_gpu_clut, sizeof(g_gpu_clut));
 
-  /* Mark everything dirty so the next draw re-uploads the full VRAM
-   * texture (UpdateVRAMReadTexture path is deferred).  Until then the GL
-   * side is rebuilt incrementally by the dual-write path. */
+  if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw))
+    gpu_hw_update_vram_gl(hw, 0, 0, VRAM_WIDTH, VRAM_HEIGHT, g_vram, false, false);
+
+  /* Restored pixels also invalidate sampled VRAM and cached batch state. */
   hw->vram_dirty_draw_rect  = GPU_HW_VRAM_SIZE_RECT;
   hw->vram_dirty_write_rect = GPU_HW_VRAM_SIZE_RECT;
   hw->batch_ubo_dirty       = true;
@@ -3018,6 +3066,13 @@ gpu_backend_t* gpu_backend_create_hardware_opengl(const window_info_t* wi, Error
     free(hw);
     return NULL;
   }
+  if (!gpu_hw_compile_mask_depth_pipeline(hw, err)) {
+    Error_add_prefix(err, "Failed to compile mask depth pipeline: ");
+    gpu_hw_destroy_pipelines(hw);
+    gpu_hw_destroy_buffers(hw);
+    free(hw);
+    return NULL;
+  }
   if (!gpu_hw_compile_vram_fill_pipelines(hw, err)) {
     Error_add_prefix(err, "Failed to compile VRAM fill pipelines: ");
     gpu_hw_destroy_pipelines(hw);
@@ -3118,12 +3173,12 @@ bool gpu_hw_change_resolution_scale(gpu_hw_t* hw, u8 new_scale, Error* err) {
 
   hw_flush_render(&hw->base);
 
-  /* Drop the old textures and download PBO; the GL pipelines themselves are
-   * resolution-scale-agnostic so we keep them.  We must invalidate the
-   * texture cache because cache textures are sized per-scale (256x256 RGBA8
-   * staging, but the cache also tracks the source page hash). */
+  const bool rebuild_batches = (hw->resolution_scale > 1) != (new_scale > 1);
+  /* Canonical VRAM survives buffer recreation. Batch shaders distinguish
+   * native pixel centers from scaled geometry. */
   if (hw->use_texture_cache) gpu_texture_cache_invalidate();
   gpu_hw_destroy_buffers(hw);
+  if (rebuild_batches) gpu_hw_destroy_batch_pipelines(hw);
 
   hw->resolution_scale                            = new_scale;
   hw->batch_ubo_data.u_resolution_scale           = (float)new_scale;
@@ -3136,6 +3191,12 @@ bool gpu_hw_change_resolution_scale(gpu_hw_t* hw, u8 new_scale, Error* err) {
     return false;
   }
 
+  if (rebuild_batches && !gpu_hw_compile_batch_pipelines(hw, err)) {
+    Error_add_prefix(err, "Failed to rebuild batch pipelines at new scale: ");
+    gpu_hw_destroy_batch_pipelines(hw);
+    return false;
+  }
+
   /* Batch buffers stay unmapped after scale change; lazy-map happens on the
    * next vertex push via gpu_hw_ensure_batch_buffers_mapped(). */
 
@@ -3143,9 +3204,9 @@ bool gpu_hw_change_resolution_scale(gpu_hw_t* hw, u8 new_scale, Error* err) {
   opengl_device_clear_render_target(&hw->vram_texture->base, 0u);
   if (hw->vram_depth_texture) opengl_device_clear_depth(&hw->vram_depth_texture->base, 0.0f);
 
-  /* Mark VRAM fully dirty so the next read from g_vram gets re-uploaded into
-   * the new vram_texture (lands when texture-buffer bind is wired; until
-   * then SW mirror keeps frontend output coherent). */
+  gpu_hw_update_vram_gl(hw, 0, 0, VRAM_WIDTH, VRAM_HEIGHT, g_vram, false, false);
+
+  /* Sampling must observe the recreated color and mask contents. */
   hw->vram_dirty_draw_rect  = GPU_HW_VRAM_SIZE_RECT;
   hw->vram_dirty_write_rect = GPU_HW_VRAM_SIZE_RECT;
   hw->drawing_area_changed  = true;

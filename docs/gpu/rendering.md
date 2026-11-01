@@ -5,6 +5,8 @@ Two backends, picked by `--gpu-renderer` or settings INI. Backend abstraction: `
 GPU command resets and interrupt acknowledgement are described in
 [GPU reset and interrupts](reset-and-irqs.md).
 See [VRAM uploads](vram-transfers.md) for transfer dimensions and data handling.
+[Mask history and restored VRAM](mask-history.md) describes the OpenGL
+destination-protection checks.
 
 ## Software renderer (`gpu_sw`)
 

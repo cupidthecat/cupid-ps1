@@ -27,18 +27,23 @@ The `BiosPageBoundary` filter checks load delays, taken/untaken branches and
 delay-slot faults across cached and uncached ROM translation pages in all CPU
 configurations. See [CPU translation pages](../cpu/translation-pages.md).
 
-Hosted CI builds the emulator, standalone headers and OpenGL smoke binary,
+Hosted CI builds the emulator, standalone headers and OpenGL check binaries,
 then runs the suite using GCC, Clang, and Clang with address and undefined
 behavior sanitizers. Each toolchain uses four C-test workers. CI treats project
 compiler warnings as errors and checks empty selections, the filtered runner,
 concurrent execution, cache isolation,
 output capture and failure reporting. Separate runtime jobs use the executable
 produced by each compiler job, checking its revision and hashes before running
-the complete Python suite. Both stages keep the 20-minute job limit. The short
-lived artifact contains the executable, revision/hash receipts and license
-notices; the runtime library comes from the matching checkout. CI does not boot
-private inputs or run an OpenGL context. BIOS, discs, saved checkpoints and
-runtime logs are not uploaded.
+the complete Python suite. Runtime jobs also run the context smoke and hardware
+renderer checks under Xvfb with software Mesa, including a forced OpenGL 3.3
+context. Both stages keep the 20-minute job limit. The short lived artifact
+contains the emulator and GL check executables, revision/hash receipts and
+license notices; the runtime library comes from the matching checkout. CI uses
+generated inputs. BIOS, discs, saved checkpoints and runtime logs are not uploaded.
+
+Build the separate renderer check with `make gpu-gl-tests`. It reads the actual
+OpenGL texture and fails if an X11 context cannot be created. See
+[mask history and restored VRAM](../gpu/mask-history.md) for coverage and commands.
 
 The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
 partial refills and state restoration. Its guest program changes BIU modes

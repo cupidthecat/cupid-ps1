@@ -95,7 +95,7 @@ TEST_OBJ := $(patsubst tests/%.c,$(BUILD)/tests/%.o,$(TEST_SRC))
 # test binary doesn't link glad (those symbols would be undefined).
 TEST_LIB_OBJ := $(filter-out $(BUILD)/frontend/%.o $(BUILD)/util/graphics/opengl_%.o $(BUILD)/util/graphics/gpu_device.o $(BUILD)/util/graphics/shadergen.o $(BUILD)/core/gpu/hardware/gpu_hw_shadergen.o $(BUILD)/core/gpu/hardware/gpu_hw.o $(BUILD)/core/gpu/hardware/gpu_hw_texture_cache.o,$(ALL_OBJ))
 
-.PHONY: all clean hcheck dirs test gl-smoke test-diff recomp-diff-test recomp-diff-ticks-test
+.PHONY: all clean hcheck dirs test gl-smoke gpu-gl-tests test-diff recomp-diff-test recomp-diff-ticks-test
 all: dirs $(BUILD)/cupid-ps1
 
 hcheck: dirs $(HCHECK_OBJ)
@@ -149,6 +149,14 @@ GL_SMOKE_LIB_OBJ := $(BUILD)/util/graphics/opengl_context.o $(BUILD)/util/graphi
 gl-smoke: dirs $(BUILD)/cupid-ps1-gl-smoke
 
 $(BUILD)/cupid-ps1-gl-smoke: $(GL_SMOKE_OBJ) $(GL_SMOKE_LIB_OBJ) $(GLAD_OBJ) | $(SOUNDTOUCH_RUNTIME)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+# Actual hardware-renderer checks use a live GL context, separate from unit tests.
+GPU_GL_OBJ := $(BUILD)/tests/integration/gpu/hardware_mask_depth.o
+GPU_GL_LIB_OBJ := $(filter-out $(BUILD)/frontend/%.o,$(ALL_OBJ))
+gpu-gl-tests: dirs $(BUILD)/cupid-ps1-gpu-gl-tests
+
+$(BUILD)/cupid-ps1-gpu-gl-tests: $(GPU_GL_OBJ) $(GPU_GL_LIB_OBJ) $(DEP_OBJ) | $(SOUNDTOUCH_RUNTIME)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD)/cupid-ps1-tests: $(TEST_OBJ) $(TEST_LIB_OBJ) $(LIBCHDR_OBJ) $(LZMA_OBJ) | $(SOUNDTOUCH_RUNTIME)
@@ -223,4 +231,4 @@ $(BUILD)/hcheck/%.o: $(SRCDIR)/%.h
 clean:
 	rm -rf $(BUILD)
 
--include $(ALL_OBJ:.o=.d) $(DEP_OBJ:.o=.d) $(TEST_OBJ:.o=.d) $(HCHECK_OBJ:.o=.d) $(GL_SMOKE_OBJ:.o=.d)
+-include $(ALL_OBJ:.o=.d) $(DEP_OBJ:.o=.d) $(TEST_OBJ:.o=.d) $(HCHECK_OBJ:.o=.d) $(GL_SMOKE_OBJ:.o=.d) $(GPU_GL_OBJ:.o=.d)
