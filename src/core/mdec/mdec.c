@@ -459,9 +459,11 @@ static void mdec_update_status(void)
 {
   s_state.status.bits.data_out_fifo_empty = mdec_fifo_out_empty(&s_state.data_out_fifo) ? 1u : 0u;
   s_state.status.bits.data_in_fifo_full   = mdec_fifo_in_full  (&s_state.data_in_fifo)  ? 1u : 0u;
-  s_state.status.bits.command_busy        = (s_state.state != MDEC_STATE_IDLE) ? 1u : 0u;
-  /* parameter_words_remaining is biased by -1 in the hardware register. */
-  s_state.status.bits.parameter_words_remaining = (u32)Truncate16((s_state.remaining_halfwords / 2u) - 1u);
+  const bool no_function = s_state.state == MDEC_STATE_NO_COMMAND;
+  s_state.status.bits.command_busy = (s_state.state != MDEC_STATE_IDLE && !no_function) ? 1u : 0u;
+  /* No-function headers expose their low 16 bits without the usual bias. */
+  s_state.status.bits.parameter_words_remaining =
+      (u32)Truncate16((s_state.remaining_halfwords / 2u) - (no_function ? 0u : 1u));
   s_state.status.bits.current_block = (s_state.current_block + 4u) % MDEC_NUM_BLOCKS;
 
   /* Always request data-in if input is enabled and we have room for a
@@ -521,7 +523,8 @@ static void mdec_execute(void)
 
   for (;;) {
     switch (s_state.state) {
-      case MDEC_STATE_IDLE: {
+      case MDEC_STATE_IDLE:
+      case MDEC_STATE_NO_COMMAND: {
         if (mdec_fifo_in_size(&s_state.data_in_fifo) < 2)
           goto finished;
 
@@ -533,7 +536,9 @@ static void mdec_execute(void)
         s_state.status.bits.data_output_signed = cw.bits.data_output_signed;
         s_state.status.bits.data_output_bit15  = cw.bits.data_output_bit15;
         mdec_fifo_in_remove(&s_state.data_in_fifo, 2);
-        mdec_fifo_out_clear(&s_state.data_out_fifo);
+        /* No-function commands leave already decoded output available. */
+        if (cw.bits.command >= MDEC_COMMAND_DECODE_MACROBLOCK && cw.bits.command <= MDEC_COMMAND_SET_SCALE)
+          mdec_fifo_out_clear(&s_state.data_out_fifo);
 
         u32 num_words;
         mdec_state_e new_state;
@@ -555,7 +560,7 @@ static void mdec_execute(void)
             break;
 
           default:
-            DEV_LOG("Invalid MDEC command 0x%08X", cw.raw);
+            DEV_LOG("MDEC no-function command 0x%08X", cw.raw);
             num_words = (u32)cw.bits.parameter_word_count;
             new_state = MDEC_STATE_NO_COMMAND;
             break;
@@ -605,19 +610,6 @@ static void mdec_execute(void)
         s_state.state = MDEC_STATE_IDLE;
         mdec_update_status();
         continue;
-
-      case MDEC_STATE_NO_COMMAND: {
-        /* Eat junk halfwords as they come; can be many. */
-        const u32 to_consume = mdec_min_u32(s_state.remaining_halfwords,
-                                            mdec_fifo_in_size(&s_state.data_in_fifo));
-        mdec_fifo_in_remove(&s_state.data_in_fifo, to_consume);
-        s_state.remaining_halfwords -= to_consume;
-        if (s_state.remaining_halfwords == 0)
-          goto finished;
-        s_state.state = MDEC_STATE_IDLE;
-        mdec_update_status();
-        continue;
-      }
 
       default:
         UnreachableCode();
@@ -1112,9 +1104,8 @@ static void mdec_handle_set_quant_table_command(void)
 {
   DebugAssert(s_state.remaining_halfwords >= 32);
 
-  /* The packed 16-halfword burst lays out as 32 bytes per table; we copy
-   * straight from the FIFO buffer (memcpy through a bounce array, since
-   * the FIFO is a ring). */
+  /* Each table contains 32 halfwords (64 bytes). A temporary array handles
+   * tables that cross the FIFO ring boundary. */
   u16 packed_data[32];
   mdec_fifo_in_pop_range(&s_state.data_in_fifo, packed_data, 32);
   s_state.remaining_halfwords -= 32;

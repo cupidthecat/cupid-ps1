@@ -11,6 +11,8 @@ typedef struct {
   u16  qscale;
   u8   decoder;
   bool pending;
+  u8   iq_uv[64], iq_y[64];
+  s16  scale[64];
   s16  blocks[6][64];
   u32  rgb[256];
 } coefficient_snapshot_t;
@@ -33,7 +35,9 @@ static coefficient_snapshot_t read_coefficients(void)
   state_wrapper_skip_bytes(&state, 3 * sizeof(u32) + 192 * sizeof(u32));
   state_wrapper_do_u8(&state, &result.decoder);
   state_wrapper_do_u32(&state, &result.remaining);
-  state_wrapper_skip_bytes(&state, 128 * sizeof(u8) + 64 * sizeof(s16));
+  state_wrapper_do_array(&state, result.iq_uv, sizeof(u8), 64);
+  state_wrapper_do_array(&state, result.iq_y, sizeof(u8), 64);
+  state_wrapper_do_array(&state, result.scale, sizeof(s16), 64);
   state_wrapper_do_array(&state, result.blocks, sizeof(s16), 6 * 64);
   state_wrapper_do_u32(&state, &result.block);
   state_wrapper_do_u32(&state, &result.coefficient);
