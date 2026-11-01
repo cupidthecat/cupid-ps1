@@ -69,6 +69,9 @@ See [ordering-table DMA](../dma/ordering-tables.md) for the model and its limits
 The `DmaBusError` filter and generated DMA guest check physical-window prefixes,
 device side effects, IRQ flags and exact restoration of faulted transfers.
 See [DMA bus errors](../dma/bus-errors.md) for coverage and remaining limits.
+`DmaChopping` and the generated chopping guest check burst progress, separate
+channel pauses and exact continuation across saved frame boundaries. See
+[chopped DMA](../dma/chopping.md) for the model and its timing limits.
 
 The `SpuTransferBudget` filter checks tick consumption, read/write data,
 split/batched state equality, fractional save/load continuation, legacy and

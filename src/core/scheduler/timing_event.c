@@ -518,10 +518,7 @@ void timing_event_delay(timing_event_t* ev, tick_count_t ticks) {
   if (s_state.active_events_head == ev) timing_events_update_cpu_downcount();
 }
 
-void timing_event_schedule(timing_event_t* ev, tick_count_t ticks) {
-  const global_ticks_t ts            = timing_events_get_timestamp_for_new_event();
-  const global_ticks_t next_run_time = ts + (u32)ticks;
-
+static void timing_event_schedule_internal(timing_event_t* ev, global_ticks_t ts, global_ticks_t next_run_time) {
   /* If we're rescheduling the currently-running event, latch its new
    * run-time into the post-callback slot. */
   s_state.current_event_next_run_time =
@@ -542,6 +539,18 @@ void timing_event_schedule(timing_event_t* ev, tick_count_t ticks) {
       if (s_state.active_events_head == ev) timing_events_update_cpu_downcount();
     }
   }
+}
+
+void timing_event_schedule(timing_event_t* ev, tick_count_t ticks) {
+  const global_ticks_t ts = timing_events_get_timestamp_for_new_event();
+  timing_event_schedule_internal(ev, ts, ts + (u32)ticks);
+}
+
+void timing_event_schedule_at(timing_event_t* ev, global_ticks_t deadline) {
+  DebugAssert(deadline >= s_state.global_tick_counter);
+  const global_ticks_t ts =
+      s_state.current_event ? s_state.global_tick_counter : timing_events_get_timestamp_for_new_event();
+  timing_event_schedule_internal(ev, ts, deadline);
 }
 
 void timing_event_set_interval_and_schedule(timing_event_t* ev, tick_count_t ticks) {

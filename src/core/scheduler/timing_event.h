@@ -62,6 +62,8 @@ tick_count_t timing_event_get_ticks_until_next_execution(const timing_event_t* e
 void timing_event_delay(timing_event_t* ev, tick_count_t ticks);
 
 void timing_event_schedule(timing_event_t* ev, tick_count_t ticks);
+/* An absolute deadline is not rebased by pending CPU or DMA stall ticks. */
+void timing_event_schedule_at(timing_event_t* ev, global_ticks_t deadline);
 void timing_event_set_interval_and_schedule(timing_event_t* ev, tick_count_t ticks);
 void timing_event_set_period_and_schedule(timing_event_t* ev, tick_count_t ticks);
 

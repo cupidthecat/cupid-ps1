@@ -129,7 +129,7 @@ print(cached)
                 compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
 
     def test_current_state_version(self):
-        self.assertTrue(self.run_fake("state_version = 94", kind="state")["passed"])
+        self.assertTrue(self.run_fake("state_version = 95", kind="state")["passed"])
 
     def test_reset_before_restore_requires_observed_reset(self):
         self.assertFalse(self.run_fake(kind='state', modes=('interp', 'interp'),
@@ -142,15 +142,15 @@ print(cached)
         with self.assertRaises(ValueError): self.run_fake(kind='state', restore_reset=True)
 
     def test_previous_state_version(self):
-        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93, 94):
             with self.subTest(version=version):
                 self.assertTrue(self.run_fake(f"state_version = {version}", kind="state")["passed"])
 
     def test_unsupported_state_version(self):
-        self.assertFalse(self.run_fake("state_version = 95", kind="state")["passed"])
+        self.assertFalse(self.run_fake("state_version = 96", kind="state")["passed"])
 
     def test_state_version_difference_is_not_normalized(self):
-        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93, 94):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95):
             with self.subTest(version=version):
                 result = self.run_fake(f"if right: state_version = {version}", kind="state")
                 self.assertFalse(result["passed"])
