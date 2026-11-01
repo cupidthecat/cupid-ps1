@@ -17,8 +17,8 @@ Each channel has its own pause event. Changing a device request or running
 another channel cannot bypass an unexpired pause. The pause ends even when
 the device stops requesting; a later request can resume the remaining data.
 Stopping the channel or resetting DMA cancels that channel's pending burst.
-Same-channel device callbacks cannot recursively start another transfer while
-the current burst is delivering its words.
+Device callbacks defer further dispatch while the current burst is delivering
+its words. Simultaneous expired pauses use [channel priority](priority.md).
 Resumed bursts schedule from their event deadlines, including only the new
 burst's bus cost. Queued stall ticks from earlier bursts do not extend later
 pauses when the CPU services several expired events together.

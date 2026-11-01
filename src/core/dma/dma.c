@@ -133,7 +133,7 @@ typedef union {
 } dpcr_register_t;
 
 static u8 dpcr_get_priority(dpcr_register_t r, dma_channel_t ch) {
-  return (u8)((r.bits >> ((u8)ch * 4u)) & 3u);
+  return (u8)((r.bits >> ((u8)ch * 4u)) & 7u);
 }
 static bool dpcr_get_master_enable(dpcr_register_t r, dma_channel_t ch) {
   return ((r.bits >> ((u8)ch * 4u + 3u)) & 1u) != 0;
@@ -190,6 +190,7 @@ typedef struct {
   u32            transfer_buffer_cap; /* in words */
   timing_event_t unhalt_event;
   tick_count_t   halt_ticks_remaining;
+  bool           dispatching;
 
   dma_channel_state_t channels[DMA_NUM_CHANNELS];
   dpcr_register_t     DPCR;
@@ -214,11 +215,12 @@ static void dma_update_irq(void);
 static void dma_halt_transfer(tick_count_t duration);
 static void dma_unhalt_transfer(void* user, tick_count_t ticks, tick_count_t ticks_late);
 static void dma_resume_chopping(void* user, tick_count_t ticks, tick_count_t ticks_late);
+static void dma_dispatch_channels(u32 ignore_halt_mask);
 static bool dma_is_linked_list_terminator(u32 address);
 static bool dma_check_for_bus_error(dma_channel_t channel, dma_channel_state_t* cs, u32 address);
 static void dma_complete_transfer(dma_channel_t channel, dma_channel_state_t* cs);
 
-static bool         dma_transfer_channel(dma_channel_t channel, bool chopping_resume);
+static bool         dma_transfer_channel(dma_channel_t channel, global_ticks_t burst_start);
 static tick_count_t dma_transfer_memory_to_device(dma_channel_t channel, u32 address, u32 increment, u32 word_count);
 static tick_count_t dma_transfer_device_to_memory(dma_channel_t channel, u32 address, u32 increment, u32 word_count,
                                                   bool complete_block);
@@ -271,6 +273,7 @@ static void dma_clear_state(void) {
   s_state.DPCR.bits            = 0x07654321u;
   s_state.DICR.bits            = 0;
   s_state.halt_ticks_remaining = 0;
+  s_state.dispatching          = false;
 }
 
 bool dma_do_state(state_wrapper_t* sw) {
@@ -310,6 +313,7 @@ bool dma_do_state(state_wrapper_t* sw) {
 
   if (state_wrapper_is_reading(sw)) {
     if (state_wrapper_has_error(sw)) return false;
+    s_state.dispatching = false;
     /* Older records may contain writable direction/sync fields on channel 6. */
     dma_channel_state_t* otc  = &s_state.channels[DMA_CHANNEL_OTC];
     otc->channel_control.bits = (otc->channel_control.bits & OTC_CONTROL_WRITE_MASK) | OTC_CONTROL_FIXED_BITS;
@@ -391,11 +395,9 @@ void dma_write_register(u32 offset, u32 value) {
           timing_event_deactivate(&state->chopping_event);
 
         /* OTC needs the start_trigger bit to actually request a transfer. */
-        if ((dma_channel_t)channel_index == DMA_CHANNEL_OTC)
-          dma_set_request(DMA_CHANNEL_OTC, state->channel_control.start_trigger != 0);
+        if ((dma_channel_t)channel_index == DMA_CHANNEL_OTC) state->request = state->channel_control.start_trigger != 0;
 
-        if (dma_can_transfer_channel((dma_channel_t)channel_index, ignore_halt))
-          dma_transfer_channel((dma_channel_t)channel_index, false);
+        dma_dispatch_channels(ignore_halt ? 1u << channel_index : 0);
         return;
       }
 
@@ -407,11 +409,7 @@ void dma_write_register(u32 offset, u32 value) {
       case 0x70:
         TRACE_LOG("DPCR <- 0x%08X", value);
         s_state.DPCR.bits = value;
-        for (u32 i = 0; i < DMA_NUM_CHANNELS; i++) {
-          if (dma_can_transfer_channel((dma_channel_t)i, false)) {
-            if (!dma_transfer_channel((dma_channel_t)i, false)) break;
-          }
-        }
+        dma_dispatch_channels(0);
         return;
 
       case 0x74:
@@ -434,7 +432,7 @@ void dma_set_request(dma_channel_t channel, bool request) {
   if (cs->request == request) return;
 
   cs->request = request;
-  if (dma_can_transfer_channel(channel, false)) dma_transfer_channel(channel, false);
+  dma_dispatch_channels(0);
 }
 
 const u32* dma_dbg_transfer_counts(void) {
@@ -471,6 +469,43 @@ static bool dma_can_transfer_channel(dma_channel_t channel, bool ignore_halt) {
   if (cs->channel_control.sync_mode != SYNC_MODE_MANUAL && (dma_is_transfer_halted() && !ignore_halt)) return false;
 
   return cs->request;
+}
+
+static void dma_dispatch_channels(u32 ignore_halt_mask) {
+  /* Device callbacks may change another channel's request. Reconsider it at
+   * the next dispatch boundary instead of recursively entering a transfer. */
+  if (s_state.dispatching) return;
+  s_state.dispatching                  = true;
+  const tick_count_t   initial_pending = cpu_get_pending_ticks();
+  const global_ticks_t start           = timing_events_get_global_tick_counter() +
+                               (timing_events_is_running_events() ? 0 : (global_ticks_t)initial_pending);
+
+  /* All pauses ending at this instant must participate in one selection.
+   * Event-list insertion order must not decide equal-deadline DMA priority. */
+  for (u32 i = 0; i < DMA_NUM_CHANNELS; i++) {
+    timing_event_t* event = &s_state.channels[i].chopping_event;
+    if (timing_event_is_active(event) && event->next_run_time <= start) timing_event_deactivate(event);
+  }
+
+  for (;;) {
+    u32 selected = DMA_NUM_CHANNELS;
+    u8  priority = 8;
+    for (u32 i = 0; i < DMA_NUM_CHANNELS; i++) {
+      const dma_channel_t channel = (dma_channel_t)i;
+      if (!dma_can_transfer_channel(channel, (ignore_halt_mask & (1u << i)) != 0)) continue;
+      const u8 candidate = dpcr_get_priority(s_state.DPCR, channel);
+      /* Lower values win; a tie goes to the higher channel number. */
+      if (candidate <= priority) {
+        selected = channel;
+        priority = candidate;
+      }
+    }
+    if (selected == DMA_NUM_CHANNELS) break;
+    const global_ticks_t burst_start = start + (global_ticks_t)(cpu_get_pending_ticks() - initial_pending);
+    ignore_halt_mask &= ~(1u << selected);
+    if (!dma_transfer_channel((dma_channel_t)selected, burst_start)) break;
+  }
+  s_state.dispatching = false;
 }
 
 static bool dma_is_transfer_halted(void) {
@@ -560,7 +595,7 @@ static tick_count_t dma_get_max_slice_ticks(dma_channel_t channel, tick_count_t 
   return (res < 1) ? 1 : res;
 }
 
-static bool dma_transfer_channel(dma_channel_t channel, bool chopping_resume) {
+static bool dma_transfer_channel(dma_channel_t channel, global_ticks_t burst_start) {
   dma_channel_state_t* cs = &s_state.channels[(u32)channel];
 
   const bool copy_to_device         = cs->channel_control.copy_to_device;
@@ -576,12 +611,10 @@ static bool dma_transfer_channel(dma_channel_t channel, bool chopping_resume) {
       DEBUG_LOG("DMA[%u]: Copying %u words %s 0x%08X", (u32)channel, word_count, copy_to_device ? "from" : "to",
                 current_address);
 
-      const u32            transfer_addr = current_address & TRANSFER_ADDRESS_MASK;
-      const bool           chopped       = cs->channel_control.chopping_enable;
-      const u32            window        = 1u << cs->channel_control.chopping_dma_window_size;
-      const u32            count         = chopped && word_count > window ? window : word_count;
-      const global_ticks_t burst_start =
-          timing_events_get_global_tick_counter() + (chopping_resume ? 0 : (global_ticks_t)cpu_get_pending_ticks());
+      const u32                transfer_addr = current_address & TRANSFER_ADDRESS_MASK;
+      const bool               chopped       = cs->channel_control.chopping_enable;
+      const u32                window        = 1u << cs->channel_control.chopping_dma_window_size;
+      const u32                count         = chopped && word_count > window ? window : word_count;
       const dma_block_result_t result = dma_transfer_block(channel, copy_to_device, transfer_addr, increment, count);
       if (chopped) {
         cs->base_address                    = (transfer_addr + increment * result.words) & BASE_ADDRESS_MASK;
@@ -720,21 +753,12 @@ static void dma_unhalt_transfer(void* user, tick_count_t ticks, tick_count_t tic
   s_state.halt_ticks_remaining -= ticks;
   timing_event_deactivate(&s_state.unhalt_event);
 
-  /* Linear-priority sweep.  Mostly fine; OTC must run after GPU or it
-   * wipes out the linked list it's about to consume. */
-  for (u32 i = 0; i < DMA_NUM_CHANNELS; i++) {
-    if (dma_can_transfer_channel((dma_channel_t)i, false)) {
-      if (!dma_transfer_channel((dma_channel_t)i, false)) return;
-    }
-  }
-
-  s_state.halt_ticks_remaining = 0;
+  dma_dispatch_channels(0);
+  if (!timing_event_is_active(&s_state.unhalt_event)) s_state.halt_ticks_remaining = 0;
 }
 
 static void dma_resume_chopping(void* user, tick_count_t ticks, tick_count_t ticks_late) {
-  const dma_channel_t channel = (dma_channel_t)(uintptr_t)user;
-  timing_event_deactivate(&s_state.channels[(u32)channel].chopping_event);
-  if (dma_can_transfer_channel(channel, false)) dma_transfer_channel(channel, true);
+  dma_dispatch_channels(0);
 }
 
 static void ensure_transfer_buffer(u32 word_count) {
