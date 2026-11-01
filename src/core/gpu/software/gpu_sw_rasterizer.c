@@ -337,8 +337,13 @@ void gpu_sw_rasterizer_scalar_draw_rectangle(const gpu_backend_draw_rectangle_cm
   const u8  r = (u8)cmd->color;
   const u8  g = (u8)(cmd->color >> 8);
   const u8  b = (u8)(cmd->color >> 16);
-  const u8  origin_tx = (u8)cmd->texcoord;
+  const bool flip_x = gpu_draw_mode_reg_texture_x_flip(base->draw_mode);
+  const bool flip_y = gpu_draw_mode_reg_texture_y_flip(base->draw_mode);
+  /* Horizontal sprite reversal starts on the odd texel of the source pair. */
+  const u8  origin_tx = (u8)cmd->texcoord | (u8)flip_x;
   const u8  origin_ty = (u8)(cmd->texcoord >> 8);
+  const u32 step_x = flip_x ? 255u : 1u;
+  const u32 step_y = flip_y ? 255u : 1u;
 
   const gpu_sw_tex_modulation_t mod =
      base->texture_enable
@@ -354,13 +359,13 @@ void gpu_sw_rasterizer_scalar_draw_rectangle(const gpu_backend_draw_rectangle_cm
       continue;
 
     const u32 draw_y = (u32)y & VRAM_HEIGHT_MASK;
-    const u8 ty = (u8)(origin_ty + offset_y);
+    const u8 ty = (u8)(origin_ty + offset_y * step_y);
 
     for (u32 offset_x = 0; offset_x < cmd->width; offset_x++) {
       const s32 x = origin_x + (s32)offset_x;
       if (x < (s32)gpu_sw_drawing_area.left || x > (s32)gpu_sw_drawing_area.right)
         continue;
-      const u8 tx = (u8)(origin_tx + offset_x);
+      const u8 tx = (u8)(origin_tx + offset_x * step_x);
       shade_pixel(base, mod, base->transparency_enable, (u32)x, draw_y, r, g, b, tx, ty);
     }
   }

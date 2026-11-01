@@ -458,8 +458,14 @@ void gpu_sw_rasterizer_simd_draw_rectangle(const gpu_backend_draw_rectangle_cmd_
   const GSVector4i rg   = gsv4i_u8to16(rgp);
   const GSVector4i ba   = gsv4i_u8to16(bap);
 
-  GSVector4i texcoord_x = gsv4i_add32(gsv4i_set32((s32)(cmd->texcoord & 0xFF)), span_offset_vec());
+  const bool flip_x = gpu_draw_mode_reg_texture_x_flip(base->draw_mode);
+  const bool flip_y = gpu_draw_mode_reg_texture_y_flip(base->draw_mode);
+  const GSVector4i origin_u = gsv4i_set32((s32)((cmd->texcoord & 0xFFu) | (u32)flip_x));
+  const GSVector4i texcoord_x = flip_x ? gsv4i_sub32(origin_u, span_offset_vec())
+                                      : gsv4i_add32(origin_u, span_offset_vec());
   GSVector4i texcoord_y = gsv4i_set32((s32)(cmd->texcoord >> 8));
+  const GSVector4i step_x = gsv4i_set32(flip_x ? -(s32)PIXELS_PER_VEC : (s32)PIXELS_PER_VEC);
+  const GSVector4i step_y = gsv4i_set32(flip_y ? -1 : 1);
 
   pixel_vectors_t pv;
   pixel_vectors_init(&pv, base, texture_enable);
@@ -500,11 +506,11 @@ void gpu_sw_rasterizer_simd_draw_rectangle(const gpu_backend_draw_rectangle_cmd_
         xvec = gsv4i_add32(xvec, ppv_vec());
         wvec = gsv4i_sub32(wvec, ppv_vec());
         if (texture_enable)
-          row_texcoord_x = gsv4i_and(gsv4i_add32(row_texcoord_x, ppv_vec()), gsv4i_set32(0xFF));
+          row_texcoord_x = gsv4i_and(gsv4i_add32(row_texcoord_x, step_x), gsv4i_set32(0xFF));
       }
     }
     if (texture_enable)
-      texcoord_y = gsv4i_and(gsv4i_add32(texcoord_y, gsv4i_set32(1)), gsv4i_set32(0xFF));
+      texcoord_y = gsv4i_and(gsv4i_add32(texcoord_y, step_y), gsv4i_set32(0xFF));
   }
 }
 

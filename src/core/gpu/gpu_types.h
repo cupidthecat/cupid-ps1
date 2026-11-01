@@ -255,7 +255,7 @@ ALWAYS_INLINE s32 gpu_vertex_position_y(gpu_vertex_position_t p)
   return (v & 0x400) ? (v - 0x800) : v;
 }
 
-#define GPU_DRAW_MODE_REG_MASK                    UINT16_C(0x1FFF)         /* 13 bits */
+#define GPU_DRAW_MODE_REG_MASK                    UINT16_C(0x3FFF)         /* 14 bits */
 #define GPU_DRAW_MODE_REG_TEXTURE_MODE_AND_PAGE_MASK UINT16_C(0x019F)
 /* Polygon texpage commands only affect bits 0..8, 11. */
 #define GPU_DRAW_MODE_REG_POLYGON_TEXPAGE_MASK    UINT16_C(0x09FF)
