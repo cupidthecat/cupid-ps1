@@ -1851,30 +1851,11 @@ static void process_reverb(s32 left_in, s32 right_in, s32* left_out, s32* right_
     s32 downsampled[2];
     for (u32 channel = 0; channel < 2; channel++) {
       const s16* src = &s_state.reverb_downsample_buffer[channel][(pos - 38) & 0x3F];
-      /* 19 paired multiplies + a centre tap (0x4000 * src[19]) >> 15.
-       * Index pattern matches the SIMD layout: 0..3, 8..11, 16..19,
-       * 24..27, 32..35 -> coeff[0..3,4..7,8..11,12..15,16..19]. */
+      /* The nonzero outer taps are two input samples apart. The centre
+       * coefficient uses the intervening sample at offset 19. */
       s64 acc = 0;
-      acc += (s64)resample_coeff[0]  * (s32)src[0];
-      acc += (s64)resample_coeff[1]  * (s32)src[1];
-      acc += (s64)resample_coeff[2]  * (s32)src[2];
-      acc += (s64)resample_coeff[3]  * (s32)src[3];
-      acc += (s64)resample_coeff[4]  * (s32)src[8];
-      acc += (s64)resample_coeff[5]  * (s32)src[9];
-      acc += (s64)resample_coeff[6]  * (s32)src[10];
-      acc += (s64)resample_coeff[7]  * (s32)src[11];
-      acc += (s64)resample_coeff[8]  * (s32)src[16];
-      acc += (s64)resample_coeff[9]  * (s32)src[17];
-      acc += (s64)resample_coeff[10] * (s32)src[18];
-      acc += (s64)resample_coeff[11] * (s32)src[19];
-      acc += (s64)resample_coeff[12] * (s32)src[24];
-      acc += (s64)resample_coeff[13] * (s32)src[25];
-      acc += (s64)resample_coeff[14] * (s32)src[26];
-      acc += (s64)resample_coeff[15] * (s32)src[27];
-      acc += (s64)resample_coeff[16] * (s32)src[32];
-      acc += (s64)resample_coeff[17] * (s32)src[33];
-      acc += (s64)resample_coeff[18] * (s32)src[34];
-      acc += (s64)resample_coeff[19] * (s32)src[35];
+      for (u32 tap = 0; tap < 20; tap++)
+        acc += (s64)resample_coeff[tap] * (s32)src[tap * 2];
       downsampled[channel] = clamp16((s32)((acc + (s64)0x4000 * (s32)src[19]) >> 15));
     }
 
