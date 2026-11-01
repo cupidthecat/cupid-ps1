@@ -1,0 +1,40 @@
+name: Windows platform validation
+
+on:
+  push:
+    branches: [main, 'fix/native-*', 'feat/native-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform-components:
+    name: Windows platform components
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+      - name: Build native platform components and isolated headers
+        run: |
+          cmake -S tests/platform/windows -B build/windows-platform -G Ninja -DCMAKE_C_COMPILER=gcc
+          cmake --build build/windows-platform --parallel 2
+      - name: Check memory, faults, clocks, threads and library loading
+        run: ctest --test-dir build/windows-platform --output-on-failure

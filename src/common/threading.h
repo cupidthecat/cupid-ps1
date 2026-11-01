@@ -1,8 +1,8 @@
 /*
- * POSIX threading and synchronization helpers. Callers release objects with
+ * Threading and synchronization helpers. Callers release objects with
  * their threading_*_destroy() functions. Callbacks carry a function pointer
- * and a context pointer. Thread names use 16-byte buffers, including the NUL
- * terminator, for pthread_setname_np.
+ * and a context pointer. Linux names are limited to 16 bytes including NUL;
+ * Windows names are converted from UTF-8 for SetThreadDescription.
  */
 
 #ifndef CUPID_COMMON_THREADING_H
@@ -10,8 +10,11 @@
 
 #include "types.h"
 
+#include <time.h>
+#if !defined(_WIN32)
 #include <pthread.h>
 #include <semaphore.h>
+#endif
 
 /* CPU time consumed by the calling thread, in threading_get_thread_ticks_per_second() units. */
 u64 threading_get_thread_cpu_time(void);
@@ -23,16 +26,21 @@ void threading_set_name_of_current_thread(const char* name);
 /* Yield the remainder of this timeslice. */
 void threading_timeslice(void);
 
-/* Sleep until an absolute CLOCK_MONOTONIC timespec. */
+/* Sleep until an absolute monotonic timespec, using the host timer's epoch. */
 void threading_sleep_until(const struct timespec* abs_time);
 
-/* Set the calling thread's nice level via setpriority(PRIO_PROCESS, 0, level).
- * Returns true on success.  Negative values require CAP_SYS_NICE. */
+/* Set host scheduling priority. Linux uses nice levels (negative values may
+ * need privilege); Windows maps negative/zero/positive to above/normal/below. */
 bool threading_set_nice_level(int level);
 
 typedef struct {
+#if defined(_WIN32)
+  void*     native_handle; /* Owned by threading_thread_t; NULL for a borrowed ID. */
+  u32       native_id;
+#else
   pthread_t native_handle;
   int       native_id;     /* gettid() result; 0 if unset */
+#endif
   bool      valid;
 } threading_thread_handle_t;
 
@@ -69,7 +77,11 @@ void threading_thread_detach(threading_thread_t* t);
 void threading_thread_join(threading_thread_t* t);
 
 typedef struct {
+#if defined(_WIN32)
+  void* sema;
+#else
   sem_t sema;
+#endif
 } threading_kernel_semaphore_t;
 
 void threading_kernel_semaphore_init(threading_kernel_semaphore_t* s);

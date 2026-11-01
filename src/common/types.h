@@ -121,8 +121,11 @@ typedef uint64_t u64;
 #if defined(__linux__)
 #  define TARGET_OS_STR "Linux"
 #  define TARGET_OS_LINUX 1
+#elif defined(_WIN32) && defined(CPU_ARCH_X64)
+#  define TARGET_OS_STR "Windows"
+#  define TARGET_OS_WINDOWS 1
 #else
-#  error cupid-ps1 is Linux-only.
+#  error Unsupported operating system or host architecture.
 #endif
 
 #ifndef HOST_PAGE_SIZE_OVERRIDE

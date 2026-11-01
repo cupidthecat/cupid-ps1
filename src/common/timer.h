@@ -1,6 +1,6 @@
 /*
- * On Linux all values are direct nanoseconds (frequency = 1.0), so most
- * conversions are casts.
+ * Host monotonic timestamps in nanoseconds (frequency = 1.0). Linux reads
+ * CLOCK_MONOTONIC; Windows converts its performance counter to these units.
  */
 
 #ifndef CUPID_COMMON_TIMER_H

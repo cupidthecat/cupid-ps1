@@ -7,6 +7,9 @@ The bundled audio library is currently a Linux x86-64 binary.
 A [pinned source build and native C11 interface check](dependencies/soundtouch.md)
 are available for the audio dependency. Building that DLL alone does not
 provide native Windows emulator support.
+The [Windows platform components](windows/platform.md) also have native
+memory, threading, clock and module-loader checks; emulator integration is
+still in progress.
 
 On Ubuntu 24.04:
 

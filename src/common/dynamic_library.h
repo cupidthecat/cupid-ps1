@@ -20,8 +20,8 @@ void  dynamic_library_adopt (dynamic_library_t* lib, void* handle);
 void* dynamic_library_get_symbol_address(const dynamic_library_t* lib, const char* name);
 void* dynamic_library_get_handle(const dynamic_library_t* lib);
 
-/* Append "lib" prefix (when missing) and ".so" suffix into out.
- * If major/minor/patch are >= 0 they're appended as ".M[.m[.p]]". */
+/* Linux versioned names use libNAME.so.M.m.p; Windows uses NAME-M-m-p.dll.
+ * Missing version components are omitted. Unprefixed names only add a suffix. */
 void dynamic_library_get_unprefixed_filename(small_string_t* out, const char* filename);
 void dynamic_library_get_versioned_filename (small_string_t* out, const char* libname,
                                              int major, int minor, int patch);
