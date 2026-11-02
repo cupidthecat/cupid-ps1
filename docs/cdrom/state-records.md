@@ -2,7 +2,7 @@
 
 CD records contain bounded parameter, response and asynchronous-response queues,
 eight sector buffers, XA predictor and resampler history, and a stereo audio
-FIFO. The current saved format remains version 96.
+FIFO. The current saved format is version 97.
 
 The loader rejects a queue count beyond its capacity or a payload that does
 not fit in the remaining record. It does not clamp a serialized count and then
@@ -32,9 +32,21 @@ Writing an older format preserves live timestamps and sector cursors, even if
 the write fails. Loading versions 42 through 64 remains supported; exporting
 their obsolete copied-FIFO representation is not supported.
 
-A separate generated case still loses an active command event when restoring
-after a data sector arrives during a pending command. The record checks below
-do not qualify that overlap; command-event restoration needs further work.
+Version 97 appends a byte after the requested sector address. Bits 0 through 3
+store the activity of the command, second-response, asynchronous-interrupt and
+drive events respectively; the upper four bits must be zero. The existing
+record prefix, including the historical double-speed byte, keeps its meaning.
+The events' timestamps remain in the scheduler record.
+
+Event activity is restored before the scheduler loads their timestamps. A data
+sector can leave an asynchronous interrupt pending while a command event is
+still active. Reconstructing activity from those fields can lose the command.
+Restoring an earlier snapshot must also remove an asynchronous event scheduled
+after that snapshot. Both active and inactive event states are preserved.
+
+Versions 42 through 96 retain their historical event reconstruction. Those
+records lack the explicit activity byte, and the sector/command overlap can
+still lose its command event. Their complete continuation remains unqualified.
 
 ## Regression checks
 
@@ -42,15 +54,19 @@ do not qualify that overlap; command-event restoration needs further work.
 make test TEST_FILTER=CdStateRecord
 make test TEST_FILTER=CdLegacyRecord
 make test TEST_FILTER=CdXaContinuation
+make test TEST_FILTER=CdCommandContinuation
 ```
 
-The generated cases exercise fifteen format-version boundaries from 65 through
-96. They check oversized counts, invalid sector metadata, ring positions,
+The generated cases exercise sixteen format-version boundaries from 65 through
+97. They check oversized counts, invalid sector metadata, ring positions,
 interpolation counters, every truncated prefix of an empty record, sticky read
 and write errors, full-capacity audio, and records at a nonzero wrapper offset.
 After each rejected read, every serialized CD byte must remain unchanged,
 before a valid record is restored. The capacity case reads and checks all
 88,200 stereo frames. Older-format writes must leave the current record intact.
+The version-97 prefix must match a version-96 record exactly, with only the new
+activity byte appended. Reserved activity bits and a missing final byte are
+rejected without changing the controller or scheduler.
 
 Independent fixture writers cover every fixed-buffer layout version from 42
 through 64. They exercise empty, partial and full legacy data FIFOs, all eight
@@ -75,6 +91,14 @@ state fields are normalized. Half-rate packet lengths are read from the saved
 queue, and complete output streams are compared without trimming startup data.
 A rejected CD record during a queued packet must preserve that complete state
 and the remaining samples.
+
+Four command-continuation cases cover a data sector arriving during an active
+command and a command blocked by an unacknowledged sector interrupt, at single
+and double speed. They compare all component bytes immediately after loading
+and after the command acknowledgement. Rejected activity masks must also
+preserve that complete state. The active-command cases also restore inside the
+queued asynchronous-interrupt gap after its callback has fired, then require
+the same interrupt and complete state again.
 
 The fixture pauses the SPU consumer and reads the queue explicitly. Every
 serialized SPU byte must remain unchanged, so SPU restoration is unnecessary in

@@ -42,7 +42,7 @@ class MdecSpatialLiveTest(unittest.TestCase):
 
     def check_result(self, path, frame, old):
         compare.validate_checkpoint(path)
-        data = path.read_bytes(); self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 96))
+        data = path.read_bytes(); self.assertEqual(struct.unpack_from('<2I', data), (0x43435544, 97))
         start = struct.unpack_from('<I', data, 212)[0]; payload = data[start:]
         marker = b'\x03\0\0\0Bus'; self.assertEqual(payload.count(marker), 1)
         ram = payload.index(marker) + len(marker) + 4 + 5 * 3 * 4

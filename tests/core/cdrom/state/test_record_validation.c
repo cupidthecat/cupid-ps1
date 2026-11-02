@@ -11,9 +11,12 @@ typedef struct {
   u32    version;
 } record_t;
 
-static const u32 versions[] = {65, 66, 67, 70, 71, 72, 78, 79, 80, 81, 84, 85, 92, 95, 96};
-static size_t    ring_offset(const record_t* record) {
-  return record->size - (record->version >= 79 ? 110u : 94u);
+static const u32 versions[] = {65, 66, 67, 70, 71, 72, 78, 79, 80, 81, 84, 85, 92, 95, 96, 97};
+static size_t    payload_end(const record_t* record) {
+  return record->size - (record->version >= 97 ? 1u : 0u);
+}
+static size_t ring_offset(const record_t* record) {
+  return payload_end(record) - (record->version >= 79 ? 110u : 94u);
 }
 
 static void store32(u8* bytes, u32 value) {
@@ -73,7 +76,7 @@ static void check_empty_suffix(const record_t* record) {
   EXPECT_TRUE(record->size >= 110);
   for (size_t i = ring_offset(record) + 2; i < ring_offset(record) + 14; i += 4)
     EXPECT_EQ(load32(record->data + i), 0);
-  for (size_t i = record->size - 80; i < record->size; i += 4)
+  for (size_t i = payload_end(record) - 80; i < payload_end(record); i += 4)
     EXPECT_EQ(load32(record->data + i), 0);
   EXPECT_EQ(record->data[ring_offset(record)], 0);
   EXPECT_EQ(record->data[ring_offset(record) + 1], 6);
@@ -87,11 +90,13 @@ static void invalid_audio(u32 count) {
     u8* bad = malloc(RECORD_CAPACITY);
     EXPECT_NOT_NULL(bad);
     const u32 supplied = AUDIO_CAPACITY + 1;
-    memcpy(bad, good.data, good.size - 8);
-    store32(bad + good.size - 8, count);
+    memcpy(bad, good.data, payload_end(&good) - 8);
+    store32(bad + payload_end(&good) - 8, count);
     for (u32 i = 0; i < supplied; i++)
-      store32(bad + good.size - 4 + (size_t)i * 4, 0xA5000000u + i);
-    store32(bad + good.size - 4 + (size_t)supplied * 4, 0x12345678);
+      store32(bad + payload_end(&good) - 4 + (size_t)i * 4, 0xA5000000u + i);
+    store32(bad + payload_end(&good) - 4 + (size_t)supplied * 4, 0x12345678);
+    memcpy(bad + payload_end(&good) + (size_t)supplied * 4, good.data + payload_end(&good),
+           good.size - payload_end(&good));
     reject_and_recover(&good, bad, good.size + (size_t)supplied * 4);
     free(bad);
     free(good.data);
@@ -146,19 +151,19 @@ static void invalid_metadata(u32 kind) {
     memcpy(bad, good.data, good.size);
     switch (kind) {
       case READ_INDEX:
-        store32(bad + good.size - 80, 8);
+        store32(bad + payload_end(&good) - 80, 8);
         break;
       case WRITE_INDEX:
-        store32(bad + good.size - 76, UINT32_MAX);
+        store32(bad + payload_end(&good) - 76, UINT32_MAX);
         break;
       case SECTOR_SIZE:
         /* Equal cursors avoid copying an oversized payload even in the frozen
          * baseline; the declared size itself still violates the buffer bound. */
-        store32(bad + good.size - 72, 2341);
-        store32(bad + good.size - 68, 2341);
+        store32(bad + payload_end(&good) - 72, 2341);
+        store32(bad + payload_end(&good) - 68, 2341);
         break;
       case SECTOR_POSITION:
-        store32(bad + good.size - 68, 1);
+        store32(bad + payload_end(&good) - 68, 1);
         break;
       case RING_INDEX:
         bad[ring_offset(&good)] = 32;
@@ -253,11 +258,13 @@ TEST(CdStateRecord, full_audio_capacity_and_offset_record) {
     u8*          full   = malloc(length + 11);
     EXPECT_NOT_NULL(full);
     memset(full, 0xA5, 11);
-    memcpy(full + 11, good.data, good.size - 8);
-    store32(full + 11 + good.size - 8, AUDIO_CAPACITY);
+    memcpy(full + 11, good.data, payload_end(&good) - 8);
+    store32(full + 11 + payload_end(&good) - 8, AUDIO_CAPACITY);
     for (u32 i = 0; i < AUDIO_CAPACITY; i++)
-      store32(full + 11 + good.size - 4 + (size_t)i * 4, (i & 0xFFFFu) | ((~i & 0xFFFFu) << 16));
-    store32(full + 11 + length - 4, 0x12345678);
+      store32(full + 11 + payload_end(&good) - 4 + (size_t)i * 4, (i & 0xFFFFu) | ((~i & 0xFFFFu) << 16));
+    store32(full + 11 + length - (good.size - payload_end(&good)) - 4, 0x12345678);
+    memcpy(full + 11 + payload_end(&good) + (size_t)AUDIO_CAPACITY * 4, good.data + payload_end(&good),
+           good.size - payload_end(&good));
     state_wrapper_t sw;
     state_wrapper_init_read(&sw, full, length + 11, version);
     state_wrapper_set_position(&sw, 11);
@@ -297,5 +304,39 @@ TEST(CdStateRecord, older_writes_preserve_live_timestamps) {
     free(after.data);
   }
   free(before.data);
+  end();
+}
+
+TEST(CdStateRecord, version97_appends_event_activity) {
+  begin();
+  cdrom_write_register(0, 0);
+  cdrom_write_register(1, 1);
+  record_t previous = save_record(96);
+  record_t current  = save_record(97);
+  EXPECT_EQ(current.size, previous.size + 1);
+  EXPECT_EQ(memcmp(current.data, previous.data, previous.size), 0);
+  EXPECT_EQ(current.data[current.size - 1], 1);
+  restore_record(&current);
+  record_t replay = save_record(97);
+  EXPECT_EQ(replay.size, current.size);
+  EXPECT_EQ(memcmp(replay.data, current.data, current.size), 0);
+  free(replay.data);
+  free(current.data);
+  free(previous.data);
+  end();
+}
+
+TEST(CdStateRecord, reserved_event_activity_bits) {
+  begin();
+  record_t good = save_record(97);
+  u8*      bad  = malloc(good.size);
+  EXPECT_NOT_NULL(bad);
+  for (u32 bits = 0x10; bits <= 0x80; bits <<= 1) {
+    memcpy(bad, good.data, good.size);
+    bad[good.size - 1] |= (u8)bits;
+    reject_and_recover(&good, bad, good.size);
+  }
+  free(bad);
+  free(good.data);
   end();
 }
