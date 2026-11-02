@@ -1,24 +1,7 @@
-/*
- * Hardware (OpenGL) GPU back-end.  Single-impl collapse of
- * `class GPU_HW final : public GPUBackend` to a flat `gpu_hw_t` struct that
- * embeds `gpu_backend_t base` at offset 0 and points the vtable at static
- * functions in gpu_hw.c - same shape as gpu_sw.c.
- *
- * Drop list:
- *   - PGXP precision uplift (DrawPrecisePolygon/DrawPreciseLine fold into
- *     the regular polygon/line path).
- *   - Downsampling (m_downsample_mode forced NONE).
- *   - Texture replacements / texture cache (m_use_texture_cache forced false).
- *   - Internal post-FX chain.
- *   - MSAA (m_multisamples = 1 always).
- *   - Shader blending (m_use_shader_blending forced false).
- * Pipeline array's leading "msaa" dimension is dropped → 3600 entries instead
- * of the MSAA-included matrix (=> still indexed by [depth_test]
- * [transparency_mode][render_mode][texture_mode][dithering][interlacing]
- * [check_mask]).  Of these 3600 slots, ~540 are populated per filter pass
- * (the remaining 3060 are depth-test-only stubs that stay NULL until PGXP
- * depth / write_mask_as_depth lands).
- */
+/* OpenGL GPU backend, with gpu_backend_t at offset zero. Rendered VRAM,
+ * sampled VRAM and the latched palette have separate textures. Batch pipelines
+ * cover texture, transparency, color precision, dithering, interlace and mask
+ * states. MSAA is fixed at one sample. */
 
 #ifndef CUPID_CORE_GPU_HW_H
 #define CUPID_CORE_GPU_HW_H
@@ -146,7 +129,11 @@ typedef struct {
   float u_resolution_scale;
   float u_rcp_resolution_scale;
   float u_resolution_scale_minus_one;
+  u32   u_transparency_mode;
 } gpu_hw_batch_ubo_data_t;
+_Static_assert(sizeof(gpu_hw_batch_ubo_data_t) == 48, "Batch uniform block must match its std140 size");
+_Static_assert(offsetof(gpu_hw_batch_ubo_data_t, u_transparency_mode) == 44,
+               "Blend mode uniform offset must match std140");
 
 #define GPU_HW_BATCH_PIPELINE_DEPTHS 2u
 /* TRANSPARENCY_MODES sized to fit the raw enum (0..3 = the four blend ops,
@@ -161,7 +148,7 @@ typedef struct {
  * 0 and 1 cover all the live combos. */
 #define GPU_HW_BATCH_PIPELINE_RENDER_MODES  2u
 #define GPU_HW_BATCH_PIPELINE_TEXTURE_MODES (u32) GPU_HW_BATCH_TEXTURE_MODE_MAX_COUNT /* 9 */
-#define GPU_HW_BATCH_PIPELINE_DITHERING     5u
+#define GPU_HW_BATCH_PIPELINE_DITHERING     6u
 #define GPU_HW_BATCH_PIPELINE_INTERLACING   5u
 #define GPU_HW_BATCH_PIPELINE_CHECK_MASK    2u
 
@@ -169,7 +156,7 @@ typedef struct {
   (GPU_HW_BATCH_PIPELINE_DEPTHS * GPU_HW_BATCH_PIPELINE_TRANSPARENCY_MODES * GPU_HW_BATCH_PIPELINE_RENDER_MODES * \
    GPU_HW_BATCH_PIPELINE_TEXTURE_MODES * GPU_HW_BATCH_PIPELINE_DITHERING * GPU_HW_BATCH_PIPELINE_INTERLACING *    \
    GPU_HW_BATCH_PIPELINE_CHECK_MASK)
-/* sanity: 2*2*2*9*5*5*2 == 3600. */
+/* Six color rows include a native row without command dithering. */
 
 ALWAYS_INLINE u32 gpu_hw_batch_pipeline_index(u32 depth_test, u32 transparency_mode, u32 render_mode, u32 texture_mode,
                                               u32 dithering, u32 interlacing, u32 check_mask) {

@@ -774,16 +774,16 @@ static bool gpu_hw_compile_batch_pipelines(gpu_hw_t* hw, Error* err) {
                         (u32)(sizeof(s_batch_vertex_attrs_textured) / sizeof(s_batch_vertex_attrs_textured[0]));
                   }
 
-                  /* Decode the dithering slot (5 values) into (dith_enabled,
-       * scaled_dithering, true_color, shader_blend) flags.  The 5 slots
+                  /* Decode the color slot into (dith_enabled,
+       * scaled_dithering, true_color, shader_blend) flags. The six slots
        * mirror the established combinations (header comment in gpu_hw.h):
        *   0 Unscaled              (dith=1, sd=0, tc=0, sb=0)
        *   1 UnscaledShaderBlend   (dith=1, sd=0, tc=0, sb=1)
        *   2 Scaled                (dith=1, sd=1, tc=0, sb=0)
        *   3 ScaledShaderBlend     (dith=1, sd=1, tc=0, sb=1)
        *   4 TrueColor             (dith=0, sd=0, tc=1, sb=0)
-       * Today only slot 0 (the all-false case) and slot 4 (true_color)
-       * are exercised by draws, but we still compile every legal combo. */
+       *   5 Native without command dithering.
+       * Rows 1 and 3 are gated by allow_shader_blend. */
                   bool fs_dithering, fs_scaled_dith, fs_true_color, fs_shader_blend;
                   switch (dithering) {
                     case 0:
@@ -816,6 +816,7 @@ static bool gpu_hw_compile_batch_pipelines(gpu_hw_t* hw, Error* err) {
                       fs_true_color   = true;
                       fs_shader_blend = false;
                       break;
+                    case 5: /* Native color with command dithering disabled. */
                     default:
                       fs_dithering    = false;
                       fs_scaled_dith  = false;
@@ -893,6 +894,8 @@ static bool gpu_hw_compile_batch_pipelines(gpu_hw_t* hw, Error* err) {
        * blend. */
                   cfg.blend =
                       gpu_hw_make_batch_blend_state(hw, transparency_mode, render_mode, textured, fs_is_blended_filter);
+                  if (!fs_true_color && !fs_shader_blend && render_mode != 0u && filter == GPU_TEXTURE_FILTER_NEAREST)
+                    cfg.blend = gpu_blend_state_no_blending();
 
                   /* Depth state.  When write_mask_as_depth is on:
        *   - check_mask=0: depth_func=ALWAYS, depth_write=on.  Records the
@@ -1822,15 +1825,17 @@ ALWAYS_INLINE u32 gpu_hw_pack_texpage(const gpu_backend_draw_cmd_t* c) {
   return (u32)c->draw_mode.bits | ((u32)c->palette.bits << 16);
 }
 
-/* Latch the batch config the next flush will use, and update the
- * UBO texture-window + alpha-factor entries (mirrors PrepareDraw stripped
- * of TC/depth/ROV branches). */
+static bool gpu_hw_command_dithering(const gpu_backend_draw_cmd_t* c) {
+  return c->dither_enable && (!c->texture_enable || !c->raw_texture_enable);
+}
+
+/* Latch the batch state and its matching uniforms for the next flush. */
 static void gpu_hw_latch_batch_config(gpu_hw_t* hw, const gpu_backend_draw_cmd_t* c,
                                       gpu_hw_batch_texture_mode_t batch_texture_mode,
                                       gpu_transparency_mode_t     transparency_mode) {
   hw->batch.texture_mode           = batch_texture_mode;
   hw->batch.transparency_mode      = transparency_mode;
-  hw->batch.dithering              = (!hw->true_color && c->dither_enable);
+  hw->batch.dithering              = (!hw->true_color && gpu_hw_command_dithering(c));
   hw->batch.interlacing            = c->interlaced_rendering;
   hw->batch.set_mask_while_drawing = c->set_mask_while_drawing;
   hw->batch.check_mask_before_draw = c->check_mask_before_draw;
@@ -1856,6 +1861,7 @@ static void gpu_hw_latch_batch_config(gpu_hw_t* hw, const gpu_backend_draw_cmd_t
     hw->batch_ubo_data.u_dst_alpha_factor = 0.0f;
   }
   hw->batch_ubo_data.u_set_mask_while_drawing     = c->set_mask_while_drawing ? 1u : 0u;
+  hw->batch_ubo_data.u_transparency_mode          = (u32)transparency_mode;
   hw->batch_ubo_data.u_interlaced_displayed_field = (u32)c->active_line_lsb;
   hw->batch_ubo_dirty                             = true;
 }
@@ -1870,7 +1876,7 @@ static bool gpu_hw_batch_config_changed(const gpu_hw_t* hw, const gpu_backend_dr
                                         gpu_transparency_mode_t     transparency_mode,
                                         const opengl_texture_t*     cache_texture) {
   return hw->batch.texture_mode != batch_texture_mode || hw->batch.transparency_mode != transparency_mode ||
-         hw->batch.dithering != (!hw->true_color && c->dither_enable) ||
+         hw->batch.dithering != (!hw->true_color && gpu_hw_command_dithering(c)) ||
          hw->batch.interlacing != c->interlaced_rendering ||
          hw->batch.set_mask_while_drawing != c->set_mask_while_drawing ||
          hw->batch.check_mask_before_draw != c->check_mask_before_draw ||
@@ -2045,8 +2051,20 @@ static bool gpu_hw_begin_polygon_draw(const gpu_hw_t* hw, gpu_hw_batch_vertex_t*
  * handles it (PAGE_TEXTURE / sprite-mode / use_shader_blending / etc.).
  * Mirrors `DrawPolygon` plus `BeginPolygonDraw` / `FinishPolygonDraw`.
  * Quads use the (0,1,2 / 2,1,3) winding. */
+static u32 gpu_hw_dithering_slot(const gpu_hw_t* hw, bool command_dithering) {
+  if (hw->true_color) return 4u;
+  if (!command_dithering) return 5u;
+  return settings_is_using_scaled_dithering(&g_settings) ? 2u : 0u;
+}
+
+static bool gpu_hw_native_blend(const gpu_hw_t* hw, const gpu_backend_draw_cmd_t* command) {
+  return !hw->true_color && command->transparency_enable &&
+         (!command->texture_enable || g_settings.gpu_texture_filter == GPU_TEXTURE_FILTER_NEAREST);
+}
+
 static bool gpu_hw_emit_polygon_gl(gpu_hw_t* hw, const gpu_backend_draw_polygon_cmd_t* c,
                                    const gpu_backend_polygon_vertex_t* vertices) {
+  if (gpu_hw_native_blend(hw, &c->base)) hw->base.vtable->flush_render(&hw->base);
   u32 num_vertices = (u32)c->base.num_vertices;
   if (num_vertices != 3u && num_vertices != 4u) return false;
 
@@ -2076,7 +2094,7 @@ static bool gpu_hw_emit_polygon_gl(gpu_hw_t* hw, const gpu_backend_draw_polygon_
 
   /* Pick the matrix slot we'll need at flush time.  If it doesn't exist
    * (e.g. shader_blend gating, true_color+dither) bail to SW. */
-  const u32 dith_slot = (!hw->true_color && c->base.dither_enable) ? 0u : (hw->true_color ? 4u : 0u);
+  const u32 dith_slot = gpu_hw_dithering_slot(hw, gpu_hw_command_dithering(&c->base));
   const u32 batch_idx = gpu_hw_batch_pipeline_index(
       /*depth_test=*/0u, (u32)trans_mode,
       /*render_mode=*/(trans_mode != GPU_TRANSPARENCY_MODE_DISABLED) ? 1u : 0u, (u32)batch_texture_mode, dith_slot,
@@ -2173,6 +2191,7 @@ static bool gpu_hw_emit_polygon_gl(gpu_hw_t* hw, const gpu_backend_draw_polygon_
  * page, 11-bit position).  Returns true on success.  Falls back to SW if the
  * pipeline isn't ready or PAGE_TEXTURE / sprite-mode would be required. */
 static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectangle_cmd_t* c) {
+  if (gpu_hw_native_blend(hw, &c->base)) hw->base.vtable->flush_render(&hw->base);
   gpu_hw_ensure_batch_buffers_mapped(hw);
 
   const gpu_transparency_mode_t trans_mode = c->base.transparency_enable
@@ -2191,7 +2210,7 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
     gpu_hw_ensure_batch_buffers_mapped(hw);
   }
 
-  const u32 dith_slot = (!hw->true_color && c->base.dither_enable) ? 0u : (hw->true_color ? 4u : 0u);
+  const u32 dith_slot = gpu_hw_dithering_slot(hw, gpu_hw_command_dithering(&c->base));
   const u32 batch_idx = gpu_hw_batch_pipeline_index(
       /*depth_test=*/0u, (u32)trans_mode,
       /*render_mode=*/(trans_mode != GPU_TRANSPARENCY_MODE_DISABLED) ? 1u : 0u, (u32)batch_texture_mode, dith_slot,
@@ -2321,6 +2340,7 @@ static bool gpu_hw_emit_rectangle_gl(gpu_hw_t* hw, const gpu_backend_draw_rectan
  * non-degenerate, single-thickness expansion. */
 static bool gpu_hw_emit_line_gl(gpu_hw_t* hw, const gpu_backend_draw_line_cmd_t* c,
                                 const gpu_backend_line_vertex_t* vertices) {
+  if (gpu_hw_native_blend(hw, &c->base)) hw->base.vtable->flush_render(&hw->base);
   gpu_hw_ensure_batch_buffers_mapped(hw);
 
   /* Lines are always untextured. */
@@ -2335,7 +2355,7 @@ static bool gpu_hw_emit_line_gl(gpu_hw_t* hw, const gpu_backend_draw_line_cmd_t*
     gpu_hw_ensure_batch_buffers_mapped(hw);
   }
 
-  const u32 dith_slot = (!hw->true_color && c->base.dither_enable) ? 0u : (hw->true_color ? 4u : 0u);
+  const u32 dith_slot = gpu_hw_dithering_slot(hw, gpu_hw_command_dithering(&c->base));
   const u32 batch_idx = gpu_hw_batch_pipeline_index(
       /*depth_test=*/0u, (u32)trans_mode,
       /*render_mode=*/(trans_mode != GPU_TRANSPARENCY_MODE_DISABLED) ? 1u : 0u, (u32)batch_texture_mode, dith_slot,
@@ -2481,7 +2501,18 @@ static void hw_draw_polygon(gpu_backend_t* self, const gpu_backend_draw_polygon_
   gpu_sw_rasterizer_draw_triangle(&c->base, &vertices[0], &vertices[1], &vertices[2]);
   if (c->base.num_vertices > 3) gpu_sw_rasterizer_draw_triangle(&c->base, &vertices[2], &vertices[1], &vertices[3]);
 
-  if (gpu_hw_gl_emit_active()) (void)gpu_hw_emit_polygon_gl(hw, c, vertices);
+  if (gpu_hw_gl_emit_active()) {
+    if (gpu_hw_native_blend(hw, &c->base) && c->base.num_vertices == 4) {
+      gpu_backend_draw_polygon_cmd_t triangle = *c;
+      triangle.base.num_vertices              = 3;
+      triangle.base.quad_polygon              = false;
+      (void)gpu_hw_emit_polygon_gl(hw, &triangle, vertices);
+      const gpu_backend_polygon_vertex_t second[3] = {vertices[2], vertices[1], vertices[3]};
+      (void)gpu_hw_emit_polygon_gl(hw, &triangle, second);
+    } else {
+      (void)gpu_hw_emit_polygon_gl(hw, c, vertices);
+    }
+  }
 }
 
 static void hw_draw_rectangle(gpu_backend_t* self, const gpu_backend_draw_rectangle_cmd_t* c) {
@@ -2495,7 +2526,16 @@ static void hw_draw_line(gpu_backend_t* self, const gpu_backend_draw_line_cmd_t*
   gpu_hw_t* hw = (gpu_hw_t*)self;
   for (u16 i = 0; i + 1 < c->base.num_vertices; i += 2)
     gpu_sw_rasterizer_draw_line(&c->base, &vertices[i], &vertices[i + 1]);
-  if (gpu_hw_gl_emit_active()) (void)gpu_hw_emit_line_gl(hw, c, vertices);
+  if (gpu_hw_gl_emit_active()) {
+    if (gpu_hw_native_blend(hw, &c->base)) {
+      gpu_backend_draw_line_cmd_t segment = *c;
+      segment.base.num_vertices           = 2;
+      for (u16 i = 0; i + 1 < c->base.num_vertices; i += 2)
+        (void)gpu_hw_emit_line_gl(hw, &segment, vertices + i);
+    } else {
+      (void)gpu_hw_emit_line_gl(hw, c, vertices);
+    }
+  }
 }
 
 static void hw_drawing_area_changed(gpu_backend_t* self, const gpu_backend_set_drawing_area_cmd_t* c) {
@@ -2736,7 +2776,7 @@ static void hw_flush_render(gpu_backend_t* self) {
 
   /* Pick the right batch pipeline.  Covers untextured-opaque plus
    * textured + transparent + dither + check_mask. */
-  const u32 dith_slot        = (!hw->true_color && hw->batch.dithering) ? 0u : (hw->true_color ? 4u : 0u);
+  const u32 dith_slot        = gpu_hw_dithering_slot(hw, hw->batch.dithering);
   const u32 render_mode_slot = (hw->batch.transparency_mode != GPU_TRANSPARENCY_MODE_DISABLED) ? 1u : 0u;
   const u32 batch_idx =
       gpu_hw_batch_pipeline_index(hw->batch.use_depth_buffer ? 1u : 0u, (u32)hw->batch.transparency_mode,
@@ -2790,6 +2830,11 @@ static void hw_flush_render(gpu_backend_t* self) {
       opengl_device_set_texture_sampler(0, &hw->vram_read_texture->base, hw->nearest_sampler);
     }
     opengl_device_set_texture_sampler(1, &hw->clut_texture->base, hw->nearest_sampler);
+  }
+  if (!hw->true_color && hw->batch.transparency_mode != GPU_TRANSPARENCY_MODE_DISABLED &&
+      (!textured_batch || !use_filter_row)) {
+    gpu_hw_update_vram_read_texture(hw);
+    opengl_device_set_texture_sampler(2, &hw->vram_read_texture->base, hw->nearest_sampler);
   }
 
   const u32           scale = (u32)hw->resolution_scale;

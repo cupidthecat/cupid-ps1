@@ -155,6 +155,7 @@ static void write_batch_uniform_buffer(gpu_hw_shadergen_t* sg, small_string_t* s
       "uint2 u_texture_window_and", "uint2 u_texture_window_or",         "float u_src_alpha_factor",
       "float u_dst_alpha_factor",   "uint u_interlaced_displayed_field", "bool u_set_mask_while_drawing",
       "float u_resolution_scale",   "float u_rcp_resolution_scale",      "float u_resolution_scale_minus_one",
+      "uint u_transparency_mode",
   };
   shadergen_declare_uniform_buffer(&sg->base, ss, members, (u32)(sizeof(members) / sizeof(members[0])), false);
 }
@@ -2183,10 +2184,14 @@ char* gpu_hw_shadergen_generate_batch_fragment_shader(
                         texture_mode == GPU_HW_BATCH_TEXTURE_MODE_PALETTE_8BIT);
   const bool page_texture    = (texture_mode == GPU_HW_BATCH_TEXTURE_MODE_PAGE_TEXTURE);
   const bool shader_blending = (render_mode == GPU_HW_BATCH_RENDER_MODE_SHADER_BLEND);
-  const bool use_dual_source = (!shader_blending && !use_rov && sg->base.supports_dual_source_blend &&
-                                ((render_mode != GPU_HW_BATCH_RENDER_MODE_TRANSPARENCY_DISABLED &&
-                                  render_mode != GPU_HW_BATCH_RENDER_MODE_ONLY_OPAQUE) ||
-                                 is_blended_texture_filtering));
+  const bool native_blending = !true_color && !shader_blending &&
+                               render_mode == GPU_HW_BATCH_RENDER_MODE_TRANSPARENT_AND_OPAQUE &&
+                               texture_filtering == GPU_TEXTURE_FILTER_NEAREST;
+  const bool use_dual_source =
+      (!native_blending && !shader_blending && !use_rov && sg->base.supports_dual_source_blend &&
+       ((render_mode != GPU_HW_BATCH_RENDER_MODE_TRANSPARENCY_DISABLED &&
+         render_mode != GPU_HW_BATCH_RENDER_MODE_ONLY_OPAQUE) ||
+        is_blended_texture_filtering));
 
   small_string_t ss;
   small_string_init(&ss);
@@ -2196,6 +2201,7 @@ char* gpu_hw_shadergen_generate_batch_fragment_shader(
   dm_b(sg, &ss, "TRANSPARENCY_ONLY_TRANSPARENT", render_mode == GPU_HW_BATCH_RENDER_MODE_ONLY_TRANSPARENT);
   dm_i(sg, &ss, "TRANSPARENCY_MODE", (s32)transparency);
   dm_b(sg, &ss, "SHADER_BLENDING", shader_blending);
+  dm_b(sg, &ss, "NATIVE_BLENDING", native_blending);
   dm_b(sg, &ss, "CHECK_MASK_BIT", check_mask);
   dm_b(sg, &ss, "TEXTURED", textured);
   dm_b(sg, &ss, "PALETTE", palette);
@@ -2228,6 +2234,7 @@ char* gpu_hw_shadergen_generate_batch_fragment_shader(
   write_batch_uniform_buffer(sg, &ss);
   dt(sg, &ss, "samp0", 0, false);
   if (palette) dt(sg, &ss, "samp1", 1, false);
+  if (native_blending) dt(sg, &ss, "samp2", 2, false);
 
   if (use_rov) {
     di(sg, &ss, "rov_color", 0, false);
@@ -2594,6 +2601,24 @@ char* gpu_hw_shadergen_generate_batch_fragment_shader(
          "        #endif\n"
          "      }\n"
          "      END_ROV_REGION;\n"
+         "    #endif\n"
+         "  #elif NATIVE_BLENDING\n"
+         "    int3 result = int3(icolor);\n"
+         "    if (semitransparent)\n"
+         "    {\n"
+         "      int3 background = int3(roundEven(LOAD_TEXTURE(samp2, int2(fragpos), 0).rgb * 31.0));\n"
+         "      if (u_transparency_mode == 0u)\n"
+         "        result = (background + result) >> 1;\n"
+         "      else if (u_transparency_mode == 1u)\n"
+         "        result = min(background + result, int3(31, 31, 31));\n"
+         "      else if (u_transparency_mode == 2u)\n"
+         "        result = max(background - result, int3(0, 0, 0));\n"
+         "      else\n"
+         "        result = min(background + (result >> 2), int3(31, 31, 31));\n"
+         "    }\n"
+         "    o_col0 = float4(float3(result) / 31.0, oalpha);\n"
+         "    #if WRITE_MASK_AS_DEPTH\n"
+         "      o_depth = oalpha * v_pos.z;\n"
          "    #endif\n"
          "  #else\n"
          "    // Premultiply alpha so we don't need to use a colour output for it.\n"

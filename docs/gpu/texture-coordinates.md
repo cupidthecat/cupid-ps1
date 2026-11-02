@@ -45,7 +45,9 @@ clipped pixels retain the background color. Visible draws must enter the
 requested GL batch path; a software mirror cannot satisfy the checks. The
 matrix also exercises hash-table growth while decoded sources remain live.
 
-The suite has 4,532 checks. See [commands](mask-history.md#renderer-regression-check).
+The combined suite has 7,116 checks, including the
+[native-color matrix](native-color.md). See
+[commands](mask-history.md#renderer-regression-check).
 It does not qualify arbitrary triangle interpolation, fractional vertices,
 filtering, shaded or blended texture operations, physical texture-cache
 timing, display timing or representative gameplay. RGB8 expansion is outside

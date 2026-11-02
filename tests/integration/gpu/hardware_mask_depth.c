@@ -3,6 +3,7 @@
 #include "hardware_clut.h"
 #include "hardware_texture_pages.h"
 #include "hardware_texture_coordinates.h"
+#include "hardware_native_blending.h"
 #include "core/config/settings.h"
 #include "core/state/save_state_version.h"
 #include "core/gpu/hardware/gpu_hw.h"
@@ -410,10 +411,13 @@ static bool check_truncated_restore(gpu_hw_t* hw) {
 
 int main(int argc, char** argv) {
   u32                       first_scale = 1, last_scale = 2;
-  gpu_device_create_flags_t flags = GPU_DEVICE_CREATE_NONE;
+  gpu_device_create_flags_t flags      = GPU_DEVICE_CREATE_NONE;
+  bool                      true_color = false;
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--no-texture-buffers") == 0)
       flags |= GPU_DEVICE_CREATE_DISABLE_TEXTURE_BUFFERS;
+    else if (strcmp(argv[i], "--true-color") == 0)
+      true_color = true;
     else if (strcmp(argv[i], "1") == 0 || strcmp(argv[i], "2") == 0)
       first_scale = last_scale = (u32)atoi(argv[i]);
     else
@@ -456,6 +460,8 @@ int main(int argc, char** argv) {
   }
   printf("GL version: %s; renderer: %s\n", (const char*)glGetString(GL_VERSION), (const char*)glGetString(GL_RENDERER));
   g_settings.gpu_use_software_renderer_for_readbacks = false;
+  g_settings.gpu_dithering_mode = true_color ? GPU_DITHERING_MODE_TRUE_COLOR : GPU_DITHERING_MODE_UNSCALED;
+  printf("GPU color mode: %s\n", true_color ? "true color" : "native");
   u32 count = 0, failures = 0;
   for (u32 scale = first_scale; scale <= last_scale; scale++) {
     g_settings.gpu_resolution_scale = (u8)scale;
@@ -502,6 +508,7 @@ int main(int argc, char** argv) {
   failures += gpu_gl_clut_checks(&wi, &count);
   failures += gpu_gl_texture_page_checks(&wi, &count);
   failures += gpu_gl_texture_coordinate_checks(&wi, &count);
+  failures += gpu_gl_native_blend_checks(&wi, &count);
   opengl_device_destroy();
   settings_destroy(&g_settings);
   Error_destroy(&error);

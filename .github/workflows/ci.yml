@@ -128,17 +128,64 @@ jobs:
           sha256sum -c build/ci/runtime-sha256.txt
           mkdir -p build/ci/lib
           cp dep/soundtouch/lib/libsoundtouch.so.2.3.3 build/ci/lib/libsoundtouch.so.2
-      - name: Check the OpenGL renderer with software Mesa
-        run: |
-          xvfb-run -a build/ci/cupid-ps1-gl-smoke
-          xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests
-          xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests --no-texture-buffers
-          MESA_GL_VERSION_OVERRIDE=3.3CORE MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests
-          MESA_GL_VERSION_OVERRIDE=3.3CORE MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests --no-texture-buffers
-        env:
-          SDL_VIDEODRIVER: x11
-          LIBGL_ALWAYS_SOFTWARE: '1'
       - name: Check runtime validation runners
         run: python3 -m unittest discover -s tests -p 'test_*.py'
         env:
           CUPID_TEST_BINARY: build/ci/cupid-ps1
+
+  graphics-validation:
+    name: ${{ matrix.name }} graphics ${{ matrix.color }}
+    needs: build-and-test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [gcc, clang, sanitize]
+        color: [native, true-color]
+        include:
+          - profile: gcc
+            name: GCC
+          - profile: clang
+            name: Clang
+          - profile: sanitize
+            name: Clang ASan UBSan
+    env:
+      SDL_VIDEODRIVER: x11
+      SDL_AUDIODRIVER: dummy
+      LIBGL_ALWAYS_SOFTWARE: '1'
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+      ASAN_OPTIONS: halt_on_error=1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install graphics runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsdl2-dev libzstd-dev liblzma-dev zlib1g-dev \
+            libgl-dev libegl-dev libx11-dev libudev-dev xvfb xauth libgl1-mesa-dri
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: linux-runtime-${{ matrix.profile }}
+          path: build
+      - name: Restore and verify the exact executable and dependency
+        run: |
+          tar -xf build/runtime.tar
+          test "$(cat build/ci/runtime-revision.txt)" = "$(git rev-parse HEAD)"
+          sha256sum -c build/ci/runtime-sha256.txt
+          mkdir -p build/ci/lib
+          cp dep/soundtouch/lib/libsoundtouch.so.2.3.3 build/ci/lib/libsoundtouch.so.2
+      - name: Check the OpenGL context
+        if: matrix.color == 'native'
+        run: xvfb-run -a build/ci/cupid-ps1-gl-smoke
+      - name: Check native and true-color OpenGL paths with software Mesa
+        run: |
+          color_args=()
+          if test '${{ matrix.color }}' = true-color; then
+            color_args+=(--true-color)
+          fi
+          xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests "${color_args[@]}"
+          xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests "${color_args[@]}" --no-texture-buffers
+          MESA_GL_VERSION_OVERRIDE=3.3CORE MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests "${color_args[@]}"
+          MESA_GL_VERSION_OVERRIDE=3.3CORE MESA_GLSL_VERSION_OVERRIDE=330 xvfb-run -a build/ci/cupid-ps1-gpu-gl-tests "${color_args[@]}" --no-texture-buffers

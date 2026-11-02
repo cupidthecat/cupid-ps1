@@ -34,9 +34,10 @@ compiler warnings as errors and checks empty selections, the filtered runner,
 concurrent execution, cache isolation,
 output capture and failure reporting. Separate runtime jobs use the executable
 produced by each compiler job, checking its revision and hashes before running
-the complete Python suite. Runtime jobs also run the context smoke and hardware
+the complete Python suite. Separate graphics jobs run the context smoke and hardware
 renderer checks under Xvfb with software Mesa, including a forced OpenGL 3.3
-context. The renderer matrix runs with buffer and integer-texture uploads. Both stages keep the 20-minute job limit. The short lived artifact
+context. The renderer matrix runs native and true-color selections with buffer
+and integer-texture uploads. Every job keeps the 20-minute limit. The short lived artifact
 contains the emulator and GL check executables, revision/hash receipts and
 license notices; the runtime library comes from the matching checkout. CI uses
 generated inputs. BIOS, discs, saved checkpoints and runtime logs are not uploaded.
@@ -48,6 +49,8 @@ and [palette cache](../gpu/palette-cache.md) and
 [decoded texture pages](../gpu/texture-pages.md) for the cache matrices.
 See [rendered texture coordinates](../gpu/texture-coordinates.md) for rectangle,
 flat-quad, flip, texture-window and clipping checks.
+See [native color](../gpu/native-color.md) for integer blending, dithering,
+mask and primitive-ordering checks and their qualification limits.
 
 The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
 partial refills and state restoration. Its guest program changes BIU modes
