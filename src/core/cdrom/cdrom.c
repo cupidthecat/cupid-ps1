@@ -377,8 +377,14 @@ static void byte_fifo_do_state(state_wrapper_t* sw, cdrom_byte_fifo_t* f) {
    * head-to-tail.  Re-flatten into a fresh buffer on read. */
   u32 size = f->count;
   state_wrapper_do_u32(sw, &size);
+  if (state_wrapper_has_error(sw)) return;
   if (state_wrapper_is_reading(sw)) {
-    if (size > CDROM_PARAM_FIFO_SIZE) size = CDROM_PARAM_FIFO_SIZE;
+    const size_t position = state_wrapper_get_position(sw);
+    const size_t length = state_wrapper_get_size(sw);
+    if (size > CDROM_PARAM_FIFO_SIZE || position > length || size > length - position) {
+      sw->error = true;
+      return;
+    }
     byte_fifo_clear(f);
     for (u32 i = 0; i < size; i++) {
       u8 v = 0;
@@ -457,8 +463,24 @@ static inline void audio_fifo_remove(cdrom_audio_fifo_t* f, u32 n) {
 static void audio_fifo_do_state(state_wrapper_t* sw, cdrom_audio_fifo_t* f) {
   u32 size = f->count;
   state_wrapper_do_u32(sw, &size);
+  if (state_wrapper_has_error(sw)) return;
   if (state_wrapper_is_reading(sw)) {
-    if (size > f->capacity) size = f->capacity;
+    const size_t position = state_wrapper_get_position(sw);
+    const size_t length = state_wrapper_get_size(sw);
+    if (size > f->capacity || position > length || size > (length - position) / sizeof(u32)) {
+      sw->error = true;
+      return;
+    }
+    /* Reads target a staged controller. Allocate only for a nonempty queue;
+     * an empty queue does not write through the retained live data pointer. */
+    if (size != 0) {
+      u32* data = malloc((size_t)f->capacity * sizeof(*data));
+      if (!data) {
+        sw->error = true;
+        return;
+      }
+      f->data = data;
+    }
     audio_fifo_clear(f);
     for (u32 i = 0; i < size; i++) {
       u32 v = 0;
@@ -918,165 +940,223 @@ static tick_count_t cdrom_soft_reset(tick_count_t ticks_late) {
   return total_ticks;
 }
 
-bool cdrom_do_state(state_wrapper_t* sw) {
-  state_wrapper_do_array(sw, &s_state.command, sizeof(s_state.command), 1);
+static bool cdrom_do_state_fields(state_wrapper_t* sw, cdrom_state_t* state) {
+  if (state_wrapper_has_error(sw)) return false;
+  state_wrapper_do_array(sw, &state->command, sizeof(state->command), 1);
   /* command_second_response added at version 53; default is None.  Older
    * states won't have a meaningful value here, so on read at version<53 we
    * leave it as None. */
   if (state_wrapper_get_version(sw) >= 53) {
-    state_wrapper_do_array(sw, &s_state.command_second_response, sizeof(s_state.command_second_response), 1);
+    state_wrapper_do_array(sw, &state->command_second_response, sizeof(state->command_second_response), 1);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.command_second_response = CDROM_CMD_NONE;
+    state->command_second_response = CDROM_CMD_NONE;
   }
-  state_wrapper_do_array(sw, &s_state.drive_state, sizeof(s_state.drive_state), 1);
-  state_wrapper_do_u8(sw, &s_state.status.raw);
-  state_wrapper_do_u8(sw, &s_state.secondary_status.raw);
-  state_wrapper_do_u8(sw, &s_state.mode.raw);
+  state_wrapper_do_array(sw, &state->drive_state, sizeof(state->drive_state), 1);
+  state_wrapper_do_u8(sw, &state->status.raw);
+  state_wrapper_do_u8(sw, &state->secondary_status.raw);
+  state_wrapper_do_u8(sw, &state->mode.raw);
   if (state_wrapper_get_version(sw) >= 65) {
-    state_wrapper_do_u8(sw, &s_state.request_register.raw);
+    state_wrapper_do_u8(sw, &state->request_register.raw);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.request_register.raw = 0;
+    state->request_register.raw = 0;
   }
 
-  bool current_double_speed = (s_state.mode.bits.double_speed != 0);
+  bool current_double_speed = (state->mode.bits.double_speed != 0);
   state_wrapper_do_bool(sw, &current_double_speed);
 
-  state_wrapper_do_u8(sw, &s_state.interrupt_enable_register);
-  state_wrapper_do_u8(sw, &s_state.interrupt_flag_register);
+  state_wrapper_do_u8(sw, &state->interrupt_enable_register);
+  state_wrapper_do_u8(sw, &state->interrupt_flag_register);
 
   if (state_wrapper_get_version(sw) < 71) {
-    u32 last_interrupt_time32 = 0;
+    u32 last_interrupt_time32 = (u32)state->last_interrupt_time;
     if (state_wrapper_get_version(sw) >= 57) {
       state_wrapper_do_u32(sw, &last_interrupt_time32);
     } else if (state_wrapper_is_reading(sw)) {
       last_interrupt_time32 = (u32)(timing_events_get_global_tick_counter() - CDROM_MINIMUM_INTERRUPT_DELAY);
     }
-    s_state.last_interrupt_time = last_interrupt_time32;
+    if (state_wrapper_is_reading(sw)) state->last_interrupt_time = last_interrupt_time32;
   } else {
-    state_wrapper_do_u64(sw, &s_state.last_interrupt_time);
+    state_wrapper_do_u64(sw, &state->last_interrupt_time);
   }
 
-  state_wrapper_do_u8(sw, &s_state.pending_async_interrupt);
-  state_wrapper_do_array(sw, &s_state.setloc_position, sizeof(s_state.setloc_position), 1);
-  state_wrapper_do_u32(sw, &s_state.current_lba);
-  state_wrapper_do_u32(sw, &s_state.seek_start_lba);
-  state_wrapper_do_u32(sw, &s_state.seek_end_lba);
+  state_wrapper_do_u8(sw, &state->pending_async_interrupt);
+  state_wrapper_do_array(sw, &state->setloc_position, sizeof(state->setloc_position), 1);
+  state_wrapper_do_u32(sw, &state->current_lba);
+  state_wrapper_do_u32(sw, &state->seek_start_lba);
+  state_wrapper_do_u32(sw, &state->seek_end_lba);
   if (state_wrapper_get_version(sw) >= 49) {
-    state_wrapper_do_u32(sw, &s_state.current_subq_lba);
+    state_wrapper_do_u32(sw, &state->current_subq_lba);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.current_subq_lba = s_state.current_lba;
+    state->current_subq_lba = state->current_lba;
   }
 
   if (state_wrapper_get_version(sw) < 71) {
-    u32 subq_lba_update_tick32 = 0;
+    u32 subq_lba_update_tick32 = (u32)state->subq_lba_update_tick;
     if (state_wrapper_get_version(sw) >= 49) {
       state_wrapper_do_u32(sw, &subq_lba_update_tick32);
+    } else if (state_wrapper_is_reading(sw)) {
+      subq_lba_update_tick32 = 0;
     }
-    s_state.subq_lba_update_tick = subq_lba_update_tick32;
+    if (state_wrapper_is_reading(sw)) state->subq_lba_update_tick = subq_lba_update_tick32;
   } else {
-    state_wrapper_do_u64(sw, &s_state.subq_lba_update_tick);
+    state_wrapper_do_u64(sw, &state->subq_lba_update_tick);
   }
 
   if (state_wrapper_get_version(sw) >= 54) {
-    state_wrapper_do_u32(sw, &s_state.subq_lba_update_carry);
+    state_wrapper_do_u32(sw, &state->subq_lba_update_carry);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.subq_lba_update_carry = 0;
+    state->subq_lba_update_carry = 0;
   }
-  state_wrapper_do_bool(sw, &s_state.setloc_pending);
-  state_wrapper_do_bool(sw, &s_state.read_after_seek);
-  state_wrapper_do_bool(sw, &s_state.play_after_seek);
-  state_wrapper_do_bool(sw, &s_state.muted);
-  state_wrapper_do_bool(sw, &s_state.adpcm_muted);
-  state_wrapper_do_u8(sw, &s_state.xa_filter_file_number);
-  state_wrapper_do_u8(sw, &s_state.xa_filter_channel_number);
-  state_wrapper_do_u8(sw, &s_state.xa_current_file_number);
-  state_wrapper_do_u8(sw, &s_state.xa_current_channel_number);
-  state_wrapper_do_bool(sw, &s_state.xa_current_set);
-  state_wrapper_do_bytes(sw, &s_state.last_sector_header, sizeof(s_state.last_sector_header));
-  state_wrapper_do_bytes(sw, &s_state.last_sector_subheader, sizeof(s_state.last_sector_subheader));
-  state_wrapper_do_bool(sw, &s_state.last_sector_header_valid);
-  state_wrapper_do_bytes(sw, &s_state.last_subq, sizeof(s_state.last_subq));
+  state_wrapper_do_bool(sw, &state->setloc_pending);
+  state_wrapper_do_bool(sw, &state->read_after_seek);
+  state_wrapper_do_bool(sw, &state->play_after_seek);
+  state_wrapper_do_bool(sw, &state->muted);
+  state_wrapper_do_bool(sw, &state->adpcm_muted);
+  state_wrapper_do_u8(sw, &state->xa_filter_file_number);
+  state_wrapper_do_u8(sw, &state->xa_filter_channel_number);
+  state_wrapper_do_u8(sw, &state->xa_current_file_number);
+  state_wrapper_do_u8(sw, &state->xa_current_channel_number);
+  state_wrapper_do_bool(sw, &state->xa_current_set);
+  state_wrapper_do_bytes(sw, &state->last_sector_header, sizeof(state->last_sector_header));
+  state_wrapper_do_bytes(sw, &state->last_sector_subheader, sizeof(state->last_sector_subheader));
+  state_wrapper_do_bool(sw, &state->last_sector_header_valid);
+  state_wrapper_do_bytes(sw, &state->last_subq, sizeof(state->last_subq));
   if (state_wrapper_get_version(sw) >= 81) {
-    state_wrapper_do_bool(sw, &s_state.cdda_auto_pause_pending);
+    state_wrapper_do_bool(sw, &state->cdda_auto_pause_pending);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.cdda_auto_pause_pending = false;
+    state->cdda_auto_pause_pending = false;
   }
   if (state_wrapper_get_version(sw) >= 72) {
-    state_wrapper_do_u8(sw, &s_state.cdda_report_start_delay);
+    state_wrapper_do_u8(sw, &state->cdda_report_start_delay);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.cdda_report_start_delay = 0;
+    state->cdda_report_start_delay = 0;
   }
-  state_wrapper_do_u8(sw, &s_state.last_cdda_report_frame_nibble);
-  state_wrapper_do_u8(sw, &s_state.play_track_number_bcd);
-  state_wrapper_do_u8(sw, &s_state.async_command_parameter);
+  state_wrapper_do_u8(sw, &state->last_cdda_report_frame_nibble);
+  state_wrapper_do_u8(sw, &state->play_track_number_bcd);
+  state_wrapper_do_u8(sw, &state->async_command_parameter);
 
   if (state_wrapper_get_version(sw) >= 49) {
-    state_wrapper_do_s8(sw, &s_state.fast_forward_rate);
+    state_wrapper_do_s8(sw, &state->fast_forward_rate);
   } else if (state_wrapper_is_reading(sw)) {
-    s_state.fast_forward_rate = 0;
+    state->fast_forward_rate = 0;
   }
 
-  state_wrapper_do_array(sw, s_state.cd_audio_volume_matrix, 1u, 4u);
-  state_wrapper_do_array(sw, s_state.next_cd_audio_volume_matrix, 1u, 4u);
-  state_wrapper_do_array(sw, s_state.xa_last_samples, sizeof(s32), 4u);
-  state_wrapper_do_array(sw, s_state.xa_resample_ring_buffer, sizeof(s16), 2u * CDROM_XA_RESAMPLE_RING_BUFFER_SIZE);
-  state_wrapper_do_u8(sw, &s_state.xa_resample_p);
-  state_wrapper_do_u8(sw, &s_state.xa_resample_sixstep);
-  byte_fifo_do_state(sw, &s_state.param_fifo);
-  byte_fifo_do_state(sw, &s_state.response_fifo);
-  byte_fifo_do_state(sw, &s_state.async_response_fifo);
+  state_wrapper_do_array(sw, state->cd_audio_volume_matrix, 1u, 4u);
+  state_wrapper_do_array(sw, state->next_cd_audio_volume_matrix, 1u, 4u);
+  state_wrapper_do_array(sw, state->xa_last_samples, sizeof(s32), 4u);
+  state_wrapper_do_array(sw, state->xa_resample_ring_buffer, sizeof(s16), 2u * CDROM_XA_RESAMPLE_RING_BUFFER_SIZE);
+  state_wrapper_do_u8(sw, &state->xa_resample_p);
+  state_wrapper_do_u8(sw, &state->xa_resample_sixstep);
+  /* The half-rate path subtracts seven once before indexing seven rows.
+   * Keep bounded startup phases intact instead of normalizing saved state. */
+  if (state_wrapper_is_reading(sw) &&
+      (state->xa_resample_p >= CDROM_XA_RESAMPLE_RING_BUFFER_SIZE ||
+       state->xa_resample_sixstep > 13)) {
+    sw->error = true;
+    return false;
+  }
+  byte_fifo_do_state(sw, &state->param_fifo);
+  byte_fifo_do_state(sw, &state->response_fifo);
+  byte_fifo_do_state(sw, &state->async_response_fifo);
+  if (state_wrapper_has_error(sw)) return false;
 
   if (state_wrapper_get_version(sw) >= 79) {
-    state_wrapper_do_array(sw, &s_state.prng.state, sizeof(s_state.prng.state), 1);
+    state_wrapper_do_array(sw, &state->prng.state, sizeof(state->prng.state), 1);
   } else if (state_wrapper_is_reading(sw)) {
-    xorshift128pp_seed(&s_state.prng, CDROM_PRNG_SEED);
+    xorshift128pp_seed(&state->prng, CDROM_PRNG_SEED);
   }
 
   if (state_wrapper_get_version(sw) < 65) {
     /* skip "old data fifo": u32 size + size bytes */
     u32 old_fifo_size = 0;
     state_wrapper_do_u32(sw, &old_fifo_size);
+    if (old_fifo_size > CDROM_RAW_SECTOR_OUTPUT_SIZE) {
+      sw->error = true;
+      return false;
+    }
     state_wrapper_skip_bytes(sw, old_fifo_size);
 
-    state_wrapper_do_u32(sw, &s_state.current_read_sector_buffer);
-    state_wrapper_do_u32(sw, &s_state.current_write_sector_buffer);
+    state_wrapper_do_u32(sw, &state->current_read_sector_buffer);
+    state_wrapper_do_u32(sw, &state->current_write_sector_buffer);
+    if (state->current_read_sector_buffer >= CDROM_NUM_SECTOR_BUFFERS ||
+        state->current_write_sector_buffer >= CDROM_NUM_SECTOR_BUFFERS) {
+      sw->error = true;
+      return false;
+    }
     for (u32 i = 0; i < CDROM_NUM_SECTOR_BUFFERS; i++) {
-      cdrom_sector_buffer_t* sb = &s_state.sector_buffers[i];
+      cdrom_sector_buffer_t* sb = &state->sector_buffers[i];
       state_wrapper_do_array(sw, sb->data, 1u, sizeof(sb->data));
       state_wrapper_do_u32(sw, &sb->size);
-      sb->position = 0;
+      if (sb->size > sizeof(sb->data)) {
+        sw->error = true;
+        return false;
+      }
+      if (state_wrapper_is_reading(sw)) sb->position = 0;
     }
     if (state_wrapper_is_reading(sw) && old_fifo_size > 0) {
-      cdrom_sector_buffer_t* sb = &s_state.sector_buffers[s_state.current_read_sector_buffer];
-      sb->size     = s_state.mode.bits.read_raw_sector ? CDROM_RAW_SECTOR_OUTPUT_SIZE : CDROM_DATA_SECTOR_OUTPUT_SIZE;
+      cdrom_sector_buffer_t* sb = &state->sector_buffers[state->current_read_sector_buffer];
+      sb->size     = state->mode.bits.read_raw_sector ? CDROM_RAW_SECTOR_OUTPUT_SIZE : CDROM_DATA_SECTOR_OUTPUT_SIZE;
       sb->position = (sb->size > old_fifo_size) ? (sb->size - old_fifo_size) : 0;
-      s_state.request_register.bits.BFRD = (sb->position > 0) ? 1u : 0u;
+      state->request_register.bits.BFRD = (sb->position > 0) ? 1u : 0u;
     }
-    cdrom_update_status_register();
   } else {
-    state_wrapper_do_u32(sw, &s_state.current_read_sector_buffer);
-    state_wrapper_do_u32(sw, &s_state.current_write_sector_buffer);
+    state_wrapper_do_u32(sw, &state->current_read_sector_buffer);
+    state_wrapper_do_u32(sw, &state->current_write_sector_buffer);
+    if (state->current_read_sector_buffer >= CDROM_NUM_SECTOR_BUFFERS ||
+        state->current_write_sector_buffer >= CDROM_NUM_SECTOR_BUFFERS) {
+      sw->error = true;
+      return false;
+    }
 
     for (u32 i = 0; i < CDROM_NUM_SECTOR_BUFFERS; i++) {
-      cdrom_sector_buffer_t* sb = &s_state.sector_buffers[i];
+      cdrom_sector_buffer_t* sb = &state->sector_buffers[i];
       state_wrapper_do_u32(sw, &sb->size);
       state_wrapper_do_u32(sw, &sb->position);
+      if (sb->size > sizeof(sb->data) || sb->position > sb->size) {
+        sw->error = true;
+        return false;
+      }
       if (sb->position < sb->size) state_wrapper_do_bytes(sw, &sb->data[sb->position], sb->size - sb->position);
     }
   }
 
-  audio_fifo_do_state(sw, &s_state.audio_fifo);
-  state_wrapper_do_u32(sw, &s_state.requested_lba);
-
-  if (state_wrapper_is_reading(sw)) {
-    s_state.last_subq_needs_update = true;
-    if (cdrom_async_reader_has_media(&s_reader)) cdrom_async_reader_queue_read_sector(&s_reader, s_state.requested_lba);
-    cdrom_update_command_event();
-    timing_event_set_state(&s_state.drive_event, !cdrom_is_drive_idle());
-    timing_event_set_state(&s_state.command_second_response_event, s_state.command_second_response != CDROM_CMD_NONE);
-  }
+  audio_fifo_do_state(sw, &state->audio_fifo);
+  state_wrapper_do_u32(sw, &state->requested_lba);
+  if (state_wrapper_has_error(sw)) return false;
 
   return !state_wrapper_has_error(sw);
+}
+
+bool cdrom_do_state(state_wrapper_t* sw) {
+  if (state_wrapper_has_error(sw)) return false;
+  if (state_wrapper_is_writing(sw)) return cdrom_do_state_fields(sw, &s_state);
+
+  cdrom_state_t* staged = malloc(sizeof(*staged));
+  if (!staged) {
+    sw->error = true;
+    return false;
+  }
+  *staged = s_state;
+  const bool valid = cdrom_do_state_fields(sw, staged);
+  u32* const old_audio = s_state.audio_fifo.data;
+  u32* const new_audio = staged->audio_fifo.data;
+  if (!valid) {
+    if (new_audio != old_audio) free(new_audio);
+    free(staged);
+    return false;
+  }
+
+  s_state = *staged;
+  free(staged);
+  if (new_audio != old_audio) free(old_audio);
+  if (state_wrapper_get_version(sw) < 65) cdrom_update_status_register();
+  s_state.last_subq_needs_update = true;
+  if (cdrom_async_reader_has_media(&s_reader)) cdrom_async_reader_queue_read_sector(&s_reader, s_state.requested_lba);
+  cdrom_update_command_event();
+  timing_event_set_state(&s_state.drive_event, !cdrom_is_drive_idle());
+  timing_event_set_state(&s_state.command_second_response_event, s_state.command_second_response != CDROM_CMD_NONE);
+
+  return true;
 }
 
 bool cdrom_has_media(void) {

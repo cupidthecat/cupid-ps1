@@ -182,6 +182,11 @@ Generated firmware compares linked and unlinked LUT runs across save/restore.
 These checks cover the generated programs; they do not establish complete CPU
 accuracy or qualify physical 8 MB hardware.
 
+The `CdStateRecord`, `CdLegacyRecord` and `CdXaContinuation` filters check bounded
+CD records, rejected-load preservation, historical layouts and complete queued
+XA continuation. See [CD saved-state records](../cdrom/state-records.md) for the
+generated-sector coverage and its limits.
+
 For a bounded save/load smoke check with authorized local inputs, run:
 
 ```sh
