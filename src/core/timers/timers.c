@@ -182,7 +182,9 @@ void timers_set_gate(u32 timer, bool state) {
   /* Gate prevents counting in or outside of the active window, so we need a
    * correct counter value before we change modes.  For "reset on gate end",
    * the reset can wait until the gate clears. */
-  if (!cs->use_external_clock && (cs->mode.sync_mode != SYNC_MODE_RESET_ON_GATE_END || !state)) {
+  const bool synchronize_system_clock =
+      !cs->use_external_clock && (cs->mode.sync_mode != SYNC_MODE_RESET_ON_GATE_END || !state);
+  if (synchronize_system_clock) {
     timing_event_invoke_early(&s_state.sysclk_event, false);
   }
 
@@ -207,7 +209,9 @@ void timers_set_gate(u32 timer, bool state) {
   }
 
   timers_update_counting_enabled(timer, cs);
-  timers_update_sysclk_event();
+  /* Other counters retain elapsed ticks until the shared event runs. Their
+   * existing deadlines must not move when this edge leaves them unsynchronized. */
+  if (synchronize_system_clock) timers_update_sysclk_event();
 }
 
 tick_count_t timers_get_ticks_until_irq(u32 timer) {

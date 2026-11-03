@@ -46,6 +46,20 @@ Timer 1 IRQ deadlines use the Hblank-entry edge that clocks the counter.
 The GPU handles a counter with no pending IRQ without overflowing its clock
 conversion or scheduling an immediate event.
 
+## Shared interrupt deadlines
+
+Blanking gates can change Timer 0 or Timer 1 while another counter is waiting
+for a system-clock interrupt. A gate edge that does not synchronize the shared
+system-clock event leaves its existing deadline intact. Rescheduling from the
+old counter values would count the elapsed interval twice when calculating the
+deadline, delaying the other counter's interrupt. Repeated external-clock gate
+edges could keep postponing it indefinitely.
+
+System-clock gate changes that require synchronization still advance the
+counters before recalculating the deadline. External-clock gates and the rising
+edge of system-clock reset-on-gate-end mode preserve the existing schedule.
+This correction does not change the saved-state layout.
+
 ## Save states
 
 Save-state version 88 adds one hold byte to each counter record. The timer
@@ -90,3 +104,20 @@ comparison edge, GPU gate timing and clock-domain readback also need further
 hardware-backed coverage. No new physical-console capture was available.
 The separate modified-clock timer fixture requires motherboard wiring and is
 not treated as a stock-console test.
+
+The `TimerGateScheduling` filter checks 64 combinations of Timer 0/1, system
+and external clocks, synchronization modes, gate edges and Timer 2 clocks.
+Each case preserves the absolute shared-event deadline and checks interrupt
+delivery one tick before and exactly at that deadline. The earlier scheduling
+path fails all 32 external-clock cases and four system-clock cases.
+
+The generated `test_timer_gates_live.py` guest runs in all eight CPU, native
+memory and linking configurations, under both NTSC and PAL. It compares gated
+dot-clock operation with an ungated control. Timer 2 is armed partway through
+a frame, and the first snapshot must contain its pending interrupt, clear IRQ
+and reached flags, and a future scheduler deadline. The second snapshot must
+contain the delivered interrupt. Resetting before restoring the first snapshot
+must reproduce every saved byte. All 16 gated configurations miss the interrupt
+on the earlier scheduling path; all 16 ungated controls still deliver it.
+These generated checks establish the scheduling interaction, not physical bus
+timing or complete timer accuracy.
