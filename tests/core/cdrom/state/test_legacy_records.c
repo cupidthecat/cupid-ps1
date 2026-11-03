@@ -9,7 +9,7 @@ typedef struct {
   u8*    data;
   size_t size;
   u32    version;
-  size_t old_count, read_index, write_index, sector_data[8], sector_size[8], audio_count;
+  size_t predictors, old_count, read_index, write_index, sector_data[8], sector_size[8], audio_count;
 } legacy_t;
 static void legacy_u8(legacy_t* r, u8 value) {
   EXPECT_TRUE(r->size < LEGACY_CAPACITY);
@@ -67,6 +67,7 @@ static legacy_t legacy_fixture(u32 version, u32 old_bytes) {
     legacy_u8(&r, 0);
     legacy_u8(&r, 128);
   }
+  r.predictors = r.size;
   legacy_zeros(&r, 4 * 4 + 2 * 32 * 2); /* Predictors and sample history. */
   legacy_u8(&r, 0);
   legacy_u8(&r, 6);
@@ -199,6 +200,53 @@ TEST(CdLegacyRecord, malformed_fixed_buffer_metadata) {
   }
   legacy_end();
 }
+TEST(CdLegacyRecord, xa_predictor_limits_preserved) {
+  legacy_start();
+  legacy_t empty = canonical_snapshot();
+  /* Locate the fixed prefix with empty sector and audio queues. Legacy
+   * conversion below appends variable data without moving that prefix. */
+  const size_t predictors = empty.size - (9 + 128 + 2 + 12 + 16 + 72 + 16);
+  for (u32 i = 0; i < 16; i++)
+    EXPECT_EQ(empty.data[predictors + i], 0);
+  free(empty.data);
+  const s32 samples[] = {-32768, -1, 0, 1, 32767};
+  for (u32 version = 42; version < 65; version++) {
+    legacy_t valid = legacy_fixture(version, 0);
+    for (u32 n = 0; n < sizeof(samples) / sizeof(samples[0]); n++) {
+      for (u32 slot = 0; slot < 4; slot++)
+        for (u32 byte = 0; byte < 4; byte++)
+          valid.data[valid.predictors + slot * 4 + byte] = (u8)((u32)samples[(n + slot) % 5] >> (byte * 8));
+      legacy_load(&valid);
+      legacy_t current = canonical_snapshot();
+      EXPECT_EQ(memcmp(current.data + predictors, valid.data + valid.predictors, 16), 0);
+      canonical_equal(&current);
+      free(current.data);
+    }
+    free(valid.data);
+  }
+  legacy_end();
+}
+
+TEST(CdLegacyRecord, invalid_xa_predictors_rejected) {
+  legacy_start();
+  const s32 invalid[] = {-32769, 32768, INT32_MIN, INT32_MAX};
+  for (u32 version = 42; version < 65; version++) {
+    legacy_t valid = legacy_fixture(version, 0);
+    legacy_load(&valid);
+    legacy_t good = canonical_snapshot();
+    for (u32 channel = 0; channel < 4; channel++)
+      for (u32 n = 0; n < sizeof(invalid) / sizeof(invalid[0]); n++) {
+        for (u32 i = 0; i < 4; i++)
+          valid.data[valid.predictors + channel * 4 + i] = (u8)((u32)invalid[n] >> (i * 8));
+        legacy_reject(&valid, valid.size, &good);
+        memset(valid.data + valid.predictors + channel * 4, 0, 4);
+      }
+    free(good.data);
+    free(valid.data);
+  }
+  legacy_end();
+}
+
 TEST(CdLegacyRecord, truncated_fixed_payloads_then_valid_restore) {
   legacy_start();
   for (u32 version = 42; version < 65; version++) {

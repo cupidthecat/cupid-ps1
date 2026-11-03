@@ -21,6 +21,14 @@ saved counter above 13 cannot safely reach that path. Bounded startup counters
 are retained without normalization. This bound does not establish the physical
 meaning or timing of every startup phase.
 
+The four XA predictor words retain their historical 32-bit representation, but
+each must contain a signed 16-bit decoded sample (`-32768` through `32767`).
+The decoder saturates every sample before updating this history. Out-of-range
+saved predictors could overflow its signed filter arithmetic on the next
+packet. Loading rejects them before replacing the live controller. Valid
+predictors, including both limits, retain every saved bit. The format remains
+version 97.
+
 A wrapper that already has an error returns immediately. Reads stage the CD
 controller and nonempty audio queue in separate storage. Only a complete,
 validated record replaces the live controller. A rejected CD record leaves
@@ -76,6 +84,11 @@ round-trip through the current format with every serialized byte preserved.
 These checks preserve the existing legacy FIFO transplant; they do not claim
 that every external historical state has been reproduced.
 
+Predictor checks cover every supported version from 42 through 97. Each of the
+four slots rejects both adjacent out-of-range values and both signed 32-bit
+limits. Separate cases preserve zero, positive, negative and signed 16-bit
+limits, including conversion from the independently generated fixed layouts.
+
 ## XA continuation
 
 Generated Mode 2 sectors travel through SetMode, ReadN, the image reader, XA
@@ -90,7 +103,10 @@ every serialized CPU, interrupt, CD and scheduler byte. No sample offsets or
 state fields are normalized. Half-rate packet lengths are read from the saved
 queue, and complete output streams are compared without trimming startup data.
 A rejected CD record during a queued packet must preserve that complete state
-and the remaining samples.
+and the remaining samples. The four audio cases repeat this check for every
+invalid predictor slot and value. A separate packet starts with nonzero filter
+weights: after rejecting each invalid predictor, decoding must produce the
+same complete next packet and component records as uninterrupted execution.
 
 Four command-continuation cases cover a data sector arriving during an active
 command and a command blocked by an unacknowledged sector interrupt, at single

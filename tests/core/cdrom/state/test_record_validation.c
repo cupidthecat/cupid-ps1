@@ -217,6 +217,46 @@ TEST(CdStateRecord, oversized_interpolation_counter) {
   invalid_metadata(PHASE_HIGH);
 }
 
+TEST(CdStateRecord, xa_predictor_limits_preserved) {
+  begin();
+  const s32 samples[] = {-32768, -1, 0, 1, 32767};
+  for (u32 version = 65; version <= SAVE_STATE_VERSION; version++) {
+    record_t     good   = save_record(version);
+    const size_t offset = ring_offset(&good) - 128 - 16;
+    for (u32 si = 0; si < sizeof(samples) / sizeof(samples[0]); si++) {
+      for (u32 channel = 0; channel < 4; channel++)
+        store32(good.data + offset + channel * 4, (u32)samples[(si + channel) % 5]);
+      restore_record(&good);
+      record_t after = save_record(good.version);
+      EXPECT_EQ(after.size, good.size);
+      EXPECT_EQ(memcmp(after.data, good.data, good.size), 0);
+      free(after.data);
+    }
+    free(good.data);
+  }
+  end();
+}
+
+TEST(CdStateRecord, invalid_xa_predictors_rejected) {
+  begin();
+  const s32 invalid[] = {-32769, 32768, INT32_MIN, INT32_MAX};
+  for (u32 version = 65; version <= SAVE_STATE_VERSION; version++) {
+    record_t     good   = save_record(version);
+    const size_t offset = ring_offset(&good) - 128 - 16;
+    u8*          bad    = malloc(good.size);
+    EXPECT_NOT_NULL(bad);
+    for (u32 channel = 0; channel < 4; channel++)
+      for (u32 i = 0; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        memcpy(bad, good.data, good.size);
+        store32(bad + offset + channel * 4, (u32)invalid[i]);
+        reject_and_recover(&good, bad, good.size);
+      }
+    free(bad);
+    free(good.data);
+  }
+  end();
+}
+
 TEST(CdStateRecord, every_short_record_then_valid_restore) {
   begin();
   for (u32 vi = 0; vi < sizeof(versions) / sizeof(versions[0]); vi++) {

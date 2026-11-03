@@ -1044,6 +1044,16 @@ static bool cdrom_do_state_fields(state_wrapper_t* sw, cdrom_state_t* state, u8*
   state_wrapper_do_array(sw, state->cd_audio_volume_matrix, 1u, 4u);
   state_wrapper_do_array(sw, state->next_cd_audio_volume_matrix, 1u, 4u);
   state_wrapper_do_array(sw, state->xa_last_samples, sizeof(s32), 4u);
+  /* Each predictor is a saturated decoded sample. Reject impossible history
+   * before it can overflow the next block's signed filter arithmetic. */
+  if (state_wrapper_is_reading(sw)) {
+    for (u32 i = 0; i < 4; i++) {
+      if (state->xa_last_samples[i] < -32768 || state->xa_last_samples[i] > 32767) {
+        sw->error = true;
+        return false;
+      }
+    }
+  }
   state_wrapper_do_array(sw, state->xa_resample_ring_buffer, sizeof(s16), 2u * CDROM_XA_RESAMPLE_RING_BUFFER_SIZE);
   state_wrapper_do_u8(sw, &state->xa_resample_p);
   state_wrapper_do_u8(sw, &state->xa_resample_sixstep);
