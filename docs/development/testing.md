@@ -189,6 +189,13 @@ during overlapping commands and sector interrupts. See
 [CD saved-state records](../cdrom/state-records.md) for the generated-sector
 coverage and its limits.
 
+`StateLoadRecovery` and `StateRecoveryActive` check whole-machine recovery
+after rejected loads, including media ownership, pending CPU loads and active
+device continuation. The generated `test_state_recovery_live.py` guest checks
+the frontend path on Linux and native Windows. See
+[failed-load recovery](../state/load-recovery.md) for the compared records and
+external-state limits.
+
 For a bounded save/load smoke check with authorized local inputs, run:
 
 ```sh

@@ -58,6 +58,7 @@ jobs:
           python -m unittest discover -s tests -p test_spu_noise_live.py
           python -m unittest discover -s tests -p test_spu_volume_live.py
           python -m unittest discover -s tests -p test_spu_state_live.py
+          python -m unittest discover -s tests -p test_state_recovery_live.py
           python -m unittest discover -s tests -p test_mdec_commands_live.py
           python -m unittest discover -s tests -p test_cdrom_identification_live.py
           python -m unittest discover -s tests -p test_executable_stack_live.py

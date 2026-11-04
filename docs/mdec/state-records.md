@@ -6,8 +6,9 @@ copy-out. A pending copy requires the writing phase. Invalid or truncated
 records leave that event inactive and return a load error.
 
 This is a component boundary check. Fields may already have been read into
-the component when loading fails; it does not make the entire system load
-transactional or qualify every possible malformed record.
+the component when loading fails. The
+[whole-machine loader](../state/load-recovery.md) recovers the preceding state;
+these checks do not qualify every possible malformed record.
 
 Records before version 66 store the scale matrix as raw column-major values.
 The adapter converts that representation on load and writes its inverse

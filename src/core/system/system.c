@@ -1562,7 +1562,76 @@ static bool system_save_state_buffer_to_file(FILE* fp, const u8* state_data, siz
   return true;
 }
 
+typedef struct {
+  u8*                          data;
+  size_t                       size;
+  char*                        path;
+  char*                        serial;
+  char*                        title;
+  game_hash_t                  hash;
+  const game_database_entry_t* entry;
+  console_region_t             region;
+  disc_region_t                disc_region;
+  u32                          taints;
+  cd_image_t*                  media;
+} system_load_recovery_t;
+
+static void system_destroy_load_recovery(system_load_recovery_t* recovery) {
+  free(recovery->data);
+  free(recovery->path);
+  free(recovery->serial);
+  free(recovery->title);
+  cd_image_destroy(recovery->media);
+}
+
+static bool system_capture_load_recovery(system_load_recovery_t* recovery, Error* error) {
+  if (!system_save_state_to_buffer(&recovery->data, &recovery->size, error)) return false;
+  recovery->path   = xstrdup_or_null(s_state.running_game_path);
+  recovery->serial = xstrdup_or_null(s_state.running_game_serial);
+  recovery->title  = xstrdup_or_null(s_state.running_game_title);
+  if ((s_state.running_game_path && !recovery->path) || (s_state.running_game_serial && !recovery->serial) ||
+      (s_state.running_game_title && !recovery->title)) {
+    Error_set_string(error, "Failed to allocate state-load recovery metadata.");
+    return false;
+  }
+  recovery->hash        = s_state.running_game_hash;
+  recovery->entry       = s_state.running_game_entry;
+  recovery->region      = s_state.region;
+  recovery->disc_region = cdrom_get_disc_region();
+  recovery->taints      = s_state.taints;
+  return true;
+}
+
+static bool system_restore_load_recovery(system_load_recovery_t* recovery, bool media_changed, Error* error) {
+  s_state.region = recovery->region;
+  if (media_changed) {
+    cd_image_destroy(cdrom_remove_media(false));
+    system_clear_running_game();
+    s_state.running_game_path   = recovery->path;
+    s_state.running_game_serial = recovery->serial;
+    s_state.running_game_title  = recovery->title;
+    recovery->path = recovery->serial = recovery->title = NULL;
+    s_state.running_game_hash                           = recovery->hash;
+    s_state.running_game_entry                          = recovery->entry;
+    gpu_texture_cache_game_serial_changed();
+    if (recovery->media) {
+      if (!cdrom_insert_media(recovery->media, recovery->disc_region, str_or_empty(s_state.running_game_serial),
+                              strlen(str_or_empty(s_state.running_game_serial)),
+                              str_or_empty(s_state.running_game_title),
+                              strlen(str_or_empty(s_state.running_game_title)), "", 0, error))
+        return false;
+      recovery->media = NULL;
+    }
+  }
+  if (!system_load_state_data_from_buffer(recovery->data, recovery->size, SAVE_STATE_VERSION, error, false))
+    return false;
+  /* Normal loads retain taints; a failed load must not add its own. */
+  s_state.taints = recovery->taints;
+  return true;
+}
+
 int system_load_state(const char* path, Error* error, bool save_undo_state, bool force_update_display) {
+  /* Failure recovery is required even without a retained user undo state. */
   (void)save_undo_state;
   if (!system_is_valid()) {
     Error_set_string(error, "system not in correct state");
@@ -1620,37 +1689,59 @@ int system_load_state(const char* path, Error* error, bool save_undo_state, bool
     return 0;
   }
 
-  /* If the save state references a different disc, or the same disc on a
-   * different sub-image, swap. */
+  system_load_recovery_t recovery = {0};
+  if (!system_capture_load_recovery(&recovery, error)) {
+    system_destroy_load_recovery(&recovery);
+    free(state_data);
+    free(media_path);
+    return 0;
+  }
+  bool        media_changed   = false;
+  bool        state_attempted = false;
+  bool        loaded          = false;
+  cd_image_t* new_disc        = NULL;
+
+  /* Keep ownership of the current disc until the entire load commits. */
   if (media_path && media_path[0]) {
     const char* curr     = cdrom_get_media_path();
     const u32   curr_sub = cdrom_has_media() ? cdrom_get_current_sub_image() : 0u;
     const bool  same     = curr && strcmp(curr, media_path) == 0 && curr_sub == media_subimage_index;
     if (!same) {
-      cd_image_t* new_disc = cd_image_open(media_path, error);
-      bool        swap_ok  = (new_disc != NULL);
-      if (swap_ok && media_subimage_index != 0 && cd_image_has_sub_images(new_disc)) {
-        swap_ok = cd_image_switch_sub_image(new_disc, media_subimage_index, error);
-      }
-      const disc_region_t r = swap_ok ? system_get_region_for_image(new_disc) : DISC_REGION_NON_PS1;
-      if (swap_ok) {
-        system_update_running_game(media_path, new_disc, false);
-        swap_ok = cdrom_insert_media(
-            new_disc, r, str_or_empty(s_state.running_game_serial), strlen(str_or_empty(s_state.running_game_serial)),
-            str_or_empty(s_state.running_game_title), strlen(str_or_empty(s_state.running_game_title)), "", 0, error);
-      }
-      if (!swap_ok) {
-        cd_image_destroy(new_disc);
-        WARNING_LOG("Failed to swap disc to '%s' (sub-image %u) for save state; keeping current.", media_path,
-                    media_subimage_index);
-      }
+      new_disc = cd_image_open(media_path, error);
+      if (!new_disc) goto finish;
+      if (media_subimage_index != 0 && !cd_image_switch_sub_image(new_disc, media_subimage_index, error)) goto finish;
+      const disc_region_t r = system_get_region_for_image(new_disc);
+      recovery.media        = cdrom_remove_media(true);
+      media_changed         = true;
+      system_update_running_game(media_path, new_disc, false);
+      if (!cdrom_insert_media(
+              new_disc, r, str_or_empty(s_state.running_game_serial), strlen(str_or_empty(s_state.running_game_serial)),
+              str_or_empty(s_state.running_game_title), strlen(str_or_empty(s_state.running_game_title)), "", 0, error))
+        goto finish;
+      new_disc = NULL;
     }
+  } else if (cdrom_has_media()) {
+    recovery.media = cdrom_remove_media(false);
+    media_changed  = true;
+    system_update_running_game("", NULL, false);
   }
-  free(media_path);
 
-  const bool ld_ok = system_load_state_data_from_buffer(state_data, state_size, version, error, force_update_display);
+  state_attempted = true;
+  loaded          = system_load_state_data_from_buffer(state_data, state_size, version, error, force_update_display);
+finish:
+  if (!loaded && (state_attempted || media_changed)) {
+    Error recovery_error = ERROR_INIT;
+    if (!system_restore_load_recovery(&recovery, media_changed, &recovery_error)) {
+      Error_add_suffix_fmt(error, " Recovery also failed: %s", Error_get_description(&recovery_error));
+      system_abnormal_shutdown("Failed to recover the previous machine after a rejected state load.");
+    }
+    Error_destroy(&recovery_error);
+  }
+  cd_image_destroy(new_disc);
+  system_destroy_load_recovery(&recovery);
   free(state_data);
-  return ld_ok ? 1 : 0;
+  free(media_path);
+  return loaded ? 1 : 0;
 }
 
 bool system_save_state(const char* path, Error* error, bool backup_existing_save, bool ignore_memcard_busy) {

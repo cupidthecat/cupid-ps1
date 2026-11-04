@@ -1,6 +1,26 @@
-# Accuracy audit checkpoint history through 0f7814f
+# Accuracy audit checkpoint history through fa931c0
 
 This preserves the earlier progress record from [issue #1](https://github.com/cupidthecat/cupid-ps1/issues/1). Checkpoint claims apply to their named revisions. Earlier statements about an unopened PR or running checks describe those earlier checkpoints. Current acceptance criteria and unfinished work remain on issue #1 and [draft #37](https://github.com/cupidthecat/cupid-ps1/pull/37).
+
+## SPU state checkpoint (fa931c0)
+
+At [fa931c0](https://github.com/cupidthecat/cupid-ps1/commit/fa931c09baa7ccfcf77b6ef2fc4bc980addf9b4f), SPU record loading stages fields and sound RAM before replacing the live component. Invalid or truncated records preserve voices, histories, queued transfers, RAM and SPU event links. Successful loads commit before resuming sweeps and rescheduling events. The saved format remains 97, with the existing legacy conversions and record layout intact.
+
+The reader now validates reverb and capture positions, aligned transfer addresses, voice sample indices and envelope phases, and the fractional sample clock against the configured divider. Existing envelope, raw-boolean, FIFO, noise and transfer-phase checks run against staged data. Four retained baseline probes demonstrate accepted records leading to a reverb index error, a sound-RAM overflow, a voice interpolation index error and signed clock overflow. No emulated timing constant changed. See [SPU records and validation](https://github.com/cupidthecat/cupid-ps1/blob/fa931c09baa7ccfcf77b6ef2fc4bc980addf9b4f/docs/spu/state-records.md).
+
+Twelve new C methods cover versions 42 through 97, signed limits and adjacent invalid values, every voice, valid boundaries, truncated fields/RAM and rejected-load continuation. Direct SPU record rejection must preserve complete CPU, bus, DMA, interrupt, SPU and scheduler records. Subsequent capture samples, transfers and component records must match uninterrupted execution. Valid legacy records retain their layout and documented missing-phase conversion; older-format writes preserve live phases. The previous loader passes three valid-state controls and fails nine rejection/preservation methods. A guard-only control also overwrites live state after reporting rejection.
+
+The original generated guest runs ADPCM and noise voices, gain sweeps, capture RAM and reverb in NTSC/PAL across eight CPU/memory/linking configurations, giving 16 configurations per host. Each requires distinct nonzero voice captures, the uploaded ADPCM block, live reverb history/work RAM and positive selected execution-path counts. Reset before restoring frame 3 reproduces every saved byte at frames 3 and 6. All 64 corresponding complete emulated payload pairs match across Windows and Linux; container metadata and paths are excluded, with no emulated fields normalized.
+
+Local GCC, Clang and ASan/UBSan each pass all 1,601 C methods and 101 Python methods, with warnings-as-errors builds and isolated-header checks. Fresh builds after layout-only formatting also pass all 73 SPU methods in each profile. Native Windows passes all 45 workflow methods, the new active-SPU guest and six platform executables. Windows CI includes the new guest.
+
+The unmodified published SPU transfer executable completes eight bounded before/after runs in interpreter and native LUT execution across both hosts, reporting nine passing groups each time. Complete TTY text and input hashes are unchanged. The bundled sample log lists seven groups; its pinned source also calls the two additional immediate-DMA groups. The strict sample-sequence mismatch remains recorded, and the program's timing assertions do not qualify an exact physical transfer phase.
+
+All six push and pull-request workflows pass for this exact head, with 30 successful combined PR checks: [Linux push](https://github.com/cupidthecat/cupid-ps1/actions/runs/41869924816), [Linux PR](https://github.com/cupidthecat/cupid-ps1/actions/runs/41869943386), [Windows push](https://github.com/cupidthecat/cupid-ps1/actions/runs/41869924657), [Windows PR](https://github.com/cupidthecat/cupid-ps1/actions/runs/41869943390), [audio push](https://github.com/cupidthecat/cupid-ps1/actions/runs/41869924687), [audio PR](https://github.com/cupidthecat/cupid-ps1/actions/runs/41869943500).
+
+All three supplied discs pass native linked LUT continuation on both hosts with matching regional BIOS files. Each of the six uninterrupted/restored pairs compares five complete checkpoints through frame 1,500, resetting before restoring frame 1,200. All 30 corresponding complete emulated payload pairs match across hosts. Native LUT loads and stores are observed in every process; BIOS, CUE and referenced BIN hashes remain unchanged. These are bounded startup/continuation runs with software rendering and dummy SDL drivers.
+
+This correction provides SPU component rollback. The whole-machine loader can already have restored earlier components before rejecting a bad SPU record; whole-machine failed-load recovery remains unfinished. Host audio queues are outside the record. Physical SPU timing, arbitration and IRQ phases, audible playback, visible presentation, physical input and representative gameplay remain unqualified. Existing CPU/bus timing and raw cross-mode state differences remain open. Draft #37 and the full parent acceptance criteria remain open.
 
 ## Decoded texture-page checkpoint (0f7814f)
 

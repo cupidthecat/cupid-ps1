@@ -380,7 +380,7 @@ static void byte_fifo_do_state(state_wrapper_t* sw, cdrom_byte_fifo_t* f) {
   if (state_wrapper_has_error(sw)) return;
   if (state_wrapper_is_reading(sw)) {
     const size_t position = state_wrapper_get_position(sw);
-    const size_t length = state_wrapper_get_size(sw);
+    const size_t length   = state_wrapper_get_size(sw);
     if (size > CDROM_PARAM_FIFO_SIZE || position > length || size > length - position) {
       sw->error = true;
       return;
@@ -466,7 +466,7 @@ static void audio_fifo_do_state(state_wrapper_t* sw, cdrom_audio_fifo_t* f) {
   if (state_wrapper_has_error(sw)) return;
   if (state_wrapper_is_reading(sw)) {
     const size_t position = state_wrapper_get_position(sw);
-    const size_t length = state_wrapper_get_size(sw);
+    const size_t length   = state_wrapper_get_size(sw);
     if (size > f->capacity || position > length || size > (length - position) / sizeof(u32)) {
       sw->error = true;
       return;
@@ -1060,8 +1060,7 @@ static bool cdrom_do_state_fields(state_wrapper_t* sw, cdrom_state_t* state, u8*
   /* The half-rate path subtracts seven once before indexing seven rows.
    * Keep bounded startup phases intact instead of normalizing saved state. */
   if (state_wrapper_is_reading(sw) &&
-      (state->xa_resample_p >= CDROM_XA_RESAMPLE_RING_BUFFER_SIZE ||
-       state->xa_resample_sixstep > 13)) {
+      (state->xa_resample_p >= CDROM_XA_RESAMPLE_RING_BUFFER_SIZE || state->xa_resample_sixstep > 13)) {
     sw->error = true;
     return false;
   }
@@ -1157,8 +1156,8 @@ bool cdrom_do_state(state_wrapper_t* sw) {
     sw->error = true;
     return false;
   }
-  *staged = s_state;
-  const bool valid = cdrom_do_state_fields(sw, staged, &event_active_mask);
+  *staged              = s_state;
+  const bool valid     = cdrom_do_state_fields(sw, staged, &event_active_mask);
   u32* const old_audio = s_state.audio_fifo.data;
   u32* const new_audio = staged->audio_fifo.data;
   if (!valid) {
@@ -1247,7 +1246,7 @@ bool cdrom_insert_media(cd_image_t* media, disc_region_t region, const char* ser
     }
   }
 
-  if (cdrom_can_read_media()) (void)cdrom_remove_media(true);
+  if (cdrom_can_read_media()) cd_image_destroy(cdrom_remove_media(true));
 
   INFO_LOG("Inserting new media, disc region: %u, console region: %u", (unsigned)region,
            (unsigned)cdrom_get_console_region());

@@ -151,6 +151,8 @@ typedef struct {
   u32         checkpoint_restore_at;
   bool        checkpoint_restored;
   bool        checkpoint_restore_reset;
+  const char* checkpoint_reject_file;
+  bool        checkpoint_rejected;
   bool        checkpoint_failed;
 
   /* Run-loop state. */
@@ -1365,6 +1367,11 @@ static bool configure_execution_diagnostics(void) {
     return false;
   }
   s_fe.checkpoint_restore_reset = reset != NULL;
+  s_fe.checkpoint_reject_file   = getenv("CUPID_CHECKPOINT_REJECT_FILE");
+  if (s_fe.checkpoint_reject_file && (!*s_fe.checkpoint_reject_file || !restore || reset)) {
+    fprintf(stderr, "[execution-checkpoint] rejection requires a restore index and conflicts with reset\n");
+    return false;
+  }
   if (restore && !s_fe.checkpoint_dir) {
     fprintf(stderr, "[execution-checkpoint] restore requires checkpoint configuration\n");
     return false;
@@ -1429,8 +1436,10 @@ static void execution_checkpoint_tick(void) {
       system_reset_system();
       fprintf(stderr, "[execution-checkpoint] reset before restore index=%u\n", s_fe.checkpoints_written);
     }
-    const bool loaded = system_load_state(path, &error, false, false) != 0;
-    if (!loaded || system_get_frame_number() != frame || timing_events_get_global_tick_counter() != ticks) {
+    const bool reject = s_fe.checkpoint_reject_file != NULL;
+    const bool loaded = system_load_state(reject ? s_fe.checkpoint_reject_file : path, &error, false, false) != 0;
+    if (loaded == reject || !system_is_valid() || system_get_frame_number() != frame ||
+        timing_events_get_global_tick_counter() != ticks) {
       fprintf(stderr, "[execution-checkpoint] restore failed index=%u: %s\n", s_fe.checkpoints_written,
               Error_get_description(&error));
       s_fe.checkpoint_failed = true;
@@ -1438,10 +1447,26 @@ static void execution_checkpoint_tick(void) {
       request_quit();
       return;
     }
+    if (reject) {
+      fprintf(stderr, "[execution-checkpoint] rejected index=%u frame=%u ticks=%llu error=%s\n",
+              s_fe.checkpoints_written, frame, (unsigned long long)ticks, Error_get_description(&error));
+      Error_clear(&error);
+      const int after_length = snprintf(path, sizeof(path), "%s/rejected-%08u.sav", s_fe.checkpoint_dir, target);
+      if (after_length < 0 || (size_t)after_length >= sizeof(path) || fs_file_exists(path) ||
+          fs_directory_exists(path) || !system_save_state(path, &error, false, true)) {
+        fprintf(stderr, "[execution-checkpoint] failed after rejection: %s\n", Error_get_description(&error));
+        s_fe.checkpoint_failed = true;
+        Error_destroy(&error);
+        request_quit();
+        return;
+      }
+      s_fe.checkpoint_rejected = true;
+    } else {
+      s_fe.checkpoint_restored = true;
+      fprintf(stderr, "[execution-checkpoint] restored index=%u frame=%u ticks=%llu\n", s_fe.checkpoints_written, frame,
+              (unsigned long long)ticks);
+    }
     Error_destroy(&error);
-    s_fe.checkpoint_restored = true;
-    fprintf(stderr, "[execution-checkpoint] restored index=%u frame=%u ticks=%llu\n", s_fe.checkpoints_written, frame,
-            (unsigned long long)ticks);
   }
   if (s_fe.checkpoints_written == s_fe.checkpoint_count) request_quit();
 }
@@ -1770,7 +1795,8 @@ int frontend_run(int argc, char** argv) {
 
   if (s_fe.checkpoint_dir) {
     if (!ok || s_fe.checkpoint_failed || s_fe.checkpoints_written != s_fe.checkpoint_count ||
-        (s_fe.checkpoint_restore_at && !s_fe.checkpoint_restored)) {
+        (s_fe.checkpoint_restore_at &&
+         !(s_fe.checkpoint_reject_file ? s_fe.checkpoint_rejected : s_fe.checkpoint_restored))) {
       fprintf(stderr, "[execution-checkpoint] incomplete\n");
       return 2;
     }

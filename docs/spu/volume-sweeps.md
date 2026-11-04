@@ -19,8 +19,8 @@ can likewise resume a finished sweep. These repairs retain counter phase and
 leave intentionally frozen rates inactive.
 
 Loads reject invalid envelope flags and out-of-range rates or counters before
-resuming SPU events. This validation does not make the entire state load
-transactional.
+resuming SPU events. The [whole-machine loader](../state/load-recovery.md)
+recovers the preceding state if loading fails.
 
 The component regressions cover stereo register order for all 24 voices,
 fixed-gain delay, signed and exponential fades, endpoints, idle voices,

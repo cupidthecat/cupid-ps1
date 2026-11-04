@@ -67,8 +67,8 @@ runs two immediate-DMA groups absent from the bundled seven-group sample log.
 That strict sequence mismatch remains recorded. These results do not establish
 an exact physical transfer phase.
 
-This is component rollback. The whole-machine loader may already have restored
-earlier components before reaching a bad SPU record. Atomic rollback of the
-whole machine remains separate work. Host audio queues are outside the saved
-record; these software checks do not qualify audible playback, physical SPU
-timing or representative gameplay.
+This staging protects the component even when used directly. The
+[whole-machine loader](../state/load-recovery.md) also restores earlier
+components after rejecting a later record. Host audio queues are outside the
+saved record; these software checks do not qualify audible playback, physical
+SPU timing or representative gameplay.

@@ -20,9 +20,17 @@ without adding emulated cycles. This host action flag is not save-state data.
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
-SPU records are staged before replacing live sound RAM, voices, histories and
-transfers. Rejected records preserve that component and its event links;
-whole-machine failed-load rollback remains incomplete. See
+The whole-machine loader captures the current serialized state and keeps the
+current disc until loading succeeds. A rejected load restores the previous
+state, disc and game metadata. Missing referenced media or an invalid sub-image
+rejects the load. A saved state with no media removes the current disc on
+success. If recovery itself fails, the machine shuts down instead of resuming
+a partially loaded state. This recovery is independent of the `save_undo`
+argument; a retained user undo state is not implemented. See
+[failed-load recovery](load-recovery.md) for coverage and limits.
+
+SPU records are also staged before replacing live sound RAM, voices, histories
+and transfers. Rejected records preserve that component and its event links. See
 [SPU records and validation](../spu/state-records.md) for bounds and legacy behavior.
 
 Version 96 records the start cause of forced manual DMA transfers, including
@@ -38,7 +46,7 @@ Version 94 records pending polyline vertices and their source addresses.
 Earlier idle GPU records remain readable. Earlier records saved during an
 incomplete polyline are rejected because they never contained those vertices.
 Queue bounds and inconsistent polyline records are rejected before resuming
-commands. A failed whole-system load is not transactional. See
+commands. The whole-machine loader recovers from a rejected record. See
 [polyline state and submission](../gpu/polylines.md).
 
 Version 93 records colored MDEC DMA placement and its partial-transfer cursor.
