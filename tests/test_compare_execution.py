@@ -13,7 +13,7 @@ spec.loader.exec_module(compare)
 
 @unittest.skipUnless(os.name == "posix", "Linux process runner")
 class ExecutionComparisonTest(unittest.TestCase):
-    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5):
+    def run_fake(self, change="", *, kind="trace", modes=("interp", "cached"), timeout=5, restore_at=0, fastmem='off', mdec_old_routines=False, restore_reset=False):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             binary, bios, media = (root / name for name in ("emulator", "bios", "media"))
@@ -22,16 +22,24 @@ class ExecutionComparisonTest(unittest.TestCase):
             code = f'''#!/usr/bin/env python3
 import os, pathlib, struct, sys, time
 mode = sys.argv[sys.argv.index('--cpu-mode') + 1]
+fastmem = sys.argv[sys.argv.index('--fastmem') + 1] if mode == 'recomp' else 'off'
 right = pathlib.Path.cwd().name == 'right'
 header = {compare.TRACE_HEADER!r}
 rows = [str(i) + ' ' + ' '.join(['00000000'] * 116 + ['0000000000000000']) + '\\n' for i in range(1, 5)]
 footer = '# completed 4\\n'
 progress = "[cpu-stats] execution interpreted=100 native_entered=0 native_completed=0"
+dispatch = "[cpu-stats] native_dispatch delay_slots_interpreted=0"
+lut = "[cpu-stats] lut loads=0 stores=0"
 cached = "[cpu-stats] cached created=3 hits=30 blocks=50 instructions=100 fallback=0"
 if mode == 'recomp':
     progress = "[cpu-stats] execution interpreted=0 native_entered=100 native_completed=100"
 state_payload = b'generated-state'
 state_version = 84
+restore = os.environ.get('CUPID_CHECKPOINT_RESTORE')
+restore_report = f'[execution-checkpoint] restored index={{restore}} frame=2 ticks=200' if restore else ''
+restore_after = False
+reset_report = ''
+icache = 'on'
 {change}
 if 'CUPID_DIFF_TRACE' in os.environ:
     pathlib.Path(os.environ['CUPID_DIFF_TRACE']).write_text(header + ''.join(rows) + footer)
@@ -43,33 +51,110 @@ else:
         struct.pack_into('<4I', state, 200, 0, len(state_payload), len(state_payload), 216)
         (directory / f'checkpoint-{{frame:08d}}.sav').write_bytes(state + state_payload)
         print(f'[execution-checkpoint] frame={{frame}} ticks={{frame * 100}}')
+        if frame == 2 and restore_report and not restore_after:
+            if reset_report: print(reset_report)
+            print(restore_report)
+    if restore_report and restore_after:
+        print(restore_report)
     print('[execution-checkpoint] completed count=2')
-print(f'[cpu-stats] configuration mode={{mode}} fastmem=off linking=on')
+print(f'[cpu-stats] configuration mode={{mode}} fastmem={{fastmem}} linking=on icache={{icache}}')
 print(progress)
+print(dispatch)
+print(lut)
 print(cached)
 '''
             binary.write_text(code, encoding="utf-8")
             binary.chmod(0o700)
             return compare.run_comparison(binary, bios, media, root / "run", kind=kind,
                                           modes=modes, instructions=4, interval=2, checkpoints=2,
-                                          min_blocks=1, timeout=timeout)
+                                          min_blocks=1, timeout=timeout, restore_at=restore_at, fastmem=fastmem,
+                                          mdec_old_routines=mdec_old_routines, restore_reset=restore_reset)
 
     def test_complete_trace(self):
         self.assertTrue(self.run_fake()["passed"])
 
+    def test_requested_mdec_routine_is_written_and_recorded(self):
+        for old in (False, True):
+            with self.subTest(old=old):
+                setting = "true" if old else "false"
+                change = f"assert pathlib.Path('settings.ini').read_text() == '[Hacks]\\nUseOldMDECRoutines = {setting}\\n'"
+                result = self.run_fake(change, mdec_old_routines=old)
+                self.assertTrue(result['passed'], result)
+                self.assertEqual(result['configuration']['mdec_old_routines'], old)
+
     def test_complete_state(self):
         self.assertTrue(self.run_fake(kind="state", modes=("interp", "recomp"))["passed"])
 
+    def test_disabled_instruction_cache_cannot_qualify(self):
+        result = self.run_fake("icache = 'off'", kind="state", modes=("recomp", "recomp"))
+        self.assertFalse(result["passed"], result)
+        self.assertTrue(all("unexpected execution configuration" in " ".join(run["failures"])
+                            for run in result["runs"]), result)
+
+    def test_complete_restored_continuation(self):
+        result = self.run_fake(kind="state", modes=("recomp", "recomp"), restore_at=1)
+        self.assertTrue(result["passed"], result)
+        self.assertEqual(result["runs"][0]["restores"], [])
+        self.assertEqual(result["runs"][1]["restores"], [(1, 2, 200)])
+
+    def test_missing_or_incorrect_restore_fails(self):
+        for report in ("", "[execution-checkpoint] restored index=1 frame=2 ticks=199",
+                       "[execution-checkpoint] restored index=2 frame=4 ticks=400",
+                       "[execution-checkpoint] restored malformed",
+                       "[execution-checkpoint] restored index=1 frame=2 ticks=200\n" * 2):
+            with self.subTest(report=report):
+                result = self.run_fake(f"if right: restore_report = {report!r}", kind="state",
+                                       modes=("recomp", "recomp"), restore_at=1)
+                self.assertFalse(result["passed"], result)
+                self.assertTrue(result["runs"][0]["passed"], result)
+                self.assertIn("restore report", " ".join(result["runs"][1]["failures"]))
+
+    def test_late_restore_cannot_qualify_continuation(self):
+        result = self.run_fake("restore_after = right", kind="state",
+                               modes=("recomp", "recomp"), restore_at=1)
+        self.assertFalse(result["passed"], result)
+        self.assertIn("restore did not precede", " ".join(result["runs"][1]["failures"]))
+
+    def test_unrequested_restore_fails(self):
+        result = self.run_fake("restore_report = '[execution-checkpoint] restored index=1 frame=2 ticks=200'",
+                               kind="state")
+        self.assertFalse(result["passed"], result)
+
+    def test_restore_requires_continuation_and_matching_modes(self):
+        for configuration in ({"kind": "trace", "modes": ("interp", "interp"), "restore_at": 1},
+                              {"kind": "state", "modes": ("interp", "recomp"), "restore_at": 1},
+                              {"kind": "state", "restore_at": -1},
+                              {"kind": "state", "modes": ("interp", "interp"), "restore_at": 5}):
+            with self.subTest(configuration=configuration), self.assertRaises(ValueError):
+                compare.run_comparison(__file__, __file__, __file__, "unused", **configuration)
+
     def test_current_state_version(self):
-        self.assertTrue(self.run_fake("state_version = 85", kind="state")["passed"])
+        self.assertTrue(self.run_fake("state_version = 96", kind="state")["passed"])
+
+    def test_reset_before_restore_requires_observed_reset(self):
+        self.assertFalse(self.run_fake(kind='state', modes=('interp', 'interp'),
+                                       restore_at=1, restore_reset=True)['passed'])
+        result = self.run_fake("reset_report = '[execution-checkpoint] reset before restore index=1' if right else ''",
+                               kind='state', modes=('interp', 'interp'), restore_at=1, restore_reset=True)
+        self.assertTrue(result['passed'], result)
+
+    def test_reset_without_requested_restore_is_invalid(self):
+        with self.assertRaises(ValueError): self.run_fake(kind='state', restore_reset=True)
+
+    def test_previous_state_version(self):
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97):
+            with self.subTest(version=version):
+                self.assertTrue(self.run_fake(f"state_version = {version}", kind="state")["passed"])
 
     def test_unsupported_state_version(self):
-        self.assertFalse(self.run_fake("state_version = 86", kind="state")["passed"])
+        self.assertFalse(self.run_fake("state_version = 98", kind="state")["passed"])
 
     def test_state_version_difference_is_not_normalized(self):
-        result = self.run_fake("if right: state_version = 85", kind="state")
-        self.assertFalse(result["passed"])
-        self.assertEqual([item['first_different_byte'] for item in result['differences']], [4, 4])
+        for version in (85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97):
+            with self.subTest(version=version):
+                result = self.run_fake(f"if right: state_version = {version}", kind="state")
+                self.assertFalse(result["passed"])
+                self.assertEqual([item['first_different_byte'] for item in result['differences']], [4, 4])
 
     def test_startup_failure(self):
         self.assertFalse(self.run_fake("raise SystemExit(2)")["passed"])
@@ -91,6 +176,42 @@ print(cached)
 
     def test_missing_counters(self):
         self.assertFalse(self.run_fake("progress = ''")["passed"])
+
+    def test_lut_configuration_without_actual_accesses_fails(self):
+        result = self.run_fake(kind='state', modes=('recomp', 'recomp'), fastmem='lut')
+        self.assertFalse(result['passed'], result)
+        self.assertTrue(all('no successful native LUT accesses' in run['failures'] for run in result['runs']), result)
+
+    def test_lut_success_requires_direct_access_counts(self):
+        result = self.run_fake("lut = '[cpu-stats] lut loads=7 stores=3'", kind='state',
+                               modes=('recomp', 'recomp'), fastmem='lut')
+        self.assertTrue(result['passed'], result)
+        self.assertTrue(all(run['lut'] == {'loads': 7, 'stores': 3} for run in result['runs']), result)
+
+    def test_missing_repeated_or_malformed_lut_counts_fail(self):
+        for counter in ('', '[cpu-stats] lut loads=invalid stores=0',
+                        '[cpu-stats] lut loads=1 stores=0\n' * 2):
+            with self.subTest(counter=counter):
+                self.assertFalse(self.run_fake(f'lut = {counter!r}')["passed"])
+
+    def test_lut_counts_in_other_modes_fail(self):
+        self.assertFalse(self.run_fake("lut = '[cpu-stats] lut loads=1 stores=0'")["passed"])
+
+    def test_missing_repeated_or_invalid_dispatch_counters_fail(self):
+        for counter in ('', '[cpu-stats] native_dispatch delay_slots_interpreted=invalid',
+                        '[cpu-stats] native_dispatch delay_slots_interpreted=0\n' * 2,
+                        '[cpu-stats] native_dispatch delay_slots_interpreted=101'):
+            with self.subTest(counter=counter):
+                self.assertFalse(self.run_fake(f'dispatch = {counter!r}')["passed"])
+
+    def test_native_dispatch_counts_remain_in_interpreted_total(self):
+        result = self.run_fake("progress = '[cpu-stats] execution interpreted=6 native_entered=100 native_completed=100'\n"
+                               "dispatch = '[cpu-stats] native_dispatch delay_slots_interpreted=6'",
+                               kind='state', modes=('recomp', 'recomp'))
+        self.assertTrue(result['passed'], result)
+        for run in result['runs']:
+            self.assertEqual(run['execution']['interpreted'], 6)
+            self.assertEqual(run['execution']['native_dispatch_delay_slots'], 6)
 
     def test_no_cached_progress(self):
         self.assertFalse(self.run_fake("cached = '[cpu-stats] cached created=1 hits=0 blocks=0 instructions=0 fallback=99'")["passed"])

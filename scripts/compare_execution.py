@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import struct
 import subprocess
 import time
@@ -32,7 +33,7 @@ COVERAGE = {
         "excluded": ["CPU host-dispatch flags/pointers and PGXP CPU shadow arrays not written by cpu_do_state",
                      "host mappings, generated native code, external BIOS/disc contents",
                      "host audio/video/input queues and asynchronous host reader state"],
-        "serializer": "save_state_header_t and system_do_state format versions 84/85; see subsystem do_state functions",
+        "serializer": "save_state_header_t and system_do_state format versions 84/85/86/87/88/89/90/91/92/93/94/95/96/97; see subsystem do_state functions",
         "boundary": "frontend frame checkpoint; CPU event overshoot and engine flags remain compared",
         "limits": "A difference can reflect engine bookkeeping or timing. Equality covers serialized state only.",
     },
@@ -50,19 +51,21 @@ def wait_child(command, directory, env, timeout):
     with (directory / "boot.log").open("wb") as log:
         try:
             child = subprocess.Popen(command, cwd=directory, env=env, stdout=log,
-                                     stderr=subprocess.STDOUT, start_new_session=True)
+                                     stderr=subprocess.STDOUT, start_new_session=(os.name == "posix"))
             try:
                 child.wait(timeout=timeout)
             except subprocess.TimeoutExpired:
                 result["timed_out"] = True
                 try:
-                    os.killpg(child.pid, signal.SIGTERM)
+                    if os.name == "posix": os.killpg(child.pid, signal.SIGTERM)
+                    else: child.terminate()
                 except ProcessLookupError:
                     pass
                 try:
                     child.wait(timeout=3)
                 except subprocess.TimeoutExpired:
-                    os.killpg(child.pid, signal.SIGKILL)
+                    if os.name == "posix": os.killpg(child.pid, signal.SIGKILL)
+                    else: child.kill()
                     child.wait()
             result["exit_code"] = child.returncode
         except OSError as error:
@@ -90,7 +93,7 @@ def validate_checkpoint(path):
     with path.open("rb") as stream:
         header = stream.read(216)
     if (len(header) != 216 or struct.unpack_from("<I", header)[0] != 0x43435544
-            or struct.unpack_from("<I", header, 4)[0] not in (84, 85)):
+            or struct.unpack_from("<I", header, 4)[0] not in (84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97)):
         raise ValueError("missing or unsupported checkpoint header")
     compression, size, unpacked, offset = struct.unpack_from("<4I", header, 200)
     if compression != 0 or size == 0 or size != unpacked or offset < 216 or offset + size != path.stat().st_size:
@@ -113,23 +116,38 @@ def first_difference(left, right):
             offset += len(x)
 
 
-def inspect_run(directory, result, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking):
+def inspect_run(directory, result, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking,
+                restore_at=0, restore_reset=False):
     log = (directory / "boot.log").read_text(encoding="utf-8", errors="replace")
     failures = []
     if result["timed_out"] or result["exit_code"] != 0:
         failures.append("process did not complete normally before its deadline")
-    configurations = re.findall(r"\[cpu-stats\] configuration mode=(interp|cached|recomp) fastmem=(off|lut|mmap) linking=(on|off)", log)
-    expected = (mode, fastmem if mode == "recomp" else "off", "on" if linking else "off")
+    configurations = re.findall(r"\[cpu-stats\] configuration mode=(interp|cached|recomp) "
+                                 r"fastmem=(off|lut|mmap) linking=(on|off) icache=(on|off)", log)
+    expected = (mode, fastmem if mode == "recomp" else "off", "on" if linking else "off", "on")
     if configurations != [expected]:
         failures.append("missing, repeated or unexpected execution configuration")
     result["observed_configuration"] = configurations
     execution = re.findall(r"\[cpu-stats\] execution interpreted=(\d+) native_entered=(\d+) native_completed=(\d+)", log)
+    dispatch = re.findall(r"^\[cpu-stats\] native_dispatch delay_slots_interpreted=(\d+)$", log, re.MULTILINE)
+    lut = re.findall(r"^\[cpu-stats\] lut loads=(\d+) stores=(\d+)$", log, re.MULTILINE)
     cached = re.findall(r"\[cpu-stats\] cached created=(\d+) hits=(\d+) blocks=(\d+) instructions=(\d+) fallback=(\d+)", log)
-    if len(execution) != 1 or len(cached) != 1:
+    if (len(execution) != 1 or len(cached) != 1 or len(dispatch) != 1 or len(lut) != 1
+            or log.count('[cpu-stats] native_dispatch') != 1 or log.count('[cpu-stats] lut') != 1):
         failures.append("missing or repeated execution counters")
     else:
         result["execution"] = dict(zip(("interpreted", "native_entered", "native_completed"), map(int, execution[0])))
+        result["execution"]["native_dispatch_delay_slots"] = int(dispatch[0])
+        if int(dispatch[0]) > int(execution[0][0]):
+            failures.append("native dispatch delay slots exceed interpreted instructions")
         result["cached"] = dict(zip(("created", "hits", "blocks", "instructions", "fallback"), map(int, cached[0])))
+        result["lut"] = dict(zip(("loads", "stores"), map(int, lut[0])))
+        lut_progress = sum(result["lut"].values())
+        if mode == "recomp" and fastmem == "lut":
+            if not lut_progress:
+                failures.append("no successful native LUT accesses")
+        elif lut_progress:
+            failures.append("unexpected native LUT accesses")
         if mode == "recomp":
             if min(map(int, execution[0][1:])) < min_blocks:
                 failures.append("insufficient native block progress")
@@ -153,6 +171,27 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
                 raise ValueError("checkpoint ticks did not advance")
             if re.findall(r"\[execution-checkpoint\] completed count=(\d+)", log) != [str(checkpoints)]:
                 raise ValueError("missing or repeated completion report")
+            restores = list(re.finditer(r"^\[execution-checkpoint\] restored index=(\d+) frame=(\d+) ticks=(\d+)$",
+                                        log, re.MULTILINE))
+            result["restores"] = [tuple(map(int, match.groups())) for match in restores]
+            expected = [(restore_at, *observed[restore_at - 1])] if restore_at else []
+            if (result["restores"] != expected
+                    or log.count("[execution-checkpoint] restored") != len(restores)):
+                raise ValueError("missing, repeated or unexpected restore report")
+            if restore_at:
+                before, after = observed[restore_at - 1:restore_at + 1]
+                if not (log.index(f"[execution-checkpoint] frame={before[0]} ticks={before[1]}")
+                        < restores[0].start()
+                        < log.index(f"[execution-checkpoint] frame={after[0]} ticks={after[1]}")):
+                    raise ValueError("restore did not precede its continuation checkpoints")
+            resets = list(re.finditer(r"^\[execution-checkpoint\] reset before restore index=(\d+)$", log, re.MULTILINE))
+            expected_resets = [str(restore_at)] if restore_reset else []
+            if ([m.group(1) for m in resets] != expected_resets or
+                    log.count('[execution-checkpoint] reset before restore') != len(resets)):
+                raise ValueError('missing, repeated or unexpected reset-before-restore report')
+            if restore_reset and not (log.index(f'[execution-checkpoint] frame={before[0]} ticks={before[1]}')
+                                      < resets[0].start() < restores[0].start()):
+                raise ValueError('reset did not precede the requested restore')
             for frame, _ in observed:
                 state = directory / f"checkpoint-{frame:08d}.sav"
                 validate_checkpoint(state)
@@ -167,13 +206,19 @@ def inspect_run(directory, result, kind, mode, instructions, interval, checkpoin
 
 def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp", "cached"),
                    instructions=50000, interval=60, checkpoints=5, min_blocks=100,
-                   fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=()):
+                   fastmem="off", linking=True, timeout=60, revision=None, hash_inputs=(), restore_at=0,
+                   mdec_old_routines=False, restore_reset=False):
     if (kind not in COVERAGE or len(modes) != 2 or any(mode not in ("interp", "cached", "recomp") for mode in modes)
-            or (kind == "trace" and "recomp" in modes) or fastmem not in ("off", "lut", "mmap")):
+            or (kind == "trace" and "recomp" in modes) or fastmem not in ("off", "lut", "mmap")
+            or not isinstance(mdec_old_routines, bool)):
         raise ValueError("unsupported comparison configuration")
     if (not math.isfinite(timeout) or timeout <= 0 or not 0 < instructions <= 0xffffffffffffffff or interval <= 0
             or not 1 <= checkpoints <= 32 or interval * checkpoints > 0xffffffff or min_blocks <= 0):
         raise ValueError("counts and timeout must be positive and within supported bounds")
+    if restore_at and (kind != "state" or modes[0] != modes[1] or not 1 <= restore_at < checkpoints):
+        raise ValueError("restore requires matching modes and a state checkpoint before the final checkpoint")
+    if not isinstance(restore_reset, bool) or (restore_reset and not restore_at):
+        raise ValueError('reset-before-restore requires a valid restore checkpoint')
     paths = [Path(p).resolve(strict=True) for p in (binary, bios, media, *hash_inputs)]
     if not all(path.is_file() for path in paths):
         raise ValueError("binary and inputs must be regular files")
@@ -184,6 +229,10 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
     result = {"revision": revision, "kind": kind, "coverage": COVERAGE[kind], "sha256": hashes,
               "configuration": {"modes": modes, "instructions": instructions, "interval": interval,
                                 "checkpoints": checkpoints, "minimum_blocks": min_blocks,
+                                "right_restore_at": restore_at,
+                                "right_reset_before_restore": restore_reset,
+                                "instruction_cache": True,
+                                "mdec_old_routines": mdec_old_routines,
                                 "fastmem": fastmem, "linking": linking, "timeout_seconds": timeout,
                                 "timing": "native", "renderer": "scalar software", "pgxp": False},
               "runs": [], "differences": []}
@@ -191,7 +240,10 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
     for label, mode in zip(("left", "right"), modes):
         directory = output / label
         directory.mkdir()
-        (directory / "data").symlink_to(ROOT / "data", target_is_directory=True)
+        (directory / "settings.ini").write_text(
+            "[Hacks]\nUseOldMDECRoutines = " + ("true" if mdec_old_routines else "false") + "\n")
+        if os.name == "nt": shutil.copytree(ROOT / "data", directory / "data")
+        else: (directory / "data").symlink_to(ROOT / "data", target_is_directory=True)
         command = [str(binary), "--cpu-mode", mode, "--fastmem", fastmem,
                    "--gpu-renderer", "software", "--pgxp", "off", "--bios", str(bios)]
         if not linking:
@@ -203,10 +255,15 @@ def run_comparison(binary, bios, media, output, *, kind="trace", modes=("interp"
             env.update(CUPID_DIFF_TRACE=str(directory / "cpu.trace"), CUPID_DIFF_LIMIT=str(instructions))
         else:
             env.update(CUPID_CHECKPOINT_DIR=str(directory), CUPID_CHECKPOINT_SCHEDULE=f"{interval},{checkpoints}")
+            if restore_at and label == "right":
+                env["CUPID_CHECKPOINT_RESTORE"] = str(restore_at)
+                if restore_reset: env['CUPID_CHECKPOINT_RESTORE_RESET'] = '1'
         observed = wait_child(command, directory, env, timeout)
         observed["environment"] = {key: env[key] for key in env if key.startswith(("CUPID_", "SDL_"))}
         observed["mode"] = mode
-        artifacts.append(inspect_run(directory, observed, kind, mode, instructions, interval, checkpoints, min_blocks, fastmem, linking))
+        artifacts.append(inspect_run(directory, observed, kind, mode, instructions, interval, checkpoints,
+                                     min_blocks, fastmem, linking, restore_at if label == "right" else 0,
+                                     restore_reset if label == "right" else False))
         result["runs"].append(observed)
     if all(run["passed"] for run in result["runs"]):
         if kind == "state" and result["runs"][0]["checkpoints"] != result["runs"][1]["checkpoints"]:
@@ -233,6 +290,10 @@ def main():
     parser.add_argument("--instructions", type=int, default=50000)
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--checkpoints", type=int, default=5)
+    parser.add_argument("--restore-at", type=int, default=0,
+                        help="reload this checkpoint in the right process, then compare its continuation")
+    parser.add_argument('--restore-reset', action='store_true',
+                        help='reset the right process before reloading its checkpoint')
     parser.add_argument("--minimum-blocks", type=int, default=100)
     parser.add_argument("--fastmem", choices=("off", "lut", "mmap"), default="off")
     parser.add_argument("--no-linking", action="store_true")
@@ -241,15 +302,14 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--hash-input", type=Path, action="append", default=[])
     args = parser.parse_args()
-    if os.name != "posix":
-        parser.error("run in the supported Linux build environment")
     output = args.output or ROOT / ".local-research" / ("compare-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     try:
         result = run_comparison(args.binary, args.bios, args.media, output, kind=args.kind,
                                 modes=(args.left, args.right), instructions=args.instructions,
                                 interval=args.interval, checkpoints=args.checkpoints,
                                 min_blocks=args.minimum_blocks, fastmem=args.fastmem, linking=not args.no_linking,
-                                timeout=args.timeout, revision=args.revision, hash_inputs=args.hash_input)
+                                timeout=args.timeout, revision=args.revision, hash_inputs=args.hash_input,
+                                restore_at=args.restore_at, restore_reset=args.restore_reset)
     except (OSError, ValueError) as error:
         parser.exit(2, f"comparison failed: {error}\n")
     print(f"{'PASS' if result['passed'] else 'FAIL'}: {output.resolve() / 'result.json'}")

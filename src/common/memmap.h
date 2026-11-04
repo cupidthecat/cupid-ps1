@@ -1,6 +1,6 @@
 /*
- * Linux shared-memory mappings and JIT allocation. Anonymous backing prefers
- * memfd_create and falls back to shm_open when memfd is unavailable at runtime.
+ * Shared-memory mappings and executable storage. Linux uses memfd_create or
+ * shm_open; Windows uses pagefile-backed sections and placeholder arenas.
  *
  * Lifecycle for the mapping area:
  *   memmap_shared_memory_area_t a;
@@ -9,9 +9,8 @@
  *   ...
  *   memmap_shared_memory_area_destroy(&a);
  *
- * The code-write helpers are no-ops on Linux. Instruction-cache flushing is
- * a no-op on x86, where instruction and data caches are coherent; other
- * architectures use __builtin___clear_cache.
+ * Code-write hooks are no-ops. Windows explicitly flushes the instruction
+ * cache; Linux x86 uses coherent caches without an explicit flush.
  */
 
 #ifndef CUPID_COMMON_MEMMAP_H
@@ -19,17 +18,15 @@
 
 #include "types.h"
 
-#include <sys/mman.h>
-
 typedef struct Error Error;
 
-/* PROT_* flags wrapped in a typedef'd enum for stronger typing at call sites. */
+/* Stable permission bits; each platform translates them to its host API. */
 typedef enum {
-  MEMMAP_PAGE_PROTECT_NONE               = PROT_NONE,
-  MEMMAP_PAGE_PROTECT_READ_ONLY          = PROT_READ,
-  MEMMAP_PAGE_PROTECT_READ_WRITE         = PROT_READ | PROT_WRITE,
-  MEMMAP_PAGE_PROTECT_READ_EXECUTE       = PROT_READ | PROT_EXEC,
-  MEMMAP_PAGE_PROTECT_READ_WRITE_EXECUTE = PROT_READ | PROT_WRITE | PROT_EXEC,
+  MEMMAP_PAGE_PROTECT_NONE               = 0,
+  MEMMAP_PAGE_PROTECT_READ_ONLY          = 1,
+  MEMMAP_PAGE_PROTECT_READ_WRITE         = 3,
+  MEMMAP_PAGE_PROTECT_READ_EXECUTE       = 5,
+  MEMMAP_PAGE_PROTECT_READ_WRITE_EXECUTE = 7,
 } memmap_page_protect_t;
 
 /* Returns the size of pages for the current host. */
@@ -37,28 +34,26 @@ u32 memmap_get_runtime_page_size(void);
 
 size_t memmap_get_file_mapping_name(char* buf, size_t buf_size, const char* prefix);
 
-/* Creates a shared memory backing store of `size` bytes.  When name is NULL or
- * empty, an anonymous mapping is created via memfd_create and is not visible
- * to other processes by name.  Returns a void* sentinel that wraps the fd
- * (cast through intptr_t); NULL on failure with details written to error. */
+/* Creates a shared backing store. NULL/empty names select anonymous storage.
+ * The opaque handle owns an fd on Linux or a section handle on Windows.
+ * NULL indicates failure, with details written to error. */
 void* memmap_create_shared_memory(const char* name, size_t size, Error* error);
 
-/* Closes the underlying fd returned by memmap_create_shared_memory. */
+/* Releases the handle returned by memmap_create_shared_memory. */
 void memmap_destroy_shared_memory(void* ptr);
 
-/* Removes a named shared memory entry (shm_unlink).  No-op when name is NULL.*/
+/* Removes a named Linux entry. Windows names disappear with the final handle. */
 void memmap_delete_shared_memory(const char* name);
 
-/* Maps a region of the shared memory.  When baseaddr is non-NULL, MAP_FIXED
- * is used and any existing mapping at the address is replaced (caller must
- * have reserved the range, e.g. via memmap_shared_memory_area_t). */
-void* memmap_map_shared_memory(void* handle, size_t offset, void* baseaddr,
-                               size_t size, memmap_page_protect_t mode);
+/* Maps a standalone shared view, optionally at an exact available address.
+ * Use shared_memory_area_map to replace owned arena reservations. Linux
+ * standalone mappings also support replacing a reserved range. */
+void* memmap_map_shared_memory(void* handle, size_t offset, void* baseaddr, size_t size, memmap_page_protect_t mode);
 
 /* Unmaps a region previously created with memmap_map_shared_memory.  Aborts */
 void memmap_unmap_shared_memory(void* baseaddr, size_t size);
 
-/* mprotect wrapper.  Logs and returns false on failure. */
+/* Changes access permissions. Returns false on failure. */
 bool memmap_mem_protect(void* baseaddr, size_t size, memmap_page_protect_t mode);
 
 /* Returns the base address of the current process module.  Useful for
@@ -73,9 +68,8 @@ void* memmap_allocate_jit_memory(size_t size);
 /* Releases JIT memory previously returned by memmap_allocate_jit_memory. */
 void memmap_release_jit_memory(void* ptr, size_t size);
 
-#if defined(CPU_ARCH_X64) || defined(CPU_ARCH_X86)
-ALWAYS_INLINE static void memmap_flush_instruction_cache(void* address, size_t size)
-{
+#if (defined(CPU_ARCH_X64) || defined(CPU_ARCH_X86)) && !defined(_WIN32)
+ALWAYS_INLINE static void memmap_flush_instruction_cache(void* address, size_t size) {
   (void)address;
   (void)size;
 }
@@ -83,49 +77,44 @@ ALWAYS_INLINE static void memmap_flush_instruction_cache(void* address, size_t s
 void memmap_flush_instruction_cache(void* address, size_t size);
 #endif
 
-/* Code-write lifecycle hooks are no-ops on Linux. */
-ALWAYS_INLINE static void memmap_begin_code_write(void) { }
-ALWAYS_INLINE static void memmap_end_code_write(void)   { }
+/* Code-write lifecycle hooks do not change page permissions. */
+ALWAYS_INLINE static void memmap_begin_code_write(void) {}
+ALWAYS_INLINE static void memmap_end_code_write(void) {}
 
-/* Reserves a contiguous virtual address range backed by PROT_NONE so that
- * later memmap_shared_memory_area_map calls can place file-backed views at
- * deterministic offsets.  Used to build the PS1 fastmem arena. */
+/* Owns a contiguous address reservation for views at deterministic offsets.
+ * Unmapped ranges remain inaccessible and reserved until destruction. */
 typedef struct {
   u8*    base_ptr;
   size_t size;
   size_t num_pages;
   size_t num_mappings;
+#if defined(_WIN32)
+  void* platform_data; /* Placeholder and mapped-view ranges. */
+#endif
 } memmap_shared_memory_area_t;
 
 void memmap_shared_memory_area_init(memmap_shared_memory_area_t* a);
 
-bool memmap_shared_memory_area_create (memmap_shared_memory_area_t* a, size_t size);
+bool memmap_shared_memory_area_create(memmap_shared_memory_area_t* a, size_t size);
 void memmap_shared_memory_area_destroy(memmap_shared_memory_area_t* a);
 
-u8*  memmap_shared_memory_area_map  (memmap_shared_memory_area_t* a, void* file_handle,
-                                     size_t file_offset, void* map_base, size_t map_size,
-                                     memmap_page_protect_t mode);
-bool memmap_shared_memory_area_unmap(memmap_shared_memory_area_t* a, void* map_base,
-                                     size_t map_size);
+u8* memmap_shared_memory_area_map(memmap_shared_memory_area_t* a, void* file_handle, size_t file_offset, void* map_base,
+                                  size_t map_size, memmap_page_protect_t mode);
+bool memmap_shared_memory_area_unmap(memmap_shared_memory_area_t* a, void* map_base, size_t map_size);
 
-ALWAYS_INLINE static size_t memmap_shared_memory_area_size(const memmap_shared_memory_area_t* a)
-{
+ALWAYS_INLINE static size_t memmap_shared_memory_area_size(const memmap_shared_memory_area_t* a) {
   return a->size;
 }
-ALWAYS_INLINE static size_t memmap_shared_memory_area_num_pages(const memmap_shared_memory_area_t* a)
-{
+ALWAYS_INLINE static size_t memmap_shared_memory_area_num_pages(const memmap_shared_memory_area_t* a) {
   return a->num_pages;
 }
-ALWAYS_INLINE static u8* memmap_shared_memory_area_base(const memmap_shared_memory_area_t* a)
-{
+ALWAYS_INLINE static u8* memmap_shared_memory_area_base(const memmap_shared_memory_area_t* a) {
   return a->base_ptr;
 }
-ALWAYS_INLINE static u8* memmap_shared_memory_area_offset_pointer(const memmap_shared_memory_area_t* a, size_t offset)
-{
+ALWAYS_INLINE static u8* memmap_shared_memory_area_offset_pointer(const memmap_shared_memory_area_t* a, size_t offset) {
   return a->base_ptr + offset;
 }
-ALWAYS_INLINE static u8* memmap_shared_memory_area_page_pointer(const memmap_shared_memory_area_t* a, size_t page)
-{
+ALWAYS_INLINE static u8* memmap_shared_memory_area_page_pointer(const memmap_shared_memory_area_t* a, size_t page) {
   return a->base_ptr + (page << HOST_PAGE_SHIFT);
 }
 

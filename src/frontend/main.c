@@ -11,6 +11,7 @@
  */
 
 #include "frontend/input_map.h"
+#include "frontend/entry.h"
 
 #include "core/input/controllers/analog_controller.h"
 #include "core/bios/bios.h"
@@ -46,6 +47,7 @@
 #include "common/error.h"
 #include "common/file_system.h"
 #include "common/log.h"
+#include "common/path.h"
 #include "common/small_string.h"
 #include "common/types.h"
 
@@ -65,19 +67,16 @@
 
 LOG_CHANNEL(Host);
 
-int  main(int argc, char** argv);
-
 /* host hook overrides (non-weak; link before system.c's weak defaults). */
 void host_pump_messages_on_core_thread(void);
-void host_input_manager_poll_sources  (void);
-void host_wait_for_all_async_tasks    (void);
+void host_input_manager_poll_sources(void);
+void host_wait_for_all_async_tasks(void);
 
 /* hooks consumed by core/bios.c (declared weak there). */
 const char* emu_folders_get_bios(void);
-void        core_get_string_setting_value(const char* section, const char* key,
-                                          const char* def, small_string_t* out);
+void        core_get_string_setting_value(const char* section, const char* key, const char* def, small_string_t* out);
 
- /* Internal forward decls so -Wmissing-prototypes is happy on the
+/* Internal forward decls so -Wmissing-prototypes is happy on the
  * file-static helpers. */
 static void trace_disasm_window(u32 center, char marker);
 static void trace_pc_window(void);
@@ -101,13 +100,13 @@ typedef struct {
   /* A CLI renderer request overrides settings.ini. Failed OpenGL setup
    * falls back to software. */
   gpu_renderer_t requested_renderer;
-  bool           renderer_requested;   /* explicit override vs. default */
+  bool           renderer_requested; /* explicit override vs. default */
 
   /* --gpu-resolution-scale CLI knob.  When set, overrides the INI
    * GPU.ResolutionScale.  Range 1..16 (the GL backend clamps further on
    * texture-size limits at create time). */
-  u8             requested_resolution_scale;
-  bool           resolution_scale_requested;
+  u8   requested_resolution_scale;
+  bool resolution_scale_requested;
 
   /* Cached settings owner copies (BIOS dir / mcd path). */
   char* bios_dir;
@@ -121,22 +120,20 @@ typedef struct {
   bool                 cpu_mode_requested;
   cpu_execution_mode_t requested_cpu_mode;
 
-  /* --fastmem off|lut|mmap.  Picks the recompiler's load/store dispatch
-   * strategy. off uses the C thunk; native LUT access is unfinished and
-   * currently uses that same slow path; mmap uses direct host addressing. */
-  bool                 fastmem_requested;
-  cpu_fastmem_mode_t   requested_fastmem_mode;
+  /* --fastmem selects bus helpers, page lookups or a directly mapped guest arena. */
+  bool               fastmem_requested;
+  cpu_fastmem_mode_t requested_fastmem_mode;
 
   /* --pgxp on|off.  Enables PGXP shadow tracking + GPU vertex subpixel
    * correction. */
-  bool                 pgxp_requested;
-  bool                 requested_pgxp_enable;
+  bool pgxp_requested;
+  bool requested_pgxp_enable;
 
   /* Bisect knobs: force off recompiler subsystems individually so we can
    * tell which one produces a bad PC.  Each `*_off` flag overrides
    * g_settings to false/disabled regardless of settings.ini. */
-  bool                 no_block_linking;
-  bool                 no_icache;
+  bool no_block_linking;
+  bool no_icache;
 
   /* Save and reload at frame 300, continue for 60 frames, then shut down.
    * Completion is reported only after frontend teardown. */
@@ -146,20 +143,25 @@ typedef struct {
   bool test_rt_failed;
   u32  test_rt_quit_frame;
 
-  /* Independent checkpoint runs never restore or replay live device state. */
+  /* Save independent checkpoints, optionally reload one and compare later frames. */
   const char* checkpoint_dir;
-  u32 checkpoint_interval;
-  u32 checkpoint_count;
-  u32 checkpoints_written;
-  bool checkpoint_failed;
+  u32         checkpoint_interval;
+  u32         checkpoint_count;
+  u32         checkpoints_written;
+  u32         checkpoint_restore_at;
+  bool        checkpoint_restored;
+  bool        checkpoint_restore_reset;
+  const char* checkpoint_reject_file;
+  bool        checkpoint_rejected;
+  bool        checkpoint_failed;
 
   /* Run-loop state. */
   bool quit_requested;
 
   /* QoL hotkey state. */
-  bool fullscreen;          /* Alt+Enter toggle */
-  bool fast_forward_held;   /* Tab held - drives system_set_fast_forward_enabled */
-  s32  current_save_slot;   /* Shift+1..9 picks; F11 saves, F12 loads */
+  bool fullscreen;        /* Alt+Enter toggle */
+  bool fast_forward_held; /* Tab held - drives system_set_fast_forward_enabled */
+  s32  current_save_slot; /* Shift+1..9 picks; F11 saves, F12 loads */
 
   /* INI-backed user settings.  Initialised on first call to
    * load_or_create_settings_ini(); destroyed in main() at exit. */
@@ -167,11 +169,10 @@ typedef struct {
   bool                     ini_inited;
 } frontend_state_t;
 
-static frontend_state_t s_fe;
+static frontend_state_t      s_fe;
 static volatile sig_atomic_t s_quit_signal = 0;
 
-static void dump_debug_ringbuffers(void)
-{
+static void dump_debug_ringbuffers(void) {
   fputs("\n========= debug ringbuffer dump =========\n", stderr);
   cdrom_dbg_dump_recent_commands(stderr);
   fputc('\n', stderr);
@@ -188,15 +189,28 @@ static void dump_debug_ringbuffers(void)
   fflush(stderr);
 }
 
-static void quit_signal_handler(int sig)
-{
+static void quit_signal_handler(int sig) {
   (void)sig;
   /* The core thread performs teardown when it next pumps messages. */
   s_quit_signal = 1;
 }
 
-static void print_usage(FILE* fp, const char* argv0)
-{
+static void install_quit_handlers(bool restart) {
+#if defined(_WIN32)
+  (void)restart;
+  signal(SIGINT, quit_signal_handler);
+  signal(SIGTERM, quit_signal_handler);
+#else
+  struct sigaction sa = {0};
+  sa.sa_handler       = quit_signal_handler;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = restart ? SA_RESTART : 0;
+  sigaction(SIGINT, &sa, NULL);
+  sigaction(SIGTERM, &sa, NULL);
+#endif
+}
+
+static void print_usage(FILE* fp, const char* argv0) {
   fprintf(fp,
           "Usage: %s [--bios /path/to/SCPH1001.BIN] <game.cue>\n"
           "\n"
@@ -215,7 +229,7 @@ static void print_usage(FILE* fp, const char* argv0)
           "                      Eliminates per-hunk decode cost for .chd images.\n"
           "  --cpu-mode MODE     interp | cached | recomp (default: recomp).\n"
           "  --fastmem MODE      off | lut | mmap (recompiler load/store dispatch;\n"
-          "                      lut currently uses the slow path; mmap uses direct addressing).\n"
+          "                      lut uses page lookups; mmap uses direct addressing).\n"
           "  --pgxp on|off       Enable PGXP subpixel-precision tracking.\n"
           "  --no-block-linking  Disable recompiler block linking (bisect knob).\n"
           "  --no-icache         Disable recompiler icache emulation (bisect knob).\n"
@@ -223,17 +237,14 @@ static void print_usage(FILE* fp, const char* argv0)
           argv0 ? argv0 : "cupid-ps1");
 }
 
-static bool file_exists(const char* path)
-{
-  struct stat st;
-  return path && stat(path, &st) == 0 && S_ISREG(st.st_mode);
+static bool file_exists(const char* path) {
+  return path && fs_file_exists(path);
 }
 
-static char* xstrdup(const char* s)
-{
+static char* xstrdup(const char* s) {
   if (!s) return NULL;
   const size_t n = strlen(s);
-  char* r = (char*)malloc(n + 1);
+  char*        r = (char*)malloc(n + 1);
   if (!r) {
     fprintf(stderr, "out of memory\n");
     abort();
@@ -244,8 +255,7 @@ static char* xstrdup(const char* s)
 
 typedef enum { PARSE_ARGS_OK, PARSE_ARGS_HELP, PARSE_ARGS_ERROR } parse_args_result_t;
 
-static parse_args_result_t parse_args(int argc, char** argv)
-{
+static parse_args_result_t parse_args(int argc, char** argv) {
   for (int i = 1; i < argc; i++) {
     const char* a = argv[i];
     if (strcmp(a, "-h") == 0 || strcmp(a, "--help") == 0) {
@@ -268,34 +278,31 @@ static parse_args_result_t parse_args(int argc, char** argv)
         return PARSE_ARGS_ERROR;
       }
       gpu_renderer_t r;
-      if      (strcasecmp(val, "automatic") == 0 || strcasecmp(val, "auto") == 0)
+      if (strcasecmp(val, "automatic") == 0 || strcasecmp(val, "auto") == 0)
         r = GPU_RENDERER_AUTOMATIC;
-      else if (strcasecmp(val, "software")  == 0 || strcasecmp(val, "sw")   == 0)
+      else if (strcasecmp(val, "software") == 0 || strcasecmp(val, "sw") == 0)
         r = GPU_RENDERER_SOFTWARE;
-      else if (strcasecmp(val, "opengl")    == 0 || strcasecmp(val, "gl")   == 0 ||
-               strcasecmp(val, "hardware")  == 0 || strcasecmp(val, "hw")   == 0)
+      else if (strcasecmp(val, "opengl") == 0 || strcasecmp(val, "gl") == 0 || strcasecmp(val, "hardware") == 0 ||
+               strcasecmp(val, "hw") == 0)
         r = GPU_RENDERER_HARDWARE_OPENGL;
       else if (!settings_parse_renderer_name(val, &r)) {
-        fprintf(stderr, "%s: unknown renderer '%s' (valid: automatic, software, opengl).\n",
-                argv[0], val);
+        fprintf(stderr, "%s: unknown renderer '%s' (valid: automatic, software, opengl).\n", argv[0], val);
         return PARSE_ARGS_ERROR;
       }
       s_fe.requested_renderer = r;
       s_fe.renderer_requested = true;
       continue;
     }
-    if (strcmp(a, "--gpu-resolution-scale") == 0 ||
-        strncmp(a, "--gpu-resolution-scale=", 23) == 0) {
+    if (strcmp(a, "--gpu-resolution-scale") == 0 || strncmp(a, "--gpu-resolution-scale=", 23) == 0) {
       const char* val = (a[22] == '=') ? (a + 23) : (i + 1 < argc ? argv[++i] : NULL);
       if (!val) {
         fprintf(stderr, "%s: --gpu-resolution-scale requires an argument.\n", argv[0]);
         return PARSE_ARGS_ERROR;
       }
-      char* endp = NULL;
-      const long n = strtol(val, &endp, 10);
+      char*      endp = NULL;
+      const long n    = strtol(val, &endp, 10);
       if (!endp || *endp != '\0' || n < 1 || n > 16) {
-        fprintf(stderr, "%s: --gpu-resolution-scale must be an integer 1..16 (got '%s').\n",
-                argv[0], val);
+        fprintf(stderr, "%s: --gpu-resolution-scale must be an integer 1..16 (got '%s').\n", argv[0], val);
         return PARSE_ARGS_ERROR;
       }
       s_fe.requested_resolution_scale = (u8)n;
@@ -313,15 +320,14 @@ static parse_args_result_t parse_args(int argc, char** argv)
         return PARSE_ARGS_ERROR;
       }
       cpu_execution_mode_t m;
-      if      (strcasecmp(val, "interp")   == 0 || strcasecmp(val, "interpreter") == 0)
+      if (strcasecmp(val, "interp") == 0 || strcasecmp(val, "interpreter") == 0)
         m = CPU_EXECUTION_MODE_INTERPRETER;
-      else if (strcasecmp(val, "cached")   == 0 || strcasecmp(val, "cached-interpreter") == 0)
+      else if (strcasecmp(val, "cached") == 0 || strcasecmp(val, "cached-interpreter") == 0)
         m = CPU_EXECUTION_MODE_CACHED_INTERPRETER;
-      else if (strcasecmp(val, "recomp")   == 0 || strcasecmp(val, "recompiler") == 0)
+      else if (strcasecmp(val, "recomp") == 0 || strcasecmp(val, "recompiler") == 0)
         m = CPU_EXECUTION_MODE_RECOMPILER;
       else {
-        fprintf(stderr, "%s: unknown cpu mode '%s' (valid: interp, cached, recomp).\n",
-                argv[0], val);
+        fprintf(stderr, "%s: unknown cpu mode '%s' (valid: interp, cached, recomp).\n", argv[0], val);
         return PARSE_ARGS_ERROR;
       }
       s_fe.requested_cpu_mode = m;
@@ -335,15 +341,14 @@ static parse_args_result_t parse_args(int argc, char** argv)
         return PARSE_ARGS_ERROR;
       }
       cpu_fastmem_mode_t fm;
-      if      (strcasecmp(val, "off")      == 0 || strcasecmp(val, "disabled") == 0)
+      if (strcasecmp(val, "off") == 0 || strcasecmp(val, "disabled") == 0)
         fm = CPU_FASTMEM_MODE_DISABLED;
-      else if (strcasecmp(val, "lut")      == 0)
+      else if (strcasecmp(val, "lut") == 0)
         fm = CPU_FASTMEM_MODE_LUT;
-      else if (strcasecmp(val, "mmap")     == 0 || strcasecmp(val, "hw") == 0)
+      else if (strcasecmp(val, "mmap") == 0 || strcasecmp(val, "hw") == 0)
         fm = CPU_FASTMEM_MODE_MMAP;
       else {
-        fprintf(stderr, "%s: unknown fastmem mode '%s' (valid: off, lut, mmap).\n",
-                argv[0], val);
+        fprintf(stderr, "%s: unknown fastmem mode '%s' (valid: off, lut, mmap).\n", argv[0], val);
         return PARSE_ARGS_ERROR;
       }
       s_fe.requested_fastmem_mode = fm;
@@ -357,11 +362,11 @@ static parse_args_result_t parse_args(int argc, char** argv)
         return PARSE_ARGS_ERROR;
       }
       bool on;
-      if      (strcasecmp(val, "on")  == 0 || strcasecmp(val, "true")  == 0 ||
-               strcasecmp(val, "1")   == 0 || strcasecmp(val, "yes")   == 0)
+      if (strcasecmp(val, "on") == 0 || strcasecmp(val, "true") == 0 || strcasecmp(val, "1") == 0 ||
+          strcasecmp(val, "yes") == 0)
         on = true;
-      else if (strcasecmp(val, "off") == 0 || strcasecmp(val, "false") == 0 ||
-               strcasecmp(val, "0")   == 0 || strcasecmp(val, "no")    == 0)
+      else if (strcasecmp(val, "off") == 0 || strcasecmp(val, "false") == 0 || strcasecmp(val, "0") == 0 ||
+               strcasecmp(val, "no") == 0)
         on = false;
       else {
         fprintf(stderr, "%s: --pgxp expects on|off (got '%s').\n", argv[0], val);
@@ -409,7 +414,8 @@ static parse_args_result_t parse_args(int argc, char** argv)
     else {
       fprintf(stderr,
               "%s: no BIOS specified and neither ./SCPH1001.BIN nor "
-              "./SCPH7003.bin exists in the current directory.\n", argv[0]);
+              "./SCPH7003.bin exists in the current directory.\n",
+              argv[0]);
       return PARSE_ARGS_ERROR;
     }
   } else if (!file_exists(s_fe.bios_path)) {
@@ -420,11 +426,13 @@ static parse_args_result_t parse_args(int argc, char** argv)
   return PARSE_ARGS_OK;
 }
 
- /* Splits "./dir/file.ext" -> dirname "./dir", filename "file.ext".  Both
+/* Splits "./dir/file.ext" -> dirname "./dir", filename "file.ext".  Both
  * out_dir and out_file are heap-owned; caller frees. */
-static void split_path(const char* full, char** out_dir, char** out_file)
-{
-  const char* slash = strrchr(full, '/');
+static void split_path(const char* full, char** out_dir, char** out_file) {
+  const char* filename;
+  u32         filename_len;
+  path_get_file_name_cstr(full, &filename, &filename_len);
+  const char* slash = filename == full ? NULL : filename - 1;
   if (!slash) {
     *out_dir  = xstrdup(".");
     *out_file = xstrdup(full);
@@ -438,16 +446,15 @@ static void split_path(const char* full, char** out_dir, char** out_file)
     if (!d) abort();
     memcpy(d, full, dir_len);
     d[dir_len] = '\0';
-    *out_dir = d;
+    *out_dir   = d;
   }
   *out_file = xstrdup(slash + 1);
 }
 
-static bool ensure_dir(const char* path)
-{
-  struct stat st;
-  if (stat(path, &st) == 0) return S_ISDIR(st.st_mode);
-  Error e; Error_init(&e);
+static bool ensure_dir(const char* path) {
+  if (fs_directory_exists(path)) return true;
+  Error e;
+  Error_init(&e);
   const bool ok = fs_create_directory(path, true, &e);
   if (!ok) {
     fprintf(stderr, "mkdir '%s' failed: %s\n", path, Error_get_description(&e));
@@ -456,22 +463,22 @@ static bool ensure_dir(const char* path)
   return ok;
 }
 
-const char* emu_folders_get_bios(void)
-{
+const char* emu_folders_get_bios(void) {
   return s_fe.bios_dir ? s_fe.bios_dir : ".";
 }
 
-void core_get_string_setting_value(const char* section, const char* key,
-                                   const char* def, small_string_t* out)
-{
+void core_get_string_setting_value(const char* section, const char* key, const char* def, small_string_t* out) {
   /* The only key bios.c actually reads is one of [BIOS]
    * PathNTSCU / PathNTSCJ / PathPAL.  Return the user-supplied filename
    * for any of them so the BIOS loader picks up our --bios path. */
-  (void)section; (void)key; (void)def;
+  (void)section;
+  (void)key;
+  (void)def;
   const char* path = s_fe.bios_path ? s_fe.bios_path : "";
-  const char* slash = strrchr(path, '/');
-  const char* fname = slash ? (slash + 1) : path;
-  small_string_assign_cstr(out, fname);
+  const char* fname;
+  u32         length;
+  path_get_file_name_cstr(path, &fname, &length);
+  small_string_assign_view(out, fname, length);
 }
 
 /* INI bootstrap: load ./settings.ini into g_settings if it exists, otherwise
@@ -479,18 +486,15 @@ void core_get_string_setting_value(const char* section, const char* key,
  * the first call does work; later calls are no-ops.  Must run AFTER
  * settings_init seeds defaults (so "first run" writes those defaults to
  * disk) and BEFORE the CLI/env overrides are applied (so flags win). */
-static void load_or_create_settings_ini(void)
-{
-  if (s_fe.ini_inited)
-    return;
+static void load_or_create_settings_ini(void) {
+  if (s_fe.ini_inited) return;
   ini_settings_interface_init(&s_fe.ini, "./settings.ini");
   s_fe.ini_inited = true;
 
   if (file_exists("./settings.ini")) {
     Error e = ERROR_INIT;
     if (!ini_settings_interface_load(&s_fe.ini, &e)) {
-      fprintf(stderr, "[settings] could not parse ./settings.ini (%s); using defaults.\n",
-              Error_get_description(&e));
+      fprintf(stderr, "[settings] could not parse ./settings.ini (%s); using defaults.\n", Error_get_description(&e));
     } else {
       settings_load(&g_settings, &s_fe.ini.base, &s_fe.ini.base);
       fprintf(stderr, "[settings] loaded ./settings.ini\n");
@@ -504,16 +508,14 @@ static void load_or_create_settings_ini(void)
   settings_save(&g_settings, &s_fe.ini.base, /*ignore_base*/ false);
   Error e = ERROR_INIT;
   if (!ini_settings_interface_save(&s_fe.ini, &e)) {
-    fprintf(stderr, "[settings] could not write ./settings.ini: %s\n",
-            Error_get_description(&e));
+    fprintf(stderr, "[settings] could not write ./settings.ini: %s\n", Error_get_description(&e));
   } else {
     fprintf(stderr, "[settings] wrote default ./settings.ini\n");
   }
   Error_destroy(&e);
 }
 
-static void apply_frontend_settings(void)
-{
+static void apply_frontend_settings(void) {
   settings_init(&g_settings);
 
   /* MDEC outputs YUV 4:2:0; chroma is 8x8 block resolution, so 24-bit FMV
@@ -530,57 +532,47 @@ static void apply_frontend_settings(void)
    * (CPU_EXECUTION_MODE_RECOMPILER).  If recomp init fails (rare: only when
    * the host can't allocate the 48 MB JIT region), system_initialize demotes
    * to interpreter and the run continues. */
-  if (s_fe.cpu_mode_requested)
-    g_settings.cpu_execution_mode = s_fe.requested_cpu_mode;
+  if (s_fe.cpu_mode_requested) g_settings.cpu_execution_mode = s_fe.requested_cpu_mode;
 
   /* --fastmem CLI override.  Default tracks settings.ini /
    * SETTINGS_DEFAULT_CPU_FASTMEM_MODE. */
-  if (s_fe.fastmem_requested)
-    g_settings.cpu_fastmem_mode = s_fe.requested_fastmem_mode;
+  if (s_fe.fastmem_requested) g_settings.cpu_fastmem_mode = s_fe.requested_fastmem_mode;
 
   /* --pgxp CLI override.  Default leaves settings.ini value intact. */
-  if (s_fe.pgxp_requested)
-    g_settings.gpu_pgxp_enable = s_fe.requested_pgxp_enable;
+  if (s_fe.pgxp_requested) g_settings.gpu_pgxp_enable = s_fe.requested_pgxp_enable;
 
   /* Bisect knobs.  No "on" form; the production setting is already on
    * by default; these only let the operator force-off for repro. */
-  if (s_fe.no_block_linking)
-    g_settings.cpu_recompiler_block_linking = false;
-  if (s_fe.no_icache)
-    g_settings.cpu_recompiler_icache = false;
+  if (s_fe.no_block_linking) g_settings.cpu_recompiler_block_linking = false;
+  if (s_fe.no_icache) g_settings.cpu_recompiler_icache = false;
 
   /* Keep the INI renderer unless the CLI overrides it. AUTOMATIC selects
    * software. The experimental OpenGL backend must be selected explicitly. */
   if (s_fe.renderer_requested) {
-    g_settings.gpu_renderer = (s_fe.requested_renderer == GPU_RENDERER_HARDWARE_OPENGL)
-                                ? GPU_RENDERER_HARDWARE_OPENGL
-                                : GPU_RENDERER_SOFTWARE;
+    g_settings.gpu_renderer = (s_fe.requested_renderer == GPU_RENDERER_HARDWARE_OPENGL) ? GPU_RENDERER_HARDWARE_OPENGL
+                                                                                        : GPU_RENDERER_SOFTWARE;
   } else if (g_settings.gpu_renderer == GPU_RENDERER_AUTOMATIC) {
     g_settings.gpu_renderer = GPU_RENDERER_SOFTWARE;
   }
-  g_settings.gpu_use_thread      = false;
+  g_settings.gpu_use_thread = false;
 
   /* --gpu-resolution-scale CLI override.  Only meaningful for the
    * GL backend; the SW backend ignores g_settings.gpu_resolution_scale. */
   if (s_fe.resolution_scale_requested) {
-    g_settings.gpu_resolution_scale = s_fe.requested_resolution_scale;
+    g_settings.gpu_resolution_scale           = s_fe.requested_resolution_scale;
     g_settings.gpu_automatic_resolution_scale = false;
   }
 
   /* Controller 1 = analog (DualShock). Crash-era titles should also accept a
    * digital pad, so expose an env toggle while we shake out pad handshakes. */
-  g_settings.controller_types[0] = getenv("CUPID_DIGITAL_PAD") ?
-                                     CONTROLLER_TYPE_DIGITAL_CONTROLLER : 
-                                     CONTROLLER_TYPE_ANALOG_CONTROLLER;
+  g_settings.controller_types[0] =
+      getenv("CUPID_DIGITAL_PAD") ? CONTROLLER_TYPE_DIGITAL_CONTROLLER : CONTROLLER_TYPE_ANALOG_CONTROLLER;
 
-  g_settings.memory_card_types[0] = getenv("CUPID_NO_MEMCARD") ?
-                                      MEMORY_CARD_TYPE_NONE : 
-                                      MEMORY_CARD_TYPE_SHARED;
+  g_settings.memory_card_types[0] = getenv("CUPID_NO_MEMCARD") ? MEMORY_CARD_TYPE_NONE : MEMORY_CARD_TYPE_SHARED;
 
   free(g_settings.memory_card_paths[0]);
-  g_settings.memory_card_paths[0] = (g_settings.memory_card_types[0] == MEMORY_CARD_TYPE_NONE) ?
-                                      NULL : 
-                                      xstrdup("./memcards/card1.mcd");
+  g_settings.memory_card_paths[0] =
+      (g_settings.memory_card_types[0] == MEMORY_CARD_TYPE_NONE) ? NULL : xstrdup("./memcards/card1.mcd");
 
   g_settings.audio_backend = AUDIO_BACKEND_SDL;
 
@@ -597,48 +589,40 @@ static void apply_frontend_settings(void)
   bool path_auto_precache = false;
   if (s_fe.game_path) {
     const size_t n = strlen(s_fe.game_path);
-    if (n >= 4 && (strcasecmp(s_fe.game_path + n - 4, ".chd") == 0 ||
-                   strcasecmp(s_fe.game_path + n - 4, ".m3u") == 0))
+    if (n >= 4 && (strcasecmp(s_fe.game_path + n - 4, ".chd") == 0 || strcasecmp(s_fe.game_path + n - 4, ".m3u") == 0))
       path_auto_precache = true;
   }
   g_settings.cdrom_load_image_to_ram = s_fe.cdrom_precache || path_auto_precache;
 
   g_settings.bios_patch_fast_boot = false;
-  const char* fastboot = getenv("CUPID_FASTBOOT");
-  if (fastboot && strcmp(fastboot, "1") == 0)
-    g_settings.bios_patch_fast_boot = true;
+  const char* fastboot            = getenv("CUPID_FASTBOOT");
+  if (fastboot && strcmp(fastboot, "1") == 0) g_settings.bios_patch_fast_boot = true;
 
   /* Select the older floating-point MDEC routines for diagnostic comparison
    * with the integer RLE, IDCT and YUV-to-RGB path. */
-  if (getenv("CUPID_OLD_MDEC"))
-    g_settings.mdec_use_old_routines = true;
+  if (getenv("CUPID_OLD_MDEC")) g_settings.mdec_use_old_routines = true;
 
   /* CUPID_NO_CHROMA_SMOOTH=1 disables 24-bit FMV chroma smoothing.
    * Diagnostic for FMV horizontal-banding artifacts. */
-  if (getenv("CUPID_NO_CHROMA_SMOOTH"))
-    g_settings.display_24bit_chroma_smoothing = false;
+  if (getenv("CUPID_NO_CHROMA_SMOOTH")) g_settings.display_24bit_chroma_smoothing = false;
 
   /* Mirror to the GPU thread's copy (we don't actually use a GPU thread
    * but core code reads from g_gpu_settings in places). */
   g_gpu_settings = g_settings;
   /* Re-strdup any strings that need independent ownership. */
-  if (g_settings.memory_card_paths[0])
-    g_gpu_settings.memory_card_paths[0] = xstrdup(g_settings.memory_card_paths[0]);
+  if (g_settings.memory_card_paths[0]) g_gpu_settings.memory_card_paths[0] = xstrdup(g_settings.memory_card_paths[0]);
 }
 
 /* Toggle vsync to track fast-forward state.  With vsync on, the present rate
  * is capped at the display refresh, so fast-forward (target_speed=0) cannot
  * actually run faster than 60/144/whatever-Hz no matter what the throttler
  * reports.  Drop vsync while Tab is held; restore on release. */
-static void apply_vsync_for_fast_forward(bool ff_active)
-{
+static void apply_vsync_for_fast_forward(bool ff_active) {
   if (g_settings.gpu_renderer == GPU_RENDERER_HARDWARE_OPENGL) {
     opengl_context_t* ctx = opengl_device_get_context();
     if (!ctx) return;
     Error e = ERROR_INIT;
-    opengl_swap_chain_set_swap_interval(ctx,
-                                        ff_active ? GPU_VSYNC_MODE_DISABLED : GPU_VSYNC_MODE_FIFO,
-                                        &e);
+    opengl_swap_chain_set_swap_interval(ctx, ff_active ? GPU_VSYNC_MODE_DISABLED : GPU_VSYNC_MODE_FIFO, &e);
     Error_destroy(&e);
   } else if (s_fe.renderer) {
     /* SDL 2.0.18+; falls through silently on older if the symbol is unavailable. */
@@ -653,8 +637,11 @@ static void apply_vsync_for_fast_forward(bool ff_active)
  * Uses WINDOW_INFO_TYPE_XLIB so the EGL surface binds to the SDL window's X11
  * drawable.  Frontend present moves to gl_present_frame (fullscreen-quad blit
  * of display_buffer) instead of SDL_Renderer, so there's no GL/GLX contention. */
-static bool try_init_hw_opengl_backend(void)
-{
+static bool try_init_hw_opengl_backend(void) {
+#if defined(_WIN32)
+  fprintf(stderr, "[gpu] OpenGL context setup is not yet available on Windows.\n");
+  return false;
+#else
   SDL_SysWMinfo wm;
   SDL_VERSION(&wm.version);
   if (!SDL_GetWindowWMInfo(s_fe.window, &wm)) {
@@ -665,16 +652,17 @@ static bool try_init_hw_opengl_backend(void)
     fprintf(stderr, "[gpu] HW OpenGL backend needs X11 (subsystem=%d).\n", (int)wm.subsystem);
     return false;
   }
-  window_info_t wi; window_info_init(&wi);
+  window_info_t wi;
+  window_info_init(&wi);
   wi.type               = WINDOW_INFO_TYPE_XLIB;
   wi.display_connection = wm.info.x11.display;
   wi.window_handle      = (void*)(uintptr_t)wm.info.x11.window;
   int win_w = 0, win_h = 0;
   SDL_GetWindowSize(s_fe.window, &win_w, &win_h);
-  wi.surface_width      = (u16)win_w;
-  wi.surface_height     = (u16)win_h;
-  wi.surface_format     = GPU_TEXTURE_FORMAT_RGBA8;
-  wi.surface_scale      = 1.0f;
+  wi.surface_width        = (u16)win_w;
+  wi.surface_height       = (u16)win_h;
+  wi.surface_format       = GPU_TEXTURE_FORMAT_RGBA8;
+  wi.surface_scale        = 1.0f;
   wi.surface_refresh_rate = 60.0f;
 
   Error e = ERROR_INIT;
@@ -685,11 +673,10 @@ static bool try_init_hw_opengl_backend(void)
   }
   Error_destroy(&e);
 
-  Error e2 = ERROR_INIT;
+  Error          e2 = ERROR_INIT;
   gpu_backend_t* be = gpu_backend_create_hardware_opengl(&wi, &e2);
   if (!be) {
-    fprintf(stderr, "[gpu] gpu_backend_create_hardware_opengl failed: %s\n",
-            Error_get_description(&e2));
+    fprintf(stderr, "[gpu] gpu_backend_create_hardware_opengl failed: %s\n", Error_get_description(&e2));
     Error_destroy(&e2);
     opengl_device_destroy();
     return false;
@@ -697,47 +684,36 @@ static bool try_init_hw_opengl_backend(void)
   Error_destroy(&e2);
   /* gpu_backend_create_hardware_opengl already publishes via g_gpu_backend. */
   return true;
+#endif
 }
 
-static bool sdl_setup(void)
-{
+static bool sdl_setup(void) {
   /* Stop SDL from hijacking SIGINT so our handler still runs on ^C. */
   SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1");
+  SDL_SetMainReady();
   if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER) < 0) {
     fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
     return false;
   }
   /* Re-install in case SDL still touched them. */
-  {
-    struct sigaction sa = {0};
-    sa.sa_handler = quit_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;  /* no SA_RESTART; want syscalls to EINTR so loop unwinds */
-    sigaction(SIGINT,  &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-  }
+  install_quit_handlers(false);
 
   Uint32 win_flags = SDL_WINDOW_RESIZABLE;
-  if (g_settings.gpu_renderer == GPU_RENDERER_HARDWARE_OPENGL)
-    win_flags |= SDL_WINDOW_OPENGL;
+  if (g_settings.gpu_renderer == GPU_RENDERER_HARDWARE_OPENGL) win_flags |= SDL_WINDOW_OPENGL;
 
-  s_fe.window = SDL_CreateWindow("cupid-ps1",
-                                 SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                 800, 600,
-                                 win_flags);
+  s_fe.window = SDL_CreateWindow("cupid-ps1", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 800, 600, win_flags);
   /* If SDL refuses an OpenGL window (no GL on this driver, e.g. dummy in
    * headless tests), retry without the GL flag and revert the renderer to
    * software so the rest of init takes the SW path. */
   if (!s_fe.window && (win_flags & SDL_WINDOW_OPENGL)) {
-    fprintf(stderr, "[gpu] SDL_CreateWindow with OpenGL failed (%s); "
-                    "retrying without GL.\n", SDL_GetError());
+    fprintf(stderr,
+            "[gpu] SDL_CreateWindow with OpenGL failed (%s); "
+            "retrying without GL.\n",
+            SDL_GetError());
     win_flags &= ~(Uint32)SDL_WINDOW_OPENGL;
     g_settings.gpu_renderer     = GPU_RENDERER_SOFTWARE;
     g_gpu_settings.gpu_renderer = GPU_RENDERER_SOFTWARE;
-    s_fe.window = SDL_CreateWindow("cupid-ps1",
-                                   SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                   800, 600,
-                                   win_flags);
+    s_fe.window = SDL_CreateWindow("cupid-ps1", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 800, 600, win_flags);
   }
   if (!s_fe.window) {
     fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
@@ -760,9 +736,8 @@ static bool sdl_setup(void)
   /* SW path: create SDL_Renderer.  When falling back from HW (window has
    * SDL_WINDOW_OPENGL), force SOFTWARE so SDL's renderer doesn't try to use
    * GL on a drawable our EGL had touched. */
-  const Uint32 r_flags = (win_flags & SDL_WINDOW_OPENGL)
-                          ? SDL_RENDERER_SOFTWARE
-                          : (SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+  const Uint32 r_flags =
+      (win_flags & SDL_WINDOW_OPENGL) ? SDL_RENDERER_SOFTWARE : (SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
   s_fe.renderer = SDL_CreateRenderer(s_fe.window, -1, r_flags);
   if (!s_fe.renderer) {
     s_fe.renderer = SDL_CreateRenderer(s_fe.window, -1, SDL_RENDERER_SOFTWARE);
@@ -788,24 +763,19 @@ static bool sdl_setup(void)
   return true;
 }
 
-static bool ensure_texture(u32 w, u32 h)
-{
-  if (s_fe.texture && s_fe.texture_width == w && s_fe.texture_height == h)
-    return true;
+static bool ensure_texture(u32 w, u32 h) {
+  if (s_fe.texture && s_fe.texture_width == w && s_fe.texture_height == h) return true;
   if (s_fe.texture) {
     SDL_DestroyTexture(s_fe.texture);
     s_fe.texture = NULL;
   }
-  if (w == 0 || h == 0)
-    return false;
+  if (w == 0 || h == 0) return false;
 
   /* gpu_sw writes u32 with byte order R,G,B,A.  On little-endian that's
    * SDL_PIXELFORMAT_ABGR8888 (numerically 0xAABBGGRR; "ABGR" naming is
    * the byte order from MSB-down). */
-  s_fe.texture = SDL_CreateTexture(s_fe.renderer,
-                                   SDL_PIXELFORMAT_ABGR8888,
-                                   SDL_TEXTUREACCESS_STREAMING,
-                                   (int)w, (int)h);
+  s_fe.texture =
+      SDL_CreateTexture(s_fe.renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STREAMING, (int)w, (int)h);
   if (!s_fe.texture) {
     fprintf(stderr, "SDL_CreateTexture(%u,%u) failed: %s\n", w, h, SDL_GetError());
     return false;
@@ -815,10 +785,12 @@ static bool ensure_texture(u32 w, u32 h)
   return true;
 }
 
-static void compute_letterbox(u32 fb_w, u32 fb_h, int win_w, int win_h, SDL_Rect* out)
-{
+static void compute_letterbox(u32 fb_w, u32 fb_h, int win_w, int win_h, SDL_Rect* out) {
   if (fb_w == 0 || fb_h == 0 || win_w <= 0 || win_h <= 0) {
-    out->x = 0; out->y = 0; out->w = win_w; out->h = win_h;
+    out->x = 0;
+    out->y = 0;
+    out->w = win_w;
+    out->h = win_h;
     return;
   }
   const float fb_aspect  = (float)fb_w / (float)fb_h;
@@ -844,18 +816,17 @@ static struct {
   u32    tex_w;
   u32    tex_h;
   bool   inited;
-  bool   broken;   /* compile/link failed; degrade to glClear-only */
+  bool   broken; /* compile/link failed; degrade to glClear-only */
 } s_gl_present;
 
-static GLuint gl_compile_shader_inline(GLenum stage, const char* src)
-{
+static GLuint gl_compile_shader_inline(GLenum stage, const char* src) {
   GLuint sh = glCreateShader(stage);
   glShaderSource(sh, 1, &src, NULL);
   glCompileShader(sh);
   GLint status = 0;
   glGetShaderiv(sh, GL_COMPILE_STATUS, &status);
   if (!status) {
-    char log[1024];
+    char  log[1024];
     GLint len = 0;
     glGetShaderInfoLog(sh, (GLsizei)sizeof(log), &len, log);
     fprintf(stderr, "[gl_present] shader compile failed: %.*s\n", (int)len, log);
@@ -865,26 +836,26 @@ static GLuint gl_compile_shader_inline(GLenum stage, const char* src)
   return sh;
 }
 
-static bool gl_present_init(void)
-{
-  static const char* vs_src =
-    "#version 330 core\n"
-    "out vec2 v_uv;\n"
-    "void main() {\n"
-    "  vec2 uv = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
-    "  v_uv = uv;\n"
-    "  gl_Position = vec4(uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);\n" 
-    "}\n";
-  static const char* fs_src =
-    "#version 330 core\n"
-    "in vec2 v_uv;\n"
-    "uniform sampler2D u_tex;\n"
-    "out vec4 o_col;\n" 
-    "void main() { o_col = texture(u_tex, v_uv); }\n";
+static bool gl_present_init(void) {
+  static const char* vs_src = "#version 330 core\n"
+                              "out vec2 v_uv;\n"
+                              "void main() {\n"
+                              "  vec2 uv = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));\n"
+                              "  v_uv = uv;\n"
+                              "  gl_Position = vec4(uv * vec2(2.0, -2.0) + vec2(-1.0, 1.0), 0.0, 1.0);\n"
+                              "}\n";
+  static const char* fs_src = "#version 330 core\n"
+                              "in vec2 v_uv;\n"
+                              "uniform sampler2D u_tex;\n"
+                              "out vec4 o_col;\n"
+                              "void main() { o_col = texture(u_tex, v_uv); }\n";
 
   GLuint vs = gl_compile_shader_inline(GL_VERTEX_SHADER, vs_src);
   GLuint fs = gl_compile_shader_inline(GL_FRAGMENT_SHADER, fs_src);
-  if (!vs || !fs) { s_gl_present.broken = true; return false; }
+  if (!vs || !fs) {
+    s_gl_present.broken = true;
+    return false;
+  }
   s_gl_present.program = glCreateProgram();
   glAttachShader(s_gl_present.program, vs);
   glAttachShader(s_gl_present.program, fs);
@@ -894,13 +865,13 @@ static bool gl_present_init(void)
   glDeleteShader(vs);
   glDeleteShader(fs);
   if (!linked) {
-    char log[1024];
+    char  log[1024];
     GLint len = 0;
     glGetProgramInfoLog(s_gl_present.program, (GLsizei)sizeof(log), &len, log);
     fprintf(stderr, "[gl_present] program link failed: %.*s\n", (int)len, log);
     glDeleteProgram(s_gl_present.program);
     s_gl_present.program = 0;
-    s_gl_present.broken = true;
+    s_gl_present.broken  = true;
     return false;
   }
   glGenVertexArrays(1, &s_gl_present.vao);
@@ -909,8 +880,7 @@ static bool gl_present_init(void)
   return true;
 }
 
-static void gl_present_frame(const u32* pixels, u32 w, u32 h)
-{
+static void gl_present_frame(const u32* pixels, u32 w, u32 h) {
   if (!s_gl_present.inited && !s_gl_present.broken) gl_present_init();
 
   static u32 dbg_present_n = 0;
@@ -918,7 +888,8 @@ static void gl_present_frame(const u32* pixels, u32 w, u32 h)
     u32 nz = 0;
     if (pixels && w && h) {
       const u32 total = w * h;
-      for (u32 i = 0; i < total; i++) if (pixels[i] != 0xFF000000u && pixels[i] != 0) nz++;
+      for (u32 i = 0; i < total; i++)
+        if (pixels[i] != 0xFF000000u && pixels[i] != 0) nz++;
     }
     fprintf(stderr, "[gl_present #%u] %ux%u nz=%u\n", dbg_present_n, w, h, nz);
   }
@@ -927,8 +898,12 @@ static void gl_present_frame(const u32* pixels, u32 w, u32 h)
   int dw = 0, dh = 0, lw = 0, lh = 0;
   SDL_GL_GetDrawableSize(s_fe.window, &dw, &dh);
   SDL_GetWindowSize(s_fe.window, &lw, &lh);
-  win_w = dw; win_h = dh;
-  if (win_w <= 0 || win_h <= 0) { win_w = lw; win_h = lh; }
+  win_w = dw;
+  win_h = dh;
+  if (win_w <= 0 || win_h <= 0) {
+    win_w = lw;
+    win_h = lh;
+  }
   if (win_w <= 0 || win_h <= 0) return;
   if (getenv("CUPID_TRACE") && (dbg_present_n & 0x3F) == 1) {
     fprintf(stderr, "[gl_present sizes] drawable=%dx%d window=%dx%d\n", dw, dh, lw, lh);
@@ -963,12 +938,11 @@ static void gl_present_frame(const u32* pixels, u32 w, u32 h)
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, s_gl_present.texture);
     if (w != s_gl_present.tex_w || h != s_gl_present.tex_h) {
-      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h,
-                   0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-      s_gl_present.tex_w = w; s_gl_present.tex_h = h;
+      glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, (GLsizei)w, (GLsizei)h, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+      s_gl_present.tex_w = w;
+      s_gl_present.tex_h = h;
     } else {
-      glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h,
-                      GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+      glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -976,11 +950,11 @@ static void gl_present_frame(const u32* pixels, u32 w, u32 h)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     /* Anamorphic 4:3 letterbox via viewport (matches SW's compute_letterbox). */
-    const u32 logical_w = (h * 4u) / 3u;
-    const u32 logical_h = h;
+    const u32   logical_w  = (h * 4u) / 3u;
+    const u32   logical_h  = h;
     const float fb_aspect  = (float)logical_w / (float)logical_h;
     const float win_aspect = (float)win_w / (float)win_h;
-    int rx, ry, rw, rh;
+    int         rx, ry, rw, rh;
     if (win_aspect > fb_aspect) {
       rh = win_h;
       rw = (int)((float)win_h * fb_aspect + 0.5f);
@@ -994,8 +968,8 @@ static void gl_present_frame(const u32* pixels, u32 w, u32 h)
     }
     glViewport(rx, ry, rw, rh);
     if (getenv("CUPID_TRACE") && (dbg_present_n & 0x3F) == 1) {
-      fprintf(stderr, "[gl_present] win=%dx%d vp=(%d,%d %dx%d) tex=%ux%u logical=%ux%u\n",
-              win_w, win_h, rx, ry, rw, rh, s_gl_present.tex_w, s_gl_present.tex_h, logical_w, logical_h);
+      fprintf(stderr, "[gl_present] win=%dx%d vp=(%d,%d %dx%d) tex=%ux%u logical=%ux%u\n", win_w, win_h, rx, ry, rw, rh,
+              s_gl_present.tex_w, s_gl_present.tex_h, logical_w, logical_h);
     }
 
     glDisable(GL_DEPTH_TEST);
@@ -1038,48 +1012,47 @@ static void gl_present_frame(const u32* pixels, u32 w, u32 h)
   opengl_device_invalidate_state_cache();
 }
 
-static void sdl_present_frame(void)
-{
-  u32 w = 0, h = 0;
-  const u32* pixels = (g_settings.gpu_renderer == GPU_RENDERER_HARDWARE_OPENGL)
-                        ? gpu_hw_get_display_buffer(&w, &h)
-                        : gpu_sw_get_display_buffer(&w, &h);
+static void sdl_present_frame(void) {
+  u32        w = 0, h = 0;
+  const u32* pixels = (g_settings.gpu_renderer == GPU_RENDERER_HARDWARE_OPENGL) ? gpu_hw_get_display_buffer(&w, &h)
+                                                                                : gpu_sw_get_display_buffer(&w, &h);
 
   /* One-shot PPM dump for visual verification (works for both HW and SW). */
   {
-    const char* dump_path = getenv("CUPID_DUMP_PPM");
-    static u32 dump_n = 0;
-    const char* dump_at = getenv("CUPID_DUMP_AT");
-    const u32 trigger_at = dump_at ? (u32)atoi(dump_at) : 600u;
+    const char* dump_path  = getenv("CUPID_DUMP_PPM");
+    static u32  dump_n     = 0;
+    const char* dump_at    = getenv("CUPID_DUMP_AT");
+    const u32   trigger_at = dump_at ? (u32)atoi(dump_at) : 600u;
     if (dump_path && pixels && w && h) {
       if (dump_n == trigger_at) {
-        FILE* f = fopen(dump_path, "wb");
+        FILE* f = fs_open_file(dump_path, "wb", NULL);
         if (f) {
           fprintf(f, "P6\n%u %u\n255\n", w, h);
           for (u32 y = 0; y < h; y++) {
             for (u32 x = 0; x < w; x++) {
-              const u32 px = pixels[y * w + x];
-              u8 rgb[3] = { (u8)(px & 0xFF), (u8)((px >> 8) & 0xFF), (u8)((px >> 16) & 0xFF) };
+              const u32 px     = pixels[y * w + x];
+              u8        rgb[3] = {(u8)(px & 0xFF), (u8)((px >> 8) & 0xFF), (u8)((px >> 16) & 0xFF)};
               fwrite(rgb, 1, 3, f);
             }
           }
           fclose(f);
-          fprintf(stderr, "[ppm dump] wrote %s (%ux%u) at frame %u (renderer=%d)\n", dump_path, w, h, dump_n, (int)g_settings.gpu_renderer);
+          fprintf(stderr, "[ppm dump] wrote %s (%ux%u) at frame %u (renderer=%d)\n", dump_path, w, h, dump_n,
+                  (int)g_settings.gpu_renderer);
         }
         /* Also dump g_vram as PPM for cross-backend g_vram diff. */
         const char* vram_path = getenv("CUPID_DUMP_VRAM_PPM");
         if (vram_path) {
           extern u16 g_vram[];
-          FILE* vf = fopen(vram_path, "wb");
+          FILE*      vf = fs_open_file(vram_path, "wb", NULL);
           if (vf) {
             fprintf(vf, "P6\n%d %d\n255\n", 1024, 512);
             for (int yy = 0; yy < 512; yy++) {
               for (int xx = 0; xx < 1024; xx++) {
-                const u16 v = g_vram[yy * 1024 + xx];
-                u8 r = (u8)((v & 0x1F) << 3);
-                u8 g = (u8)(((v >> 5) & 0x1F) << 3);
-                u8 b = (u8)(((v >> 10) & 0x1F) << 3);
-                u8 rgb[3] = { r, g, b };
+                const u16 v      = g_vram[yy * 1024 + xx];
+                u8        r      = (u8)((v & 0x1F) << 3);
+                u8        g      = (u8)(((v >> 5) & 0x1F) << 3);
+                u8        b      = (u8)(((v >> 10) & 0x1F) << 3);
+                u8        rgb[3] = {r, g, b};
                 fwrite(rgb, 1, 3, vf);
               }
             }
@@ -1105,60 +1078,72 @@ static void sdl_present_frame(void)
       u32 nz = 0;
       if (pixels && w && h) {
         const u32 total = w * h;
-        for (u32 i = 0; i < total; i++) if (pixels[i] != 0) nz++;
+        for (u32 i = 0; i < total; i++)
+          if (pixels[i] != 0) nz++;
       }
       extern u16 g_vram[];
-      u32 vram_nz = 0;
-      const u32 VRAM_W = 1024, VRAM_H = 512;
-      for (u32 i = 0; i < VRAM_W * VRAM_H; i++) if (g_vram[i] != 0) vram_nz++;
-      const gpu_backend_counters_t* c = g_gpu_backend ? &g_gpu_backend->counters : NULL;
-      const u32* op_counts = gpu_dbg_op_counts();
-      u32 op_top[4] = {0,0,0,0};
-      u32 op_idx[4] = {0,0,0,0};
+      u32        vram_nz = 0;
+      const u32  VRAM_W = 1024, VRAM_H = 512;
+      for (u32 i = 0; i < VRAM_W * VRAM_H; i++)
+        if (g_vram[i] != 0) vram_nz++;
+      const gpu_backend_counters_t* c         = g_gpu_backend ? &g_gpu_backend->counters : NULL;
+      const u32*                    op_counts = gpu_dbg_op_counts();
+      u32                           op_top[4] = {0, 0, 0, 0};
+      u32                           op_idx[4] = {0, 0, 0, 0};
       for (int o = 0; o < 256; o++) {
         u32 v = op_counts[o];
         for (int s = 0; s < 4; s++) {
           if (v > op_top[s]) {
-            for (int t = 3; t > s; t--) { op_top[t] = op_top[t-1]; op_idx[t] = op_idx[t-1]; }
-            op_top[s] = v; op_idx[s] = (u32)o; break;
+            for (int t = 3; t > s; t--) {
+              op_top[t] = op_top[t - 1];
+              op_idx[t] = op_idx[t - 1];
+            }
+            op_top[s] = v;
+            op_idx[s] = (u32)o;
+            break;
           }
         }
       }
-      const u32* irqs = irq_dbg_set_counts();
-      const u32* dmas = dma_dbg_transfer_counts();
+      const u32* irqs       = irq_dbg_set_counts();
+      const u32* dmas       = dma_dbg_transfer_counts();
       const u32* gte_counts = gte_dbg_op_counts();
-      u32 gte_top[4] = {0,0,0,0};
-      u32 gte_idx[4] = {0,0,0,0};
+      u32        gte_top[4] = {0, 0, 0, 0};
+      u32        gte_idx[4] = {0, 0, 0, 0};
       for (int o = 0; o < 64; o++) {
         u32 v = gte_counts[o];
         for (int s = 0; s < 4; s++) {
           if (v > gte_top[s]) {
-            for (int t = 3; t > s; t--) { gte_top[t] = gte_top[t-1]; gte_idx[t] = gte_idx[t-1]; }
-            gte_top[s] = v; gte_idx[s] = (u32)o; break;
+            for (int t = 3; t > s; t--) {
+              gte_top[t] = gte_top[t - 1];
+              gte_idx[t] = gte_idx[t - 1];
+            }
+            gte_top[s] = v;
+            gte_idx[s] = (u32)o;
+            break;
           }
         }
       }
-      fprintf(stderr, "[present #%u] %ux%u pc=%08x npc=%08x vram_nz=%u  prims=%u writes=%u  gpu-ops: %02x:%u %02x:%u %02x:%u %02x:%u  gte-ops: %02x:%u %02x:%u %02x:%u %02x:%u\n"
-                      "                irqs vbl=%u gpu=%u cdr=%u dma=%u tim0=%u tim1=%u tim2=%u pad=%u sio=%u spu=%u irq10=%u status=%03x mask=%03x cpu_dispatch=%u\n"
-                      "                dma mdec_in=%u mdec_out=%u gpu=%u cdr=%u spu=%u otc=%u  cd drv=%u lba=%u req=%u buf=%08x cmd=%08x  mdec st=%08x fifo=%08x\n"
-                      "                dma2 madr=%06x bcr=%08x chcr=%08x req=%u dicr=%08x  timers t0=%04x/%04x/%04x t1=%04x/%04x/%04x t2=%04x/%04x/%04x\n",
-              dbg_count, w, h, g_cpu_state.pc, g_cpu_state.npc, vram_nz,
-              c ? c->num_primitives : 0, c ? c->num_writes : 0,
-              op_idx[0], op_top[0], op_idx[1], op_top[1],
-              op_idx[2], op_top[2], op_idx[3], op_top[3],
-              gte_idx[0], gte_top[0], gte_idx[1], gte_top[1],
-              gte_idx[2], gte_top[2], gte_idx[3], gte_top[3],
-              irqs[0], irqs[1], irqs[2], irqs[3], irqs[4], irqs[5], irqs[6], irqs[7],
-              irqs[8], irqs[9], irqs[10], irq_dbg_status_register(), irq_dbg_mask_register(), 
-              cpu_dbg_irq_dispatch_count(),
-              dmas[0], dmas[1], dmas[2], dmas[3], dmas[4], dmas[6],
-              cdrom_dbg_drive_state(), cdrom_dbg_current_lba(), cdrom_dbg_requested_lba(),
-              cdrom_dbg_buffer_status(), cdrom_dbg_command_state(), mdec_dbg_status(), mdec_dbg_fifo_status(),
-              dma_dbg_base_address(DMA_CHANNEL_GPU), dma_dbg_block_control(DMA_CHANNEL_GPU),
+      fprintf(stderr,
+              "[present #%u] %ux%u pc=%08x npc=%08x vram_nz=%u  prims=%u writes=%u  gpu-ops: %02x:%u %02x:%u %02x:%u "
+              "%02x:%u  gte-ops: %02x:%u %02x:%u %02x:%u %02x:%u\n"
+              "                irqs vbl=%u gpu=%u cdr=%u dma=%u tim0=%u tim1=%u tim2=%u pad=%u sio=%u spu=%u irq10=%u "
+              "status=%03x mask=%03x cpu_dispatch=%u\n"
+              "                dma mdec_in=%u mdec_out=%u gpu=%u cdr=%u spu=%u otc=%u  cd drv=%u lba=%u req=%u "
+              "buf=%08x cmd=%08x  mdec st=%08x fifo=%08x\n"
+              "                dma2 madr=%06x bcr=%08x chcr=%08x req=%u dicr=%08x  timers t0=%04x/%04x/%04x "
+              "t1=%04x/%04x/%04x t2=%04x/%04x/%04x\n",
+              dbg_count, w, h, g_cpu_state.pc, g_cpu_state.npc, vram_nz, c ? c->num_primitives : 0,
+              c ? c->num_writes : 0, op_idx[0], op_top[0], op_idx[1], op_top[1], op_idx[2], op_top[2], op_idx[3],
+              op_top[3], gte_idx[0], gte_top[0], gte_idx[1], gte_top[1], gte_idx[2], gte_top[2], gte_idx[3], gte_top[3],
+              irqs[0], irqs[1], irqs[2], irqs[3], irqs[4], irqs[5], irqs[6], irqs[7], irqs[8], irqs[9], irqs[10],
+              irq_dbg_status_register(), irq_dbg_mask_register(), cpu_dbg_irq_dispatch_count(), dmas[0], dmas[1],
+              dmas[2], dmas[3], dmas[4], dmas[6], cdrom_dbg_drive_state(), cdrom_dbg_current_lba(),
+              cdrom_dbg_requested_lba(), cdrom_dbg_buffer_status(), cdrom_dbg_command_state(), mdec_dbg_status(),
+              mdec_dbg_fifo_status(), dma_dbg_base_address(DMA_CHANNEL_GPU), dma_dbg_block_control(DMA_CHANNEL_GPU),
               dma_dbg_channel_control(DMA_CHANNEL_GPU), dma_dbg_request(DMA_CHANNEL_GPU), dma_dbg_dicr(),
-              timers_dbg_counter(0), timers_dbg_mode(0), timers_dbg_target(0),
-              timers_dbg_counter(1), timers_dbg_mode(1), timers_dbg_target(1),
-              timers_dbg_counter(2), timers_dbg_mode(2), timers_dbg_target(2));
+              timers_dbg_counter(0), timers_dbg_mode(0), timers_dbg_target(0), timers_dbg_counter(1),
+              timers_dbg_mode(1), timers_dbg_target(1), timers_dbg_counter(2), timers_dbg_mode(2),
+              timers_dbg_target(2));
       trace_task_state();
       trace_pc_window();
       (void)nz;
@@ -1181,7 +1166,7 @@ static void sdl_present_frame(void)
        * top/bottom letterbox instead of filling a 4:3 window edge-to-edge. */
       const u32 logical_w = (h * 4u) / 3u;
       const u32 logical_h = h;
-      SDL_Rect dst;
+      SDL_Rect  dst;
       compute_letterbox(logical_w, logical_h, win_w, win_h, &dst);
       SDL_RenderCopy(s_fe.renderer, s_fe.texture, NULL, &dst);
     }
@@ -1190,44 +1175,30 @@ static void sdl_present_frame(void)
   SDL_RenderPresent(s_fe.renderer);
 }
 
-static void trace_pc_window(void)
-{
-  if (!getenv("CUPID_TRACE_PC"))
-    return;
+static void trace_pc_window(void) {
+  if (!getenv("CUPID_TRACE_PC")) return;
 
   const cpu_registers_t* r = &g_cpu_state.regs;
   fprintf(stderr,
           "[pc-window] pc=%08x npc=%08x sr=%08x cause=%08x epc=%08x "
           "a0=%08x a1=%08x a2=%08x a3=%08x v0=%08x v1=%08x "
           "s0=%08x s1=%08x s2=%08x s3=%08x s4=%08x s5=%08x ra=%08x sp=%08x\n",
-          g_cpu_state.pc, g_cpu_state.npc, g_cpu_state.cop0_regs.sr.bits,
-          g_cpu_state.cop0_regs.cause.bits, g_cpu_state.cop0_regs.EPC,
-          r->named.a0, r->named.a1, r->named.a2, r->named.a3,
-          r->named.v0, r->named.v1, r->named.s0, r->named.s1,
-          r->named.s2, r->named.s3, r->named.s4, r->named.s5, 
-          r->named.ra, r->named.sp);
+          g_cpu_state.pc, g_cpu_state.npc, g_cpu_state.cop0_regs.sr.bits, g_cpu_state.cop0_regs.cause.bits,
+          g_cpu_state.cop0_regs.EPC, r->named.a0, r->named.a1, r->named.a2, r->named.a3, r->named.v0, r->named.v1,
+          r->named.s0, r->named.s1, r->named.s2, r->named.s3, r->named.s4, r->named.s5, r->named.ra, r->named.sp);
   trace_disasm_window(g_cpu_state.pc, '>');
-  if ((g_cpu_state.npc & ~0x3Fu) != (g_cpu_state.pc & ~0x3Fu))
-    trace_disasm_window(g_cpu_state.npc, '*');
+  if ((g_cpu_state.npc & ~0x3Fu) != (g_cpu_state.pc & ~0x3Fu)) trace_disasm_window(g_cpu_state.npc, '*');
 }
 
-static void trace_task_entry(const char* label, u32 addr)
-{
-  u32 w00 = 0, w08 = 0, w0c = 0, w10 = 0, w14 = 0, w18 = 0, w1c = 0, w20 = 0, w24 = 0, w28 = 0;
-  u16 h04 = 0, h06 = 0;
-  const bool ok =
-    cpu_safe_read_memory_word(addr + 0x00u, &w00) &&
-    cpu_safe_read_memory_halfword(addr + 0x04u, &h04) &&
-    cpu_safe_read_memory_halfword(addr + 0x06u, &h06) &&
-    cpu_safe_read_memory_word(addr + 0x08u, &w08) &&
-    cpu_safe_read_memory_word(addr + 0x0cu, &w0c) &&
-    cpu_safe_read_memory_word(addr + 0x10u, &w10) &&
-    cpu_safe_read_memory_word(addr + 0x14u, &w14) &&
-    cpu_safe_read_memory_word(addr + 0x18u, &w18) &&
-    cpu_safe_read_memory_word(addr + 0x1cu, &w1c) &&
-    cpu_safe_read_memory_word(addr + 0x20u, &w20) &&
-    cpu_safe_read_memory_word(addr + 0x24u, &w24) &&
-    cpu_safe_read_memory_word(addr + 0x28u, &w28);
+static void trace_task_entry(const char* label, u32 addr) {
+  u32        w00 = 0, w08 = 0, w0c = 0, w10 = 0, w14 = 0, w18 = 0, w1c = 0, w20 = 0, w24 = 0, w28 = 0;
+  u16        h04 = 0, h06 = 0;
+  const bool ok = cpu_safe_read_memory_word(addr + 0x00u, &w00) && cpu_safe_read_memory_halfword(addr + 0x04u, &h04) &&
+                  cpu_safe_read_memory_halfword(addr + 0x06u, &h06) && cpu_safe_read_memory_word(addr + 0x08u, &w08) &&
+                  cpu_safe_read_memory_word(addr + 0x0cu, &w0c) && cpu_safe_read_memory_word(addr + 0x10u, &w10) &&
+                  cpu_safe_read_memory_word(addr + 0x14u, &w14) && cpu_safe_read_memory_word(addr + 0x18u, &w18) &&
+                  cpu_safe_read_memory_word(addr + 0x1cu, &w1c) && cpu_safe_read_memory_word(addr + 0x20u, &w20) &&
+                  cpu_safe_read_memory_word(addr + 0x24u, &w24) && cpu_safe_read_memory_word(addr + 0x28u, &w28);
   if (!ok) {
     fprintf(stderr, "  task %s @%08x: <unreadable>\n", label, addr);
     return;
@@ -1235,51 +1206,40 @@ static void trace_task_entry(const char* label, u32 addr)
 
   fprintf(stderr,
           "  task %s @%08x: +00=%08x st=%04x ty=%04x +08=%08x +0c=%08x +10=%08x "
-          "+14=%08x +18=%08x +1c=%08x +20=%08x +24=%08x +28=%08x\n", 
+          "+14=%08x +18=%08x +1c=%08x +20=%08x +24=%08x +28=%08x\n",
           label, addr, w00, h04, h06, w08, w0c, w10, w14, w18, w1c, w20, w24, w28);
 }
 
-static void trace_task_state(void)
-{
-  if (!getenv("CUPID_TRACE_TASK"))
-    return;
+static void trace_task_state(void) {
+  if (!getenv("CUPID_TRACE_TASK")) return;
 
   const u32 pc = g_cpu_state.pc;
-  if (pc < 0x80013500u || pc > 0x80014220u)
-    return;
+  if (pc < 0x80013500u || pc > 0x80014220u) return;
 
-  const cpu_registers_t* r = &g_cpu_state.regs;
-  u32 count = 0;
-  bool have_count = cpu_safe_read_memory_word(r->named.s2 - 4u, &count);
-  if (count > 128u)
-    count = 128u;
+  const cpu_registers_t* r          = &g_cpu_state.regs;
+  u32                    count      = 0;
+  bool                   have_count = cpu_safe_read_memory_word(r->named.s2 - 4u, &count);
+  if (count > 128u) count = 128u;
 
   fprintf(stderr,
           "[task-state] pc=%08x npc=%08x a0=%08x s1=%08x s2=%08x count=%s%u "
           "s0=%08x s3=%08x s5=%08x t0=%08x t1=%08x t2=%08x v0=%08x v1=%08x\n",
-          g_cpu_state.pc, g_cpu_state.npc, r->named.a0, r->named.s1, r->named.s2,
-          have_count ? "" : "?", count, r->named.s0, r->named.s3, r->named.s5, 
-          r->named.t0, r->named.t1, r->named.t2, r->named.v0, r->named.v1);
+          g_cpu_state.pc, g_cpu_state.npc, r->named.a0, r->named.s1, r->named.s2, have_count ? "" : "?", count,
+          r->named.s0, r->named.s3, r->named.s5, r->named.t0, r->named.t1, r->named.t2, r->named.v0, r->named.v1);
 
   trace_task_entry("a0", r->named.a0);
-  if (r->named.s1 != r->named.a0)
-    trace_task_entry("s1", r->named.s1);
-  if (r->named.s2 != r->named.a0 && r->named.s2 != r->named.s1)
-    trace_task_entry("s2", r->named.s2);
+  if (r->named.s1 != r->named.a0) trace_task_entry("s1", r->named.s1);
+  if (r->named.s2 != r->named.a0 && r->named.s2 != r->named.s1) trace_task_entry("s2", r->named.s2);
 
-  if (!have_count || r->named.s2 == 0)
-    return;
+  if (!have_count || r->named.s2 == 0) return;
 
   for (u32 i = 0; i < count; i++) {
     const u32 entry = r->named.s2 + i * 44u;
-    if (entry == r->named.a0 || entry == r->named.s1)
-      continue;
+    if (entry == r->named.a0 || entry == r->named.s1) continue;
 
     u16 state = 0;
-    if (!cpu_safe_read_memory_halfword(entry + 4u, &state))
-      continue;
-    if (state == 0)
-      continue;
+    if (!cpu_safe_read_memory_halfword(entry + 4u, &state)) continue;
+    if (state == 0) continue;
 
     char label[16];
     snprintf(label, sizeof(label), "#%u", i);
@@ -1287,8 +1247,7 @@ static void trace_task_state(void)
   }
 }
 
-static void trace_disasm_window(u32 center, char marker)
-{
+static void trace_disasm_window(u32 center, char marker) {
   const u32 start = (center >= 16u) ? (center - 16u) : center;
   for (u32 addr = start; addr < start + 36u; addr += 4u) {
     u32 instr = 0;
@@ -1300,27 +1259,25 @@ static void trace_disasm_window(u32 center, char marker)
     small_string_stack_t text;
     small_string_stack_init(&text);
     cpu_disassemble(&text.s, instr, addr);
-    fprintf(stderr, "%c %08x: %08x  %s\n",
-            (addr == center) ? marker : ' ', addr, instr, small_string_c_str(&text.s));
+    fprintf(stderr, "%c %08x: %08x  %s\n", (addr == center) ? marker : ' ', addr, instr, small_string_c_str(&text.s));
     small_string_destroy(&text.s);
   }
 }
 
-static void sdl_teardown(void)
-{
+static void sdl_teardown(void) {
   input_map_close_all_gamepads();
-  if (s_fe.texture)  SDL_DestroyTexture(s_fe.texture);
+  if (s_fe.texture) SDL_DestroyTexture(s_fe.texture);
   if (s_fe.renderer) SDL_DestroyRenderer(s_fe.renderer);
-  if (s_fe.window)   SDL_DestroyWindow(s_fe.window);
+  if (s_fe.window) SDL_DestroyWindow(s_fe.window);
   s_fe.texture  = NULL;
   s_fe.renderer = NULL;
   s_fe.window   = NULL;
   SDL_Quit();
 }
 
-static bool audio_setup(void)
-{
-  Error e; Error_init(&e);
+static bool audio_setup(void) {
+  Error e;
+  Error_init(&e);
 
   s_fe.audio = core_audio_stream_create();
   if (!s_fe.audio) {
@@ -1330,13 +1287,10 @@ static bool audio_setup(void)
   }
 
   const settings_audio_stream_parameters_t* ap = &g_settings.audio_stream_parameters;
-  if (!core_audio_stream_initialize(s_fe.audio,
-                                    g_settings.audio_backend,
-                                    /*sample_rate*/ 44100u,
-                                    ap,
+  if (!core_audio_stream_initialize(s_fe.audio, g_settings.audio_backend,
+                                    /*sample_rate*/ 44100u, ap,
                                     /*driver_name*/ NULL,
-                                    /*device_name*/ NULL,
-                                    &e)) {
+                                    /*device_name*/ NULL, &e)) {
     fprintf(stderr, "core_audio_stream_initialize failed: %s\n", Error_get_description(&e));
     core_audio_stream_destroy(s_fe.audio);
     s_fe.audio = NULL;
@@ -1349,8 +1303,7 @@ static bool audio_setup(void)
   return true;
 }
 
-static void audio_teardown(void)
-{
+static void audio_teardown(void) {
   spu_set_output_stream(NULL);
   if (s_fe.audio) {
     core_audio_stream_destroy(s_fe.audio);
@@ -1358,14 +1311,12 @@ static void audio_teardown(void)
   }
 }
 
-static void request_quit(void)
-{
+static void request_quit(void) {
   s_fe.quit_requested = true;
   system_shutdown_system(false);
 }
 
-static void test_savestate_roundtrip_tick(void)
-{
+static void test_savestate_roundtrip_tick(void) {
   if (!s_fe.test_rt_enabled || !system_is_valid()) return;
 
   const u32 frame = system_get_frame_number();
@@ -1373,8 +1324,9 @@ static void test_savestate_roundtrip_tick(void)
     /* CUPID_RT_PATH overrides the default `.sav` path so we can verify
      * gzip / zstd / xz outer wrappers via the same harness. */
     const char* env_path = getenv("CUPID_RT_PATH");
-    const char* path = (env_path && env_path[0]) ? env_path : "/tmp/cupid-ps1-rt-test.sav";
-    Error e; Error_init(&e);
+    const char* path     = (env_path && env_path[0]) ? env_path : "/tmp/cupid-ps1-rt-test.sav";
+    Error       e;
+    Error_init(&e);
     if (!system_save_state(path, &e, false, true)) {
       fprintf(stderr, "[rt-test] save_state failed: %s\n", Error_get_description(&e));
       Error_destroy(&e);
@@ -1394,7 +1346,7 @@ static void test_savestate_roundtrip_tick(void)
     }
     Error_destroy(&e);
     fprintf(stderr, "[rt-test] save+load round-trip OK at frame %u\n", frame);
-    s_fe.test_rt_saved = true;
+    s_fe.test_rt_saved      = true;
     s_fe.test_rt_quit_frame = system_get_frame_number() + 60u;
   }
 
@@ -1405,51 +1357,70 @@ static void test_savestate_roundtrip_tick(void)
   }
 }
 
-static bool configure_execution_diagnostics(void)
-{
+static bool configure_execution_diagnostics(void) {
   cpu_execution_stats_initialize(getenv("CUPID_CPU_STATS") != NULL);
   s_fe.checkpoint_dir = getenv("CUPID_CHECKPOINT_DIR");
+  const char* restore = getenv("CUPID_CHECKPOINT_RESTORE");
+  const char* reset   = getenv("CUPID_CHECKPOINT_RESTORE_RESET");
+  if (reset && (!restore || strcmp(reset, "1") != 0)) {
+    fprintf(stderr, "[execution-checkpoint] reset-before-restore requires a restore index and value 1\n");
+    return false;
+  }
+  s_fe.checkpoint_restore_reset = reset != NULL;
+  s_fe.checkpoint_reject_file   = getenv("CUPID_CHECKPOINT_REJECT_FILE");
+  if (s_fe.checkpoint_reject_file && (!*s_fe.checkpoint_reject_file || !restore || reset)) {
+    fprintf(stderr, "[execution-checkpoint] rejection requires a restore index and conflicts with reset\n");
+    return false;
+  }
+  if (restore && !s_fe.checkpoint_dir) {
+    fprintf(stderr, "[execution-checkpoint] restore requires checkpoint configuration\n");
+    return false;
+  }
   if (s_fe.checkpoint_dir) {
-    const char* spec = getenv("CUPID_CHECKPOINT_SCHEDULE");
-    char* end = NULL;
-    errno = 0;
+    const char* spec             = getenv("CUPID_CHECKPOINT_SCHEDULE");
+    char*       end              = NULL;
+    errno                        = 0;
     const unsigned long interval = spec ? strtoul(spec, &end, 10) : 0;
-    if (!spec || *spec < '0' || *spec > '9' || errno || !end || *end != ',' ||
-        interval == 0 || interval > UINT32_MAX) {
+    if (!spec || *spec < '0' || *spec > '9' || errno || !end || *end != ',' || interval == 0 || interval > UINT32_MAX) {
       fprintf(stderr, "[execution-checkpoint] invalid interval\n");
       return false;
     }
-    const char* count_start = end + 1;
-    errno = 0;
+    const char* count_start   = end + 1;
+    errno                     = 0;
     const unsigned long count = strtoul(count_start, &end, 10);
     if (*count_start < '0' || *count_start > '9' || errno || *end || count == 0 || count > 32 ||
-        interval > UINT32_MAX / count || !*s_fe.checkpoint_dir ||
-        s_fe.test_rt_enabled || getenv("CUPID_DIFF_TRACE")) {
+        interval > UINT32_MAX / count || !*s_fe.checkpoint_dir || s_fe.test_rt_enabled || getenv("CUPID_DIFF_TRACE")) {
       fprintf(stderr, "[execution-checkpoint] invalid or conflicting diagnostic configuration\n");
       return false;
     }
     s_fe.checkpoint_interval = interval;
-    s_fe.checkpoint_count = count;
+    s_fe.checkpoint_count    = count;
+    if (restore) {
+      errno                     = 0;
+      const unsigned long index = strtoul(restore, &end, 10);
+      if (*restore < '0' || *restore > '9' || errno || *end || index == 0 || index >= count) {
+        fprintf(stderr, "[execution-checkpoint] restore index must precede the final checkpoint\n");
+        return false;
+      }
+      s_fe.checkpoint_restore_at = index;
+    }
   }
   return cpu_diff_initialize();
 }
 
-static void execution_checkpoint_tick(void)
-{
-  if (!s_fe.checkpoint_dir || !system_is_valid())
-    return;
-  const u32 frame = system_get_frame_number();
+static void execution_checkpoint_tick(void) {
+  if (!s_fe.checkpoint_dir || !system_is_valid()) return;
+  const u32 frame  = system_get_frame_number();
   const u32 target = (s_fe.checkpoints_written + 1u) * s_fe.checkpoint_interval;
-  if (frame < target)
-    return;
-  char path[4096];
+  if (frame < target) return;
+  char      path[4096];
   const int length = snprintf(path, sizeof(path), "%s/checkpoint-%08u.sav", s_fe.checkpoint_dir, target);
-  Error error;
+  Error     error;
   Error_init(&error);
   if (frame != target || length < 0 || (size_t)length >= sizeof(path) ||
-      access(path, F_OK) == 0 || !system_save_state(path, &error, false, true)) {
-    fprintf(stderr, "[execution-checkpoint] failed frame=%u expected=%u: %s\n",
-            frame, target, Error_get_description(&error));
+      (fs_file_exists(path) || fs_directory_exists(path)) || !system_save_state(path, &error, false, true)) {
+    fprintf(stderr, "[execution-checkpoint] failed frame=%u expected=%u: %s\n", frame, target,
+            Error_get_description(&error));
     s_fe.checkpoint_failed = true;
     Error_destroy(&error);
     request_quit();
@@ -1457,24 +1428,56 @@ static void execution_checkpoint_tick(void)
   }
   Error_destroy(&error);
   s_fe.checkpoints_written++;
-  fprintf(stderr, "[execution-checkpoint] frame=%u ticks=%llu\n", frame,
-          (unsigned long long)timing_events_get_global_tick_counter());
-  if (s_fe.checkpoints_written == s_fe.checkpoint_count)
-    request_quit();
+  const global_ticks_t ticks = timing_events_get_global_tick_counter();
+  fprintf(stderr, "[execution-checkpoint] frame=%u ticks=%llu\n", frame, (unsigned long long)ticks);
+  if (s_fe.checkpoints_written == s_fe.checkpoint_restore_at) {
+    Error_init(&error);
+    if (s_fe.checkpoint_restore_reset) {
+      system_reset_system();
+      fprintf(stderr, "[execution-checkpoint] reset before restore index=%u\n", s_fe.checkpoints_written);
+    }
+    const bool reject = s_fe.checkpoint_reject_file != NULL;
+    const bool loaded = system_load_state(reject ? s_fe.checkpoint_reject_file : path, &error, false, false) != 0;
+    if (loaded == reject || !system_is_valid() || system_get_frame_number() != frame ||
+        timing_events_get_global_tick_counter() != ticks) {
+      fprintf(stderr, "[execution-checkpoint] restore failed index=%u: %s\n", s_fe.checkpoints_written,
+              Error_get_description(&error));
+      s_fe.checkpoint_failed = true;
+      Error_destroy(&error);
+      request_quit();
+      return;
+    }
+    if (reject) {
+      fprintf(stderr, "[execution-checkpoint] rejected index=%u frame=%u ticks=%llu error=%s\n",
+              s_fe.checkpoints_written, frame, (unsigned long long)ticks, Error_get_description(&error));
+      Error_clear(&error);
+      const int after_length = snprintf(path, sizeof(path), "%s/rejected-%08u.sav", s_fe.checkpoint_dir, target);
+      if (after_length < 0 || (size_t)after_length >= sizeof(path) || fs_file_exists(path) ||
+          fs_directory_exists(path) || !system_save_state(path, &error, false, true)) {
+        fprintf(stderr, "[execution-checkpoint] failed after rejection: %s\n", Error_get_description(&error));
+        s_fe.checkpoint_failed = true;
+        Error_destroy(&error);
+        request_quit();
+        return;
+      }
+      s_fe.checkpoint_rejected = true;
+    } else {
+      s_fe.checkpoint_restored = true;
+      fprintf(stderr, "[execution-checkpoint] restored index=%u frame=%u ticks=%llu\n", s_fe.checkpoints_written, frame,
+              (unsigned long long)ticks);
+    }
+    Error_destroy(&error);
+  }
+  if (s_fe.checkpoints_written == s_fe.checkpoint_count) request_quit();
 }
 
-void host_pump_messages_on_core_thread(void)
-{
-  if (s_quit_signal)
-    request_quit();
-  if (s_fe.quit_requested)
-    return;
+void host_pump_messages_on_core_thread(void) {
+  if (s_quit_signal) request_quit();
+  if (s_fe.quit_requested) return;
   execution_checkpoint_tick();
-  if (s_fe.quit_requested)
-    return;
+  if (s_fe.quit_requested) return;
   test_savestate_roundtrip_tick();
-  if (s_fe.quit_requested)
-    return;
+  if (s_fe.quit_requested) return;
 
   SDL_Event ev;
   while (!s_fe.quit_requested && SDL_PollEvent(&ev)) {
@@ -1486,15 +1489,13 @@ void host_pump_messages_on_core_thread(void)
       case SDL_WINDOWEVENT:
         if (ev.window.event == SDL_WINDOWEVENT_CLOSE) {
           request_quit();
-        } else if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED ||
-                   ev.window.event == SDL_WINDOWEVENT_RESIZED) {
+        } else if (ev.window.event == SDL_WINDOWEVENT_SIZE_CHANGED || ev.window.event == SDL_WINDOWEVENT_RESIZED) {
           input_map_set_window_size(ev.window.data1, ev.window.data2);
         }
         break;
 
       case SDL_MOUSEMOTION:
-        input_map_handle_mouse_motion(ev.motion.x, ev.motion.y,
-                                      ev.motion.xrel, ev.motion.yrel);
+        input_map_handle_mouse_motion(ev.motion.x, ev.motion.y, ev.motion.xrel, ev.motion.yrel);
         break;
 
       case SDL_MOUSEBUTTONDOWN:
@@ -1507,8 +1508,8 @@ void host_pump_messages_on_core_thread(void)
       case SDL_KEYDOWN:
         input_map_handle_key_event(&ev.key);
         if (!ev.key.repeat) {
-          const Uint16 mod = ev.key.keysym.mod;
-          const bool   alt_down   = (mod & KMOD_ALT)   != 0;
+          const Uint16 mod        = ev.key.keysym.mod;
+          const bool   alt_down   = (mod & KMOD_ALT) != 0;
           const bool   shift_down = (mod & KMOD_SHIFT) != 0;
           switch (ev.key.keysym.scancode) {
             case SDL_SCANCODE_ESCAPE:
@@ -1523,19 +1524,20 @@ void host_pump_messages_on_core_thread(void)
               }
               break;
             }
-            case SDL_SCANCODE_F3:    /* previous sub-image (multi-disc m3u) */
-            case SDL_SCANCODE_F4: {  /* next sub-image */
+            case SDL_SCANCODE_F3:   /* previous sub-image (multi-disc m3u) */
+            case SDL_SCANCODE_F4: { /* next sub-image */
               if (system_has_media_sub_images()) {
-                const u32 cnt = system_get_media_sub_image_count();
-                const u32 cur = system_get_media_sub_image_index();
-                u32 next = cur;
+                const u32 cnt  = system_get_media_sub_image_count();
+                const u32 cur  = system_get_media_sub_image_index();
+                u32       next = cur;
                 if (ev.key.keysym.scancode == SDL_SCANCODE_F4) {
                   if (cur + 1u < cnt) next = cur + 1u;
                 } else {
                   if (cur > 0u) next = cur - 1u;
                 }
                 if (next != cur) {
-                  Error e; Error_init(&e);
+                  Error e;
+                  Error_init(&e);
                   if (!system_switch_media_sub_image(next, &e)) {
                     fprintf(stderr, "switch sub-image failed: %s\n", Error_get_description(&e));
                   }
@@ -1546,21 +1548,18 @@ void host_pump_messages_on_core_thread(void)
             }
             /* P: pause / resume. */
             case SDL_SCANCODE_P:
-              if (system_is_valid())
-                system_pause_system(!system_is_paused());
+              if (system_is_valid()) system_pause_system(!system_is_paused());
               break;
             /* F5: hard reset. */
             case SDL_SCANCODE_F5:
-              if (system_is_valid())
-                system_reset_system();
+              if (system_is_valid()) system_reset_system();
               break;
             /* Alt+Enter: fullscreen toggle.  Bare Return is still pad START
              * (input_map handles it via the keyboard scancode array). */
             case SDL_SCANCODE_RETURN:
               if (alt_down && s_fe.window) {
                 s_fe.fullscreen = !s_fe.fullscreen;
-                SDL_SetWindowFullscreen(s_fe.window,
-                                        s_fe.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                SDL_SetWindowFullscreen(s_fe.window, s_fe.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
               }
               break;
             /* Tab held: fast-forward.  Released in the SDL_KEYUP handler.
@@ -1574,11 +1573,17 @@ void host_pump_messages_on_core_thread(void)
               }
               break;
             /* Shift+1..9: pick the active save-state slot for F11/F12. */
-            case SDL_SCANCODE_1: case SDL_SCANCODE_2: case SDL_SCANCODE_3:
-            case SDL_SCANCODE_4: case SDL_SCANCODE_5: case SDL_SCANCODE_6:
-            case SDL_SCANCODE_7: case SDL_SCANCODE_8: case SDL_SCANCODE_9: {
+            case SDL_SCANCODE_1:
+            case SDL_SCANCODE_2:
+            case SDL_SCANCODE_3:
+            case SDL_SCANCODE_4:
+            case SDL_SCANCODE_5:
+            case SDL_SCANCODE_6:
+            case SDL_SCANCODE_7:
+            case SDL_SCANCODE_8:
+            case SDL_SCANCODE_9: {
               if (shift_down) {
-                const s32 slot = (s32)(ev.key.keysym.scancode - SDL_SCANCODE_1) + 1;
+                const s32 slot         = (s32)(ev.key.keysym.scancode - SDL_SCANCODE_1) + 1;
                 s_fe.current_save_slot = slot;
                 fprintf(stderr, "[hotkey] save-state slot = %d\n", slot);
               }
@@ -1596,7 +1601,8 @@ void host_pump_messages_on_core_thread(void)
               system_load_state_from_slot(true, slot);
               break;
             }
-            default: break;
+            default:
+              break;
           }
         }
         break;
@@ -1617,33 +1623,30 @@ void host_pump_messages_on_core_thread(void)
         input_map_on_controller_removed(ev.cdevice.which);
         break;
 
-      default: break;
+      default:
+        break;
     }
   }
 
   /* Update the framebuffer presentation. */
-  if (!s_fe.quit_requested)
-    sdl_present_frame();
+  if (!s_fe.quit_requested) sdl_present_frame();
 }
 
-void host_input_manager_poll_sources(void)
-{
+void host_input_manager_poll_sources(void) {
   /* Order: keyboard sets baseline, gamepads OR-merge in. */
   input_map_apply_keyboard();
   input_map_apply_gamepads();
 }
 
-void host_wait_for_all_async_tasks(void)
-{
+void host_wait_for_all_async_tasks(void) {
   /* Frontend doesn't run async tasks today.  When the task queue lands,
    * this needs to drain it. */
 }
 
-static bool boot_and_run(void)
-{
-  if (!configure_execution_diagnostics())
-    return false;
-  Error e; Error_init(&e);
+static bool boot_and_run(void) {
+  if (!configure_execution_diagnostics()) return false;
+  Error e;
+  Error_init(&e);
 
   if (!system_process_startup(&e)) {
     fprintf(stderr, "system_process_startup failed: %s\n", Error_get_description(&e));
@@ -1654,8 +1657,7 @@ static bool boot_and_run(void)
    * emit decision sees the env var. */
   cpu_code_cache_dbg_init_exec_trace();
   if (!system_core_thread_initialize(&e)) {
-    fprintf(stderr, "system_core_thread_initialize failed: %s\n",
-            Error_get_description(&e));
+    fprintf(stderr, "system_core_thread_initialize failed: %s\n", Error_get_description(&e));
     Error_destroy(&e);
     return false;
   }
@@ -1675,12 +1677,15 @@ static bool boot_and_run(void)
   Error_destroy(&e);
 
   if (cpu_execution_stats_is_enabled()) {
-    const char* mode = g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER ? "recomp" :
-                       g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER ? "cached" : "interp";
-    const char* fastmem = !cpu_code_cache_is_using_recompiler() || !cpu_code_cache_is_using_fastmem() ? "off" :
-                          g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP ? "mmap" : "lut";
-    fprintf(stderr, "[cpu-stats] configuration mode=%s fastmem=%s linking=%s\n", mode, fastmem,
-            g_settings.cpu_recompiler_block_linking ? "on" : "off");
+    const char* mode    = g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER           ? "recomp"
+                          : g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER ? "cached"
+                                                                                                   : "interp";
+    const char* fastmem = !cpu_code_cache_is_using_recompiler() || !cpu_code_cache_is_using_fastmem() ? "off"
+                          : g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP                      ? "mmap"
+                                                                                                      : "lut";
+    fprintf(stderr, "[cpu-stats] configuration mode=%s fastmem=%s linking=%s icache=%s\n", mode, fastmem,
+            g_settings.cpu_recompiler_block_linking ? "on" : "off",
+            !cpu_code_cache_is_using_recompiler() || g_settings.cpu_recompiler_icache ? "on" : "off");
   }
 
   /* Optional low-RAM write watch (CUPID_TRACE_LOW_RAM=1).  Must run AFTER
@@ -1692,8 +1697,7 @@ static bool boot_and_run(void)
    * while paused so the user can resume or quit. */
   while (!s_fe.quit_requested && !system_is_shutdown()) {
     system_execute();
-    if (s_fe.quit_requested)
-      break;
+    if (s_fe.quit_requested) break;
     /* If we got here without a quit, the system either paused or stopped;
      * don't busy-loop; present once and pump events to give the user a
      * chance to either close the window or unpause. */
@@ -1701,14 +1705,17 @@ static bool boot_and_run(void)
     SDL_Delay(16);
   }
 
-  if (system_is_valid())
-    system_shutdown_system(false);
+  if (system_is_valid()) system_shutdown_system(false);
   if (getenv("CUPID_CPU_STATS")) {
     const cpu_execution_stats_t* execution = cpu_execution_stats_get();
     fprintf(stderr, "[cpu-stats] execution interpreted=%llu native_entered=%llu native_completed=%llu\n",
             (unsigned long long)execution->interpreted_instructions,
             (unsigned long long)execution->native_blocks_entered,
             (unsigned long long)execution->native_blocks_completed);
+    fprintf(stderr, "[cpu-stats] native_dispatch delay_slots_interpreted=%llu\n",
+            (unsigned long long)execution->native_dispatch_delay_slots);
+    fprintf(stderr, "[cpu-stats] lut loads=%llu stores=%llu\n", (unsigned long long)execution->native_lut_loads,
+            (unsigned long long)execution->native_lut_stores);
     const cpu_cached_interpreter_stats_t stats = cpu_code_cache_get_cached_interpreter_stats();
     fprintf(stderr, "[cpu-stats] cached created=%llu hits=%llu blocks=%llu instructions=%llu fallback=%llu\n",
             (unsigned long long)stats.blocks_created, (unsigned long long)stats.block_hits,
@@ -1720,8 +1727,7 @@ static bool boot_and_run(void)
   return true;
 }
 
-int main(int argc, char** argv)
-{
+int frontend_run(int argc, char** argv) {
   memset(&s_fe, 0, sizeof(s_fe));
   s_fe.current_save_slot = 1;
 
@@ -1734,14 +1740,7 @@ int main(int argc, char** argv)
 
   atexit(dump_debug_ringbuffers);
 
-  {
-    struct sigaction sa = {0};
-    sa.sa_handler = quit_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(SIGINT,  &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
-  }
+  install_quit_handlers(true);
 
   /* Crash handler: backtrace on SIGSEGV/SIGABRT/SIGFPE/SIGILL/SIGBUS via
    * common/crash_handler.  page_fault_handler (installed by the JIT init)
@@ -1776,15 +1775,12 @@ int main(int argc, char** argv)
 
   apply_frontend_settings();
 
-  if (!sdl_setup())
-    goto fail;
+  if (!sdl_setup()) goto fail;
 
-  if (!audio_setup())
-    goto fail;
+  if (!audio_setup()) goto fail;
 
   bool ok = boot_and_run();
-  if (!cpu_diff_shutdown())
-    ok = false;
+  if (!cpu_diff_shutdown()) ok = false;
 
   audio_teardown();
   sdl_teardown();
@@ -1793,13 +1789,14 @@ int main(int argc, char** argv)
   free(s_fe.bios_path);
   free(s_fe.game_path);
   free(s_fe.bios_dir);
-  if (s_fe.ini_inited)
-    ini_settings_interface_destroy(&s_fe.ini);
+  if (s_fe.ini_inited) ini_settings_interface_destroy(&s_fe.ini);
   settings_destroy(&g_gpu_settings);
   settings_destroy(&g_settings);
 
   if (s_fe.checkpoint_dir) {
-    if (!ok || s_fe.checkpoint_failed || s_fe.checkpoints_written != s_fe.checkpoint_count) {
+    if (!ok || s_fe.checkpoint_failed || s_fe.checkpoints_written != s_fe.checkpoint_count ||
+        (s_fe.checkpoint_restore_at &&
+         !(s_fe.checkpoint_reject_file ? s_fe.checkpoint_rejected : s_fe.checkpoint_restored))) {
       fprintf(stderr, "[execution-checkpoint] incomplete\n");
       return 2;
     }
@@ -1820,8 +1817,7 @@ fail:
   free(s_fe.bios_path);
   free(s_fe.game_path);
   free(s_fe.bios_dir);
-  if (s_fe.ini_inited)
-    ini_settings_interface_destroy(&s_fe.ini);
+  if (s_fe.ini_inited) ini_settings_interface_destroy(&s_fe.ini);
   settings_destroy(&g_gpu_settings);
   settings_destroy(&g_settings);
   return 2;

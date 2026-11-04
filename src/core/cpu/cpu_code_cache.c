@@ -6,6 +6,7 @@
  * when no compiler backend is registered.
  */
 
+#include "common/file_system.h"
 #include "cpu_code_cache.h"
 
 #include "core/memory/bus.h"
@@ -25,6 +26,7 @@
 #include "util/platform/page_fault_handler.h"
 
 #include "common/assert.h"
+#include "common/align.h"
 #include "common/error.h"
 #include "common/log.h"
 #include "common/memmap.h"
@@ -37,17 +39,16 @@ LOG_CHANNEL(CodeCache);
 
 static cpu_cached_interpreter_stats_t s_cached_stats;
 
-cpu_cached_interpreter_stats_t cpu_code_cache_get_cached_interpreter_stats(void)
-{
+cpu_cached_interpreter_stats_t cpu_code_cache_get_cached_interpreter_stats(void) {
   return s_cached_stats;
 }
 
 enum {
 
-  RECOMPILE_COUNT_FOR_INTERPRETER_FALLBACK   = 3,
-  RECOMPILE_FRAMES_FOR_INTERPRETER_FALLBACK  = 15,
-  INVALIDATE_COUNT_FOR_MANUAL_PROTECTION     = 4,
-  INVALIDATE_FRAMES_FOR_MANUAL_PROTECTION    = 60,
+  RECOMPILE_COUNT_FOR_INTERPRETER_FALLBACK  = 3,
+  RECOMPILE_FRAMES_FOR_INTERPRETER_FALLBACK = 15,
+  INVALIDATE_COUNT_FOR_MANUAL_PROTECTION    = 4,
+  INVALIDATE_FRAMES_FOR_MANUAL_PROTECTION   = 60,
 
   RECOMPILER_CODE_CACHE_SIZE     = 48u * 1024u * 1024u,
   RECOMPILER_FAR_CODE_CACHE_SIZE = 16u * 1024u * 1024u,
@@ -59,81 +60,70 @@ struct cpu_code_cache_block_link_entry {
   bool  dead;
 };
 
-static cpu_code_cache_block_link_entry_t* s_block_links = NULL;
-static u32 s_block_links_count = 0;
-static u32 s_block_links_cap   = 0;
+static cpu_code_cache_block_link_entry_t* s_block_links       = NULL;
+static u32                                s_block_links_count = 0;
+static u32                                s_block_links_cap   = 0;
 
-static u32 block_links_emplace(u32 pc, void* code)
-{
+static u32 block_links_emplace(u32 pc, void* code) {
   /* Try to reuse a dead slot first. */
   for (u32 i = 0; i < s_block_links_count; i++) {
     if (s_block_links[i].dead) {
-      s_block_links[i].pc = pc;
+      s_block_links[i].pc   = pc;
       s_block_links[i].code = code;
       s_block_links[i].dead = false;
       return i;
     }
   }
   if (s_block_links_count == s_block_links_cap) {
-    u32 newcap = s_block_links_cap ? s_block_links_cap * 2u : 256u;
-    cpu_code_cache_block_link_entry_t* nb = (cpu_code_cache_block_link_entry_t*)
-        realloc(s_block_links, newcap * sizeof(*s_block_links));
+    u32                                newcap = s_block_links_cap ? s_block_links_cap * 2u : 256u;
+    cpu_code_cache_block_link_entry_t* nb =
+        (cpu_code_cache_block_link_entry_t*)realloc(s_block_links, newcap * sizeof(*s_block_links));
     AssertMsg(nb != NULL, "block-link map allocation failed");
-    s_block_links = nb;
+    s_block_links     = nb;
     s_block_links_cap = newcap;
   }
-  const u32 idx = s_block_links_count++;
-  s_block_links[idx].pc = pc;
+  const u32 idx           = s_block_links_count++;
+  s_block_links[idx].pc   = pc;
   s_block_links[idx].code = code;
   s_block_links[idx].dead = false;
   return idx;
 }
 
-static void block_links_erase(u32 idx)
-{
-  if (idx < s_block_links_count)
-    s_block_links[idx].dead = true;
+static void block_links_erase(u32 idx) {
+  if (idx < s_block_links_count) s_block_links[idx].dead = true;
 }
 
-static void block_links_clear(void)
-{
+static void block_links_clear(void) {
   s_block_links_count = 0u;
 }
 
-const void** g_code_lut[CPU_CODE_CACHE_LUT_TABLE_COUNT];
+const void**                    g_code_lut[CPU_CODE_CACHE_LUT_TABLE_COUNT];
 static cpu_code_cache_block_t** s_block_lut[CPU_CODE_CACHE_LUT_TABLE_COUNT];
-static const void**           s_lut_code_pointers   = NULL;
+static const void**             s_lut_code_pointers  = NULL;
 static cpu_code_cache_block_t** s_lut_block_pointers = NULL;
 
 /* Reachable PC ranges (RAM mirrors + EXP1 + BIOS). */
 static const u32 s_lut_ranges[][2] = {
-  {0x00000000u, 0x00800000u}, /* RAM */
-  {0x1F000000u, 0x1F060000u}, /* EXP1 */
-  {0x1FC00000u, 0x1FC80000u}, /* BIOS */
-  {0x80000000u, 0x80800000u},
-  {0x9F000000u, 0x9F060000u},
-  {0x9FC00000u, 0x9FC80000u},
-  {0xA0000000u, 0xA0800000u},
-  {0xBF000000u, 0xBF060000u},
-  {0xBFC00000u, 0xBFC80000u},
+    {0x00000000u, 0x00800000u}, /* RAM */
+    {0x1F000000u, 0x1F060000u}, /* EXP1 */
+    {0x1FC00000u, 0x1FC80000u}, /* BIOS */
+    {0x80000000u, 0x80800000u}, {0x9F000000u, 0x9F060000u}, {0x9FC00000u, 0x9FC80000u},
+    {0xA0000000u, 0xA0800000u}, {0xBF000000u, 0xBF060000u}, {0xBFC00000u, 0xBFC80000u},
 };
 #define LUT_RANGE_COUNT (sizeof(s_lut_ranges) / sizeof(s_lut_ranges[0]))
 
-static u32 lut_table_count(u32 start, u32 end)
-{
+static u32 lut_table_count(u32 start, u32 end) {
   return ((end >> CPU_CODE_CACHE_LUT_TABLE_SHIFT) - (start >> CPU_CODE_CACHE_LUT_TABLE_SHIFT)) + 1u;
 }
 
-static u32 lut_slot_count(bool include_unreachable)
-{
+static u32 lut_slot_count(bool include_unreachable) {
   u32 tables = include_unreachable ? 1u : 0u;
   for (u32 i = 0; i < LUT_RANGE_COUNT; i++)
     tables += lut_table_count(s_lut_ranges[i][0], s_lut_ranges[i][1]);
   return tables * CPU_CODE_CACHE_LUT_TABLE_SIZE;
 }
 
-static void memset_ptrs(const void** dst, const void* val, u32 count)
-{
+static void memset_ptrs(const void** dst, const void* val, u32 count) {
   for (u32 i = 0; i < count; i++)
     dst[i] = val;
 }
@@ -164,11 +154,11 @@ static void fastmem_backpatch_clear_all(void);
  * Each line: paddr size value writer_pc prev_block_pc | pc ra sp v0 v1
  *   k0 k1 cause
  */
-static u32      s_low_ram_watch_lo  = 0x34u;     /* BIOS exception-save scratch */
-static u32      s_low_ram_watch_hi  = 0x40u;
-static u32      s_low_ram_watch_skip_writer_lo = 0u;
-static u32      s_low_ram_watch_skip_writer_hi = 0u;  /* lo>=hi => no skip */
-static FILE*    s_low_ram_watch_fp  = NULL;       /* set in install; defaults to stderr */
+static u32   s_low_ram_watch_lo             = 0x34u; /* BIOS exception-save scratch */
+static u32   s_low_ram_watch_hi             = 0x40u;
+static u32   s_low_ram_watch_skip_writer_lo = 0u;
+static u32   s_low_ram_watch_skip_writer_hi = 0u;   /* lo>=hi => no skip */
+static FILE* s_low_ram_watch_fp             = NULL; /* set in install; defaults to stderr */
 
 /* Streaming + optional last-N ringbuf.  When ring_cap == 0, we stream every
  * event directly.  When ring_cap > 0, we accumulate into a ring and dump on
@@ -177,31 +167,27 @@ typedef struct {
   u32 paddr, value, writer_pc, prev_block, pc, ra, sp, v0, v1, k0, k1, cause;
   u8  size;
 } cpu_code_cache_low_ram_event_t;
-static cpu_code_cache_low_ram_event_t* s_low_ram_ring = NULL;
-static u32  s_low_ram_ring_cap = 0u;     /* 0 = stream mode */
-static u32  s_low_ram_ring_pos = 0u;     /* next write slot */
-static u64  s_low_ram_ring_total = 0u;   /* lifetime event count */
+static cpu_code_cache_low_ram_event_t* s_low_ram_ring       = NULL;
+static u32                             s_low_ram_ring_cap   = 0u; /* 0 = stream mode */
+static u32                             s_low_ram_ring_pos   = 0u; /* next write slot */
+static u64                             s_low_ram_ring_total = 0u; /* lifetime event count */
 
 /* Forward decl; defined below near s_dbg_exec_ring. */
 static u32 cpu_code_cache_dbg_exec_ring_peek_last_pc(void);
 
-static void cpu_code_cache_dbg_low_ram_print_event(FILE* fp,
-    const cpu_code_cache_low_ram_event_t* e, u64 idx)
-{
+static void cpu_code_cache_dbg_low_ram_print_event(FILE* fp, const cpu_code_cache_low_ram_event_t* e, u64 idx) {
   fprintf(fp,
           "[low-ram-watch] #%llu paddr=%08X size=%u value=%08X writer_pc=%08X "
           "prev_block=%08X | pc=%08X ra=%08X sp=%08X v0=%08X v1=%08X "
           "k0=%08X k1=%08X cause=%08X\n",
-          (unsigned long long)idx, e->paddr, (unsigned)e->size, e->value, e->writer_pc,
-          e->prev_block, e->pc, e->ra, e->sp, e->v0, e->v1, e->k0, e->k1, e->cause);
+          (unsigned long long)idx, e->paddr, (unsigned)e->size, e->value, e->writer_pc, e->prev_block, e->pc, e->ra,
+          e->sp, e->v0, e->v1, e->k0, e->k1, e->cause);
 }
 
-static void cpu_code_cache_dbg_low_ram_watch(u32 paddr, u8 size, u32 value, u32 writer_pc)
-{
+static void cpu_code_cache_dbg_low_ram_watch(u32 paddr, u8 size, u32 value, u32 writer_pc) {
   if (!(paddr >= s_low_ram_watch_lo && paddr < s_low_ram_watch_hi)) return;
-  if (s_low_ram_watch_skip_writer_lo < s_low_ram_watch_skip_writer_hi &&
-      writer_pc >= s_low_ram_watch_skip_writer_lo &&
-      writer_pc <  s_low_ram_watch_skip_writer_hi)
+  if (s_low_ram_watch_skip_writer_lo < s_low_ram_watch_skip_writer_hi && writer_pc >= s_low_ram_watch_skip_writer_lo &&
+      writer_pc < s_low_ram_watch_skip_writer_hi)
     return;
 
   cpu_code_cache_low_ram_event_t ev;
@@ -229,7 +215,7 @@ static void cpu_code_cache_dbg_low_ram_watch(u32 paddr, u8 size, u32 value, u32 
   } else {
     /* Ring mode: drop into ring, no print until dump. */
     s_low_ram_ring[s_low_ram_ring_pos] = ev;
-    s_low_ram_ring_pos = (s_low_ram_ring_pos + 1u) % s_low_ram_ring_cap;
+    s_low_ram_ring_pos                 = (s_low_ram_ring_pos + 1u) % s_low_ram_ring_cap;
     s_low_ram_ring_total++;
   }
 
@@ -244,56 +230,51 @@ static void cpu_code_cache_dbg_low_ram_watch(u32 paddr, u8 size, u32 value, u32 
    * full dump on every write to that exact paddr regardless of value.
    * Lets interp + recomp produce symmetric dumps at the same write moment
    * for differential diagnosis. */
-  static u8 s_bcd_trip_armed = 0xFFu;     /* 0xFF means "not yet sniffed env" */
+  static u8  s_bcd_trip_armed  = 0xFFu; /* 0xFF means "not yet sniffed env" */
   static u32 s_bcd_alert_count = 0u;
-  static u32 s_trip_paddr = 0xFFFFFFFFu;
+  static u32 s_trip_paddr      = 0xFFFFFFFFu;
   if (s_bcd_trip_armed == 0xFFu) {
-    const char* en = getenv("CUPID_TRACE_LOW_RAM_BCDTRIP");
+    const char* en   = getenv("CUPID_TRACE_LOW_RAM_BCDTRIP");
     s_bcd_trip_armed = (en && en[0] != '\0' && en[0] != '0') ? 1u : 0u;
-    const char* tp = getenv("CUPID_TRACE_LOW_RAM_TRIP_PADDR");
+    const char* tp   = getenv("CUPID_TRACE_LOW_RAM_TRIP_PADDR");
     if (tp && tp[0] != '\0') s_trip_paddr = (u32)strtoul(tp, NULL, 0);
   }
-  if (s_bcd_alert_count < 32u && (
-      (s_bcd_trip_armed && size == 1u &&
-       ((((value >> 4) & 0xFu) > 9u) || ((value & 0xFu) > 9u))) ||
-      (s_trip_paddr != 0xFFFFFFFFu && paddr == s_trip_paddr))) {
-    bool tripped = true;  /* condition already satisfied above */
+  if (s_bcd_alert_count < 32u &&
+      ((s_bcd_trip_armed && size == 1u && ((((value >> 4) & 0xFu) > 9u) || ((value & 0xFu) > 9u))) ||
+       (s_trip_paddr != 0xFFFFFFFFu && paddr == s_trip_paddr))) {
+    bool tripped = true; /* condition already satisfied above */
     if (tripped) {
       s_bcd_alert_count++;
       FILE* fp = s_low_ram_watch_fp ? s_low_ram_watch_fp : stderr;
-      fprintf(fp, "\n[bcd-trip #%u] BAD BCD byte 0x%02X to paddr=%08X writer_pc=%08X "
-                  "prev_block=%08X pc=%08X\n",
-              s_bcd_alert_count, (value & 0xFFu), paddr, writer_pc,
-              cpu_code_cache_dbg_exec_ring_peek_last_pc(), g_cpu_state.pc);
+      fprintf(fp,
+              "\n[bcd-trip #%u] BAD BCD byte 0x%02X to paddr=%08X writer_pc=%08X "
+              "prev_block=%08X pc=%08X\n",
+              s_bcd_alert_count, (value & 0xFFu), paddr, writer_pc, cpu_code_cache_dbg_exec_ring_peek_last_pc(),
+              g_cpu_state.pc);
       fprintf(fp, "  GPRs: ");
       for (int i = 0; i < 32; ++i) {
-        fprintf(fp, "r%d=%08X%s", i, g_cpu_state.regs.r[i],
-                ((i % 8) == 7) ? "\n        " : " ");
+        fprintf(fp, "r%d=%08X%s", i, g_cpu_state.regs.r[i], ((i % 8) == 7) ? "\n        " : " ");
       }
-      fprintf(fp, "\n  HI=%08X LO=%08X EPC=%08X cause=%08X sr=%08X badva=%08X\n",
-              g_cpu_state.regs.named.hi, g_cpu_state.regs.named.lo,
-              g_cpu_state.cop0_regs.EPC,
-              g_cpu_state.cop0_regs.cause.bits,
-              g_cpu_state.cop0_regs.sr.bits,
-              g_cpu_state.cop0_regs.BadVaddr);
+      fprintf(fp, "\n  HI=%08X LO=%08X EPC=%08X cause=%08X sr=%08X badva=%08X\n", g_cpu_state.regs.named.hi,
+              g_cpu_state.regs.named.lo, g_cpu_state.cop0_regs.EPC, g_cpu_state.cop0_regs.cause.bits,
+              g_cpu_state.cop0_regs.sr.bits, g_cpu_state.cop0_regs.BadVaddr);
 
       /* Dump 16 MIPS instructions starting at prev_block PC; this is the
        * function that just finished executing.  Use unprotected RAM ptr so
        * we don't trip SMC. */
-      const u32 prev_pc = cpu_code_cache_dbg_exec_ring_peek_last_pc();
-      const u8* ram = bus_get_unprotected_ram_pointer();
+      const u32 prev_pc  = cpu_code_cache_dbg_exec_ring_peek_last_pc();
+      const u8* ram      = bus_get_unprotected_ram_pointer();
       const u32 ram_size = bus_get_ram_size();
       if (ram && (prev_pc & 0x1FFFFFFFu) + 64u <= ram_size) {
         fprintf(fp, "  prev_block disasm (16 inst from %08X):\n", prev_pc);
         for (u32 i = 0u; i < 16u; ++i) {
           const u32 paddr2 = (prev_pc & 0x1FFFFFFFu) + i * 4u;
-          u32 word;
+          u32       word;
           memcpy(&word, &ram[paddr2], 4u);
           small_string_t buf;
           small_string_init(&buf);
           cpu_disassemble(&buf, word, prev_pc + i * 4u);
-          fprintf(fp, "    %08X: %08X  %s\n",
-                  prev_pc + i * 4u, word, small_string_c_str(&buf));
+          fprintf(fp, "    %08X: %08X  %s\n", prev_pc + i * 4u, word, small_string_c_str(&buf));
           small_string_destroy(&buf);
         }
       }
@@ -314,41 +295,35 @@ static void cpu_code_cache_dbg_low_ram_watch(u32 paddr, u8 size, u32 value, u32 
   }
 }
 
-void cpu_code_cache_dbg_low_ram_dump(void)
-{
+void cpu_code_cache_dbg_low_ram_dump(void) {
   if (s_low_ram_ring_cap == 0u) return;
   FILE* fp = s_low_ram_watch_fp ? s_low_ram_watch_fp : stderr;
   fprintf(fp,
           "[low-ram-watch] ringbuf dump: total=%llu cap=%u "
           "(showing last min(total,cap) events oldest-first)\n",
           (unsigned long long)s_low_ram_ring_total, s_low_ram_ring_cap);
-  const u32 n = (s_low_ram_ring_total < (u64)s_low_ram_ring_cap) ?
-                  (u32)s_low_ram_ring_total : s_low_ram_ring_cap;
+  const u32 n = (s_low_ram_ring_total < (u64)s_low_ram_ring_cap) ? (u32)s_low_ram_ring_total : s_low_ram_ring_cap;
   /* If total > cap, the oldest entry is at s_low_ram_ring_pos.  Otherwise
    * it's at index 0. */
-  const u32 start = (s_low_ram_ring_total > (u64)s_low_ram_ring_cap)
-                      ? s_low_ram_ring_pos : 0u;
-  const u64 base_idx = (s_low_ram_ring_total > (u64)s_low_ram_ring_cap)
-                         ? (s_low_ram_ring_total - (u64)s_low_ram_ring_cap)
-                         : 0ull;
+  const u32 start = (s_low_ram_ring_total > (u64)s_low_ram_ring_cap) ? s_low_ram_ring_pos : 0u;
+  const u64 base_idx =
+      (s_low_ram_ring_total > (u64)s_low_ram_ring_cap) ? (s_low_ram_ring_total - (u64)s_low_ram_ring_cap) : 0ull;
   for (u32 i = 0u; i < n; ++i) {
     const u32 slot = (start + i) % s_low_ram_ring_cap;
-    cpu_code_cache_dbg_low_ram_print_event(fp, &s_low_ram_ring[slot],
-                                           base_idx + (u64)i + 1ull);
+    cpu_code_cache_dbg_low_ram_print_event(fp, &s_low_ram_ring[slot], base_idx + (u64)i + 1ull);
   }
   fflush(fp);
 }
 
 /* Parse "0x1FFF80:4" or "0x34:12" -> [lo, lo+size).  Returns true on parse OK. */
-static bool cpu_code_cache_dbg_parse_low_ram_range(const char* s, u32* lo, u32* hi)
-{
+static bool cpu_code_cache_dbg_parse_low_ram_range(const char* s, u32* lo, u32* hi) {
   if (s == NULL || s[0] == '\0') return false;
-  char* end = NULL;
+  char*         end  = NULL;
   unsigned long base = strtoul(s, &end, 0);
   if (end == s) return false;
   if (*end != ':') {
     *lo = (u32)base;
-    *hi = (u32)base + 4u;       /* default size = 4 bytes if no ":N" */
+    *hi = (u32)base + 4u; /* default size = 4 bytes if no ":N" */
     return true;
   }
   ++end;
@@ -359,15 +334,13 @@ static bool cpu_code_cache_dbg_parse_low_ram_range(const char* s, u32* lo, u32* 
   return true;
 }
 
-void cpu_code_cache_dbg_maybe_install_low_ram_watch(void)
-{
+void cpu_code_cache_dbg_maybe_install_low_ram_watch(void) {
   const char* env = getenv("CUPID_TRACE_LOW_RAM");
   if (env == NULL || env[0] == '\0' || env[0] == '0') return;
   /* Preserve an installed diagnostic tap. */
   if (g_bus_ram_write_tap != NULL) {
-    fprintf(stderr,
-            "[low-ram-watch] g_bus_ram_write_tap already installed; "
-            "low-ram watch not enabled\n");
+    fprintf(stderr, "[low-ram-watch] g_bus_ram_write_tap already installed; "
+                    "low-ram watch not enabled\n");
     return;
   }
   /* Optional range override.  Keeps the kernel-scratch default if unset. */
@@ -387,10 +360,11 @@ void cpu_code_cache_dbg_maybe_install_low_ram_watch(void)
   /* Optional log-file redirection. */
   const char* log_env = getenv("CUPID_TRACE_LOW_RAM_LOG");
   if (log_env != NULL && log_env[0] != '\0') {
-    FILE* fp = fopen(log_env, "w");
-    if (fp != NULL) s_low_ram_watch_fp = fp;
-    else fprintf(stderr, "[low-ram-watch] fopen('%s') failed; logging to stderr\n",
-                 log_env);
+    FILE* fp = fs_open_file(log_env, "w", NULL);
+    if (fp != NULL)
+      s_low_ram_watch_fp = fp;
+    else
+      fprintf(stderr, "[low-ram-watch] fopen('%s') failed; logging to stderr\n", log_env);
   }
   /* Optional ring-mode capacity (last-N events). */
   const char* ring_env = getenv("CUPID_TRACE_LOW_RAM_RING");
@@ -398,8 +372,7 @@ void cpu_code_cache_dbg_maybe_install_low_ram_watch(void)
     unsigned long cap = strtoul(ring_env, NULL, 0);
     if (cap > 0ul && cap <= (1ul << 24)) {
       s_low_ram_ring_cap = (u32)cap;
-      s_low_ram_ring = (cpu_code_cache_low_ram_event_t*)
-        calloc(s_low_ram_ring_cap, sizeof(*s_low_ram_ring));
+      s_low_ram_ring     = (cpu_code_cache_low_ram_event_t*)calloc(s_low_ram_ring_cap, sizeof(*s_low_ram_ring));
       if (s_low_ram_ring == NULL) {
         fprintf(stderr, "[low-ram-watch] ring alloc failed; falling back to stream mode\n");
         s_low_ram_ring_cap = 0u;
@@ -419,10 +392,8 @@ void cpu_code_cache_dbg_maybe_install_low_ram_watch(void)
   fprintf(stderr,
           "[low-ram-watch] installed; tracking slow-path RAM writes to "
           "paddr [%08X..%08X) -> %s (mode=%s%s%s)\n",
-          s_low_ram_watch_lo, s_low_ram_watch_hi,
-          s_low_ram_watch_fp ? log_env : "stderr",
-          s_low_ram_ring_cap ? "ring" : "stream",
-          s_low_ram_watch_skip_writer_hi ? " skip-writers=set" : "",
+          s_low_ram_watch_lo, s_low_ram_watch_hi, s_low_ram_watch_fp ? log_env : "stderr",
+          s_low_ram_ring_cap ? "ring" : "stream", s_low_ram_watch_skip_writer_hi ? " skip-writers=set" : "",
           s_low_ram_ring_cap ? "" : " (run with --fastmem off for full coverage)");
 }
 
@@ -439,44 +410,36 @@ typedef struct {
   u32 sp;
 } cpu_code_cache_dbg_exec_entry_t;
 static cpu_code_cache_dbg_exec_entry_t s_dbg_exec_ring[CPU_CODE_CACHE_DBG_EXEC_RING_SIZE];
-static u32  s_dbg_exec_ring_pos   = 0u;
-static u32  s_dbg_exec_ring_count = 0u;
-static bool s_exec_trace_active   = false;
+static u32                             s_dbg_exec_ring_pos   = 0u;
+static u32                             s_dbg_exec_ring_count = 0u;
+static bool                            s_exec_trace_active   = false;
 
-bool cpu_code_cache_exec_trace_is_active(void)
-{
+bool cpu_code_cache_exec_trace_is_active(void) {
   return s_exec_trace_active;
 }
 
-void cpu_code_cache_dbg_init_exec_trace(void)
-{
+void cpu_code_cache_dbg_init_exec_trace(void) {
   const char* env = getenv("CUPID_TRACE_EXEC");
-  if (env != NULL && env[0] != '\0' && env[0] != '0')
-    s_exec_trace_active = true;
+  if (env != NULL && env[0] != '\0' && env[0] != '0') s_exec_trace_active = true;
 }
 
 /* C-side recorder called from JIT block prologue when active. */
-void cpu_code_cache_dbg_record_exec(u32 pc)
-{
-  cpu_code_cache_dbg_exec_entry_t* e =
-    &s_dbg_exec_ring[s_dbg_exec_ring_pos % CPU_CODE_CACHE_DBG_EXEC_RING_SIZE];
-  e->pc = pc;
-  e->ra = g_cpu_state.regs.r[31];
-  e->sp = g_cpu_state.regs.r[29];
-  s_dbg_exec_ring_pos = (s_dbg_exec_ring_pos + 1u) % CPU_CODE_CACHE_DBG_EXEC_RING_SIZE;
-  if (s_dbg_exec_ring_count < CPU_CODE_CACHE_DBG_EXEC_RING_SIZE)
-    s_dbg_exec_ring_count++;
+void cpu_code_cache_dbg_record_exec(u32 pc) {
+  cpu_code_cache_dbg_exec_entry_t* e = &s_dbg_exec_ring[s_dbg_exec_ring_pos % CPU_CODE_CACHE_DBG_EXEC_RING_SIZE];
+  e->pc                              = pc;
+  e->ra                              = g_cpu_state.regs.r[31];
+  e->sp                              = g_cpu_state.regs.r[29];
+  s_dbg_exec_ring_pos                = (s_dbg_exec_ring_pos + 1u) % CPU_CODE_CACHE_DBG_EXEC_RING_SIZE;
+  if (s_dbg_exec_ring_count < CPU_CODE_CACHE_DBG_EXEC_RING_SIZE) s_dbg_exec_ring_count++;
 }
 
 /* Returns the most-recently-recorded executed-block PC, or 0 if the ring
  * is empty (e.g. exec trace not active, or watch fired before first block). */
-static u32 cpu_code_cache_dbg_exec_ring_peek_last_pc(void)
-{
+static u32 cpu_code_cache_dbg_exec_ring_peek_last_pc(void) {
   if (s_dbg_exec_ring_count == 0u) return 0u;
   /* s_dbg_exec_ring_pos points at the next slot to write; the most recent
    * entry is at (pos - 1) mod SIZE. */
-  const u32 last = (s_dbg_exec_ring_pos + CPU_CODE_CACHE_DBG_EXEC_RING_SIZE - 1u)
-                   % CPU_CODE_CACHE_DBG_EXEC_RING_SIZE;
+  const u32 last = (s_dbg_exec_ring_pos + CPU_CODE_CACHE_DBG_EXEC_RING_SIZE - 1u) % CPU_CODE_CACHE_DBG_EXEC_RING_SIZE;
   return s_dbg_exec_ring[last].pc;
 }
 
@@ -484,33 +447,32 @@ static u32 cpu_code_cache_dbg_exec_ring_peek_last_pc(void)
 enum { CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE = 256u };
 typedef struct {
   u32         pc;
-  u32         size;        /* MIPS instruction count */
+  u32         size; /* MIPS instruction count */
   const void* host_code;
 } cpu_code_cache_dbg_block_entry_t;
 static cpu_code_cache_dbg_block_entry_t s_dbg_block_ring[CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE];
-static u32 s_dbg_block_ring_pos   = 0u; /* next-write index, monotonic mod */
-static u32 s_dbg_block_ring_count = 0u; /* total writes; saturates at SIZE for "is full" */
+static u32                              s_dbg_block_ring_pos   = 0u; /* next-write index, monotonic mod */
+static u32                              s_dbg_block_ring_count = 0u; /* total writes; saturates at SIZE for "is full" */
 
-static void cpu_code_cache_dbg_record_block(u32 pc, u32 size, const void* host_code)
-{
-  cpu_code_cache_dbg_block_entry_t* e =
-    &s_dbg_block_ring[s_dbg_block_ring_pos % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE];
-  e->pc        = pc;
-  e->size      = size;
-  e->host_code = host_code;
-  s_dbg_block_ring_pos = (s_dbg_block_ring_pos + 1u) % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE;
-  if (s_dbg_block_ring_count < CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE)
-    s_dbg_block_ring_count++;
+static void cpu_code_cache_dbg_record_block(u32 pc, u32 size, const void* host_code) {
+  cpu_code_cache_dbg_block_entry_t* e = &s_dbg_block_ring[s_dbg_block_ring_pos % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE];
+  e->pc                               = pc;
+  e->size                             = size;
+  e->host_code                        = host_code;
+  s_dbg_block_ring_pos                = (s_dbg_block_ring_pos + 1u) % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE;
+  if (s_dbg_block_ring_count < CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE) s_dbg_block_ring_count++;
 }
 
-/* Forward decls for the dynamic backpatch buffer (defined further below
- * near the registration code), so process_shutdown can free it. */
+/* Recovery buffers survive cache resets and are freed on process shutdown. */
 static cpu_code_cache_loadstore_backpatch_info_t* s_fastmem_backpatch_info;
-static u32 s_fastmem_backpatch_info_count;
-static u32 s_fastmem_backpatch_info_cap;
+static u32                                        s_fastmem_backpatch_info_count;
+static u32                                        s_fastmem_backpatch_info_cap;
+static u32*                                       s_fastmem_faulting_pcs;
+static u32                                        s_fastmem_faulting_pcs_count;
+static u32                                        s_fastmem_faulting_pcs_cap;
+static bool                                       s_fastmem_faulted_at_zero;
 
-static void reset_code_buffer(void)
-{
+static void reset_code_buffer(void) {
   if (s_code_used > 0u) {
     memset(s_code_ptr, 0, s_code_used);
     memmap_flush_instruction_cache(s_code_ptr, s_code_used);
@@ -526,28 +488,35 @@ static void reset_code_buffer(void)
    * inside the mapping, with the first entry still aligned to 16 bytes. */
   enum { ENTRY_PREFIX_SIZE = 16 };
   memset(s_code_buffer_ptr, 0, ENTRY_PREFIX_SIZE);
-  s_code_ptr = s_code_buffer_ptr + ENTRY_PREFIX_SIZE;
+  s_code_ptr      = s_code_buffer_ptr + ENTRY_PREFIX_SIZE;
   s_free_code_ptr = s_code_ptr;
-  s_code_size = RECOMPILER_CODE_CACHE_SIZE - RECOMPILER_FAR_CODE_CACHE_SIZE - ENTRY_PREFIX_SIZE;
-  s_code_used = 0u;
+  s_code_size     = RECOMPILER_CODE_CACHE_SIZE - RECOMPILER_FAR_CODE_CACHE_SIZE - ENTRY_PREFIX_SIZE;
+  s_code_used     = 0u;
 
   /* Half the far-code budget when memory exceptions disabled (only used by
    * backpatch thunks then). */
-  const u32 far = (!g_settings.cpu_recompiler_memory_exceptions) ?
-                    (RECOMPILER_FAR_CODE_CACHE_SIZE / 2u) : RECOMPILER_FAR_CODE_CACHE_SIZE;
-  s_far_code_size = far;
-  s_far_code_ptr = (far > 0u) ? (s_code_ptr + s_code_size) : NULL;
+  const u32 far       = (!g_settings.cpu_recompiler_memory_exceptions) ? (RECOMPILER_FAR_CODE_CACHE_SIZE / 2u)
+                                                                       : RECOMPILER_FAR_CODE_CACHE_SIZE;
+  s_far_code_size     = far;
+  s_far_code_ptr      = (far > 0u) ? (s_code_ptr + s_code_size) : NULL;
   s_free_far_code_ptr = s_far_code_ptr;
-  s_far_code_used = 0u;
+  s_far_code_used     = 0u;
 }
 
-u8* cpu_code_cache_get_free_code_pointer(void)        { return s_free_code_ptr; }
-u32 cpu_code_cache_get_free_code_space(void)          { return s_code_size - s_code_used; }
-u8* cpu_code_cache_get_free_far_code_pointer(void)    { return s_free_far_code_ptr; }
-u32 cpu_code_cache_get_free_far_code_space(void)      { return s_far_code_size - s_far_code_used; }
+u8* cpu_code_cache_get_free_code_pointer(void) {
+  return s_free_code_ptr;
+}
+u32 cpu_code_cache_get_free_code_space(void) {
+  return s_code_size - s_code_used;
+}
+u8* cpu_code_cache_get_free_far_code_pointer(void) {
+  return s_free_far_code_ptr;
+}
+u32 cpu_code_cache_get_free_far_code_space(void) {
+  return s_far_code_size - s_far_code_used;
+}
 
-void cpu_code_cache_commit_code(u32 length)
-{
+void cpu_code_cache_commit_code(u32 length) {
   if (length == 0u) return;
   memmap_flush_instruction_cache(s_free_code_ptr, length);
   Assert(length <= (s_code_size - s_code_used));
@@ -555,8 +524,7 @@ void cpu_code_cache_commit_code(u32 length)
   s_code_used += length;
 }
 
-void cpu_code_cache_commit_far_code(u32 length)
-{
+void cpu_code_cache_commit_far_code(u32 length) {
   if (length == 0u) return;
   memmap_flush_instruction_cache(s_free_far_code_ptr, length);
   Assert(length <= (s_far_code_size - s_far_code_used));
@@ -564,13 +532,12 @@ void cpu_code_cache_commit_far_code(u32 length)
   s_far_code_used += length;
 }
 
-void cpu_code_cache_align_code(u32 alignment)
-{
+void cpu_code_cache_align_code(u32 alignment) {
   DebugAssert((alignment & (alignment - 1u)) == 0u);
-  const uintptr_t cur = (uintptr_t)s_free_code_ptr;
+  const uintptr_t cur     = (uintptr_t)s_free_code_ptr;
   const uintptr_t aligned = (cur + (alignment - 1u)) & ~((uintptr_t)alignment - 1u);
-  u32 pad = (u32)(aligned - cur);
-  const u32 free = cpu_code_cache_get_free_code_space();
+  u32             pad     = (u32)(aligned - cur);
+  const u32       free    = cpu_code_cache_get_free_code_space();
   if (pad > free) pad = free;
   if (pad > 0u) {
     memset(s_free_code_ptr, 0x90, pad);
@@ -586,16 +553,16 @@ const void* g_dispatcher                  = NULL;
 const void* g_interpret_block             = NULL;
 const void* g_discard_and_recompile_block = NULL;
 
-static cpu_code_cache_block_t** s_blocks = NULL;
-static u32 s_blocks_count = 0u;
-static u32 s_blocks_cap   = 0u;
+static cpu_code_cache_block_t** s_blocks       = NULL;
+static u32                      s_blocks_count = 0u;
+static u32                      s_blocks_cap   = 0u;
 
 typedef struct {
-  cpu_code_cache_block_t* first_block_in_page;
-  cpu_code_cache_block_t* last_block_in_page;
+  cpu_code_cache_block_t*               first_block_in_page;
+  cpu_code_cache_block_t*               last_block_in_page;
   cpu_code_cache_page_protection_mode_t mode;
-  u16 invalidate_count;
-  u32 invalidate_frame;
+  u16                                   invalidate_count;
+  u32                                   invalidate_frame;
 } cpu_code_cache_page_prot_info_t;
 
 static cpu_code_cache_page_prot_info_t s_page_protection[BUS_RAM_8MB_CODE_PAGE_COUNT];
@@ -606,26 +573,27 @@ typedef struct {
   cpu_code_cache_inst_info_t info;
 } cpu_code_cache_compile_pair_t;
 
-static cpu_code_cache_compile_pair_t* s_block_instructions = NULL;
-static u32 s_block_instructions_count = 0u;
-static u32 s_block_instructions_cap   = 0u;
+static cpu_code_cache_compile_pair_t* s_block_instructions       = NULL;
+static u32                            s_block_instructions_count = 0u;
+static u32                            s_block_instructions_cap   = 0u;
 
 typedef struct {
-  tick_count_t                  uncached_fetch_ticks;
-  u32                           icache_line_count;
-  cpu_code_cache_block_flags_t  flags;
+  tick_count_t                 uncached_fetch_ticks;
+  u32                          icache_line_count;
+  cpu_code_cache_block_flags_t flags;
 } cpu_code_cache_block_metadata_t;
 
-static void block_instructions_reset(void) { s_block_instructions_count = 0u; }
+static void block_instructions_reset(void) {
+  s_block_instructions_count = 0u;
+}
 
-static void block_instructions_push(cpu_instruction_t inst, const cpu_code_cache_inst_info_t* info)
-{
+static void block_instructions_push(cpu_instruction_t inst, const cpu_code_cache_inst_info_t* info) {
   if (s_block_instructions_count == s_block_instructions_cap) {
-    u32 newcap = s_block_instructions_cap ? s_block_instructions_cap * 2u : 256u;
-    cpu_code_cache_compile_pair_t* nb = (cpu_code_cache_compile_pair_t*)
-        realloc(s_block_instructions, newcap * sizeof(*s_block_instructions));
+    u32                            newcap = s_block_instructions_cap ? s_block_instructions_cap * 2u : 256u;
+    cpu_code_cache_compile_pair_t* nb =
+        (cpu_code_cache_compile_pair_t*)realloc(s_block_instructions, newcap * sizeof(*s_block_instructions));
     AssertMsg(nb != NULL, "block_instructions allocation failed");
-    s_block_instructions = nb;
+    s_block_instructions     = nb;
     s_block_instructions_cap = newcap;
   }
   s_block_instructions[s_block_instructions_count].inst = inst;
@@ -633,21 +601,18 @@ static void block_instructions_push(cpu_instruction_t inst, const cpu_code_cache
   s_block_instructions_count++;
 }
 
-static void blocks_register(cpu_code_cache_block_t* b)
-{
+static void blocks_register(cpu_code_cache_block_t* b) {
   if (s_blocks_count == s_blocks_cap) {
-    u32 newcap = s_blocks_cap ? s_blocks_cap * 2u : 256u;
-    cpu_code_cache_block_t** nb = (cpu_code_cache_block_t**)
-        realloc(s_blocks, newcap * sizeof(*s_blocks));
+    u32                      newcap = s_blocks_cap ? s_blocks_cap * 2u : 256u;
+    cpu_code_cache_block_t** nb     = (cpu_code_cache_block_t**)realloc(s_blocks, newcap * sizeof(*s_blocks));
     AssertMsg(nb != NULL, "blocks allocation failed");
-    s_blocks = nb;
+    s_blocks     = nb;
     s_blocks_cap = newcap;
   }
   s_blocks[s_blocks_count++] = b;
 }
 
-static void blocks_unregister(cpu_code_cache_block_t* b)
-{
+static void blocks_unregister(cpu_code_cache_block_t* b) {
   for (u32 i = 0; i < s_blocks_count; i++) {
     if (s_blocks[i] == b) {
       s_blocks[i] = s_blocks[--s_blocks_count];
@@ -656,52 +621,48 @@ static void blocks_unregister(cpu_code_cache_block_t* b)
   }
 }
 
-ALWAYS_INLINE static u32 block_start_page_index(const cpu_code_cache_block_t* b)
-{
+ALWAYS_INLINE static u32 block_start_page_index(const cpu_code_cache_block_t* b) {
   return bus_get_ram_code_page_index(b->pc);
 }
-ALWAYS_INLINE static u32 block_end_page_index(const cpu_code_cache_block_t* b)
-{
+ALWAYS_INLINE static u32 block_end_page_index(const cpu_code_cache_block_t* b) {
   return bus_get_ram_code_page_index(b->pc + ((b->size - 1u) * CPU_INSTRUCTION_SIZE));
 }
 
-static bool address_in_ram(virtual_memory_address_t pc)
-{
+static bool address_in_ram(virtual_memory_address_t pc) {
   return cpu_virtual_to_physical(pc) < bus_get_ram_size();
 }
 
-static void allocate_luts(void)
-{
+static void allocate_luts(void) {
   const u32 num_code_slots  = lut_slot_count(true);
   const u32 num_block_slots = lut_slot_count(false);
 
   Assert(s_lut_code_pointers == NULL && s_lut_block_pointers == NULL);
-  s_lut_code_pointers   = (const void**)calloc(num_code_slots, sizeof(const void*));
-  s_lut_block_pointers  = (cpu_code_cache_block_t**)calloc(num_block_slots, sizeof(cpu_code_cache_block_t*));
+  s_lut_code_pointers  = (const void**)calloc(num_code_slots, sizeof(const void*));
+  s_lut_block_pointers = (cpu_code_cache_block_t**)calloc(num_block_slots, sizeof(cpu_code_cache_block_t*));
   AssertMsg(s_lut_code_pointers && s_lut_block_pointers, "LUT allocation failed");
 
-  const void** code_table_ptr = s_lut_code_pointers;
-  cpu_code_cache_block_t** block_table_ptr = s_lut_block_pointers;
-  const void** const code_end = code_table_ptr + num_code_slots;
-  cpu_code_cache_block_t** const block_end = block_table_ptr + num_block_slots;
+  const void**                   code_table_ptr  = s_lut_code_pointers;
+  cpu_code_cache_block_t**       block_table_ptr = s_lut_block_pointers;
+  const void** const             code_end        = code_table_ptr + num_code_slots;
+  cpu_code_cache_block_t** const block_end       = block_table_ptr + num_block_slots;
 
   /* Unreachable table sits first, points at NULL (will be replaced by
    * g_interpret_block once asm functions are emitted). */
   memset_ptrs(code_table_ptr, NULL, CPU_CODE_CACHE_LUT_TABLE_COUNT);
 
   for (u32 i = 0; i < CPU_CODE_CACHE_LUT_TABLE_COUNT; i++) {
-    g_code_lut[i] = code_table_ptr;
+    g_code_lut[i]  = code_table_ptr;
     s_block_lut[i] = NULL;
   }
   code_table_ptr += CPU_CODE_CACHE_LUT_TABLE_SIZE;
 
   for (u32 r = 0; r < LUT_RANGE_COUNT; r++) {
-    const u32 start = s_lut_ranges[r][0];
-    const u32 end   = s_lut_ranges[r][1];
+    const u32 start      = s_lut_ranges[r][0];
+    const u32 end        = s_lut_ranges[r][1];
     const u32 start_slot = start >> CPU_CODE_CACHE_LUT_TABLE_SHIFT;
-    const u32 count = lut_table_count(start, end);
+    const u32 count      = lut_table_count(start, end);
     for (u32 i = 0; i < count; i++) {
-      const u32 slot = start_slot + i;
+      const u32 slot   = start_slot + i;
       g_code_lut[slot] = code_table_ptr;
       code_table_ptr += CPU_CODE_CACHE_LUT_TABLE_SIZE;
       s_block_lut[slot] = block_table_ptr;
@@ -713,14 +674,14 @@ static void allocate_luts(void)
   Assert(block_table_ptr == block_end);
 }
 
-static void deallocate_luts(void)
-{
-  free(s_lut_code_pointers);   s_lut_code_pointers   = NULL;
-  free(s_lut_block_pointers);  s_lut_block_pointers  = NULL;
+static void deallocate_luts(void) {
+  free(s_lut_code_pointers);
+  s_lut_code_pointers = NULL;
+  free(s_lut_block_pointers);
+  s_lut_block_pointers = NULL;
 }
 
-static void reset_code_lut(void)
-{
+static void reset_code_lut(void) {
   /* Unreachable table jumps to interpret_block. */
   memset_ptrs(s_lut_code_pointers, g_interpret_block, CPU_CODE_CACHE_LUT_TABLE_COUNT);
 
@@ -731,36 +692,30 @@ static void reset_code_lut(void)
   }
 }
 
-static void set_code_lut(u32 pc, const void* function)
-{
+static void set_code_lut(u32 pc, const void* function) {
   const u32 table = pc >> CPU_CODE_CACHE_LUT_TABLE_SHIFT;
   const u32 idx   = (pc & 0xFFFFu) >> 2;
   DebugAssert(g_code_lut[table] != s_lut_code_pointers);
   g_code_lut[table][idx] = function;
 }
 
-static cpu_code_cache_block_t* lookup_block(u32 pc)
-{
+static cpu_code_cache_block_t* lookup_block(u32 pc) {
   const u32 table = pc >> CPU_CODE_CACHE_LUT_TABLE_SHIFT;
   if (s_block_lut[table] == NULL) return NULL;
   const u32 idx = (pc & 0xFFFFu) >> 2;
   return s_block_lut[table][idx];
 }
 
-static bool has_block_lut(u32 pc)
-{
+static bool has_block_lut(u32 pc) {
   return s_block_lut[pc >> CPU_CODE_CACHE_LUT_TABLE_SHIFT] != NULL;
 }
 
-static cpu_code_cache_page_protection_mode_t get_protection_mode_for_pc(u32 pc)
-{
-  if (!address_in_ram(pc))
-    return CPU_CODE_CACHE_PROT_UNPROTECTED;
+static cpu_code_cache_page_protection_mode_t get_protection_mode_for_pc(u32 pc) {
+  if (!address_in_ram(pc)) return CPU_CODE_CACHE_PROT_UNPROTECTED;
   return s_page_protection[bus_get_ram_code_page_index(pc)].mode;
 }
 
-static cpu_code_cache_page_protection_mode_t get_protection_mode_for_block(const cpu_code_cache_block_t* b)
-{
+static cpu_code_cache_page_protection_mode_t get_protection_mode_for_block(const cpu_code_cache_block_t* b) {
   if (cpu_code_cache_block_has_flag(b, CPU_CODE_CACHE_BF_BRANCH_DELAY_SPANS_PAGES))
     return CPU_CODE_CACHE_PROT_MANUAL_CHECK;
   return get_protection_mode_for_pc(b->pc);
@@ -768,8 +723,7 @@ static cpu_code_cache_page_protection_mode_t get_protection_mode_for_block(const
 
 static void backlink_blocks(u32 pc, const void* dst);
 
-static void invalidate_block(cpu_code_cache_block_t* b, cpu_code_cache_block_state_t new_state)
-{
+static void invalidate_block(cpu_code_cache_block_t* b, cpu_code_cache_block_state_t new_state) {
   if (b->state == CPU_CODE_CACHE_BS_VALID) {
     set_code_lut(b->pc, g_compile_or_revalidate_block);
     backlink_blocks(b->pc, g_compile_or_revalidate_block);
@@ -777,61 +731,62 @@ static void invalidate_block(cpu_code_cache_block_t* b, cpu_code_cache_block_sta
   b->state = new_state;
 }
 
-static void add_block_to_page_list(cpu_code_cache_block_t* b)
-{
+static void add_block_to_page_list(cpu_code_cache_block_t* b) {
   if (b->size == 0u) return;
-  if (!address_in_ram(b->pc) || b->protection != CPU_CODE_CACHE_PROT_WRITE_PROTECTED)
-    return;
+  if (!address_in_ram(b->pc) || b->protection != CPU_CODE_CACHE_PROT_WRITE_PROTECTED) return;
 
-  const u32 page_idx = block_start_page_index(b);
-  cpu_code_cache_page_prot_info_t* p = &s_page_protection[page_idx];
+  const u32                        page_idx = block_start_page_index(b);
+  cpu_code_cache_page_prot_info_t* p        = &s_page_protection[page_idx];
   bus_set_ram_code_page(page_idx);
 
   if (p->last_block_in_page) {
     p->last_block_in_page->next_block_in_page = b;
-    p->last_block_in_page = b;
+    p->last_block_in_page                     = b;
   } else {
     p->first_block_in_page = b;
     p->last_block_in_page  = b;
   }
 }
 
-static void remove_block_from_page_list(cpu_code_cache_block_t* b)
-{
+static void remove_block_from_page_list(cpu_code_cache_block_t* b) {
   if (b->size == 0u) return;
-  if (!address_in_ram(b->pc) || b->protection != CPU_CODE_CACHE_PROT_WRITE_PROTECTED)
-    return;
+  if (!address_in_ram(b->pc) || b->protection != CPU_CODE_CACHE_PROT_WRITE_PROTECTED) return;
 
-  const u32 page_idx = block_start_page_index(b);
-  cpu_code_cache_page_prot_info_t* p = &s_page_protection[page_idx];
-  cpu_code_cache_block_t* prev = NULL;
-  cpu_code_cache_block_t* cur  = p->first_block_in_page;
+  const u32                        page_idx = block_start_page_index(b);
+  cpu_code_cache_page_prot_info_t* p        = &s_page_protection[page_idx];
+  cpu_code_cache_block_t*          prev     = NULL;
+  cpu_code_cache_block_t*          cur      = p->first_block_in_page;
   while (cur != NULL) {
-    if (cur != b) { prev = cur; cur = cur->next_block_in_page; continue; }
-    if (prev) prev->next_block_in_page = cur->next_block_in_page;
-    else      p->first_block_in_page  = cur->next_block_in_page;
+    if (cur != b) {
+      prev = cur;
+      cur  = cur->next_block_in_page;
+      continue;
+    }
+    if (prev)
+      prev->next_block_in_page = cur->next_block_in_page;
+    else
+      p->first_block_in_page = cur->next_block_in_page;
     if (cur->next_block_in_page == NULL) p->last_block_in_page = prev;
     cur->next_block_in_page = NULL;
     return;
   }
 }
 
-void cpu_code_cache_invalidate_blocks_with_page_index(u32 page_index)
-{
+void cpu_code_cache_invalidate_blocks_with_page_index(u32 page_index) {
   if (page_index >= BUS_RAM_8MB_CODE_PAGE_COUNT) return;
   bus_clear_ram_code_page(page_index);
 
-  cpu_code_cache_block_state_t new_state = CPU_CODE_CACHE_BS_INVALIDATED;
-  cpu_code_cache_page_prot_info_t* p = &s_page_protection[page_index];
+  cpu_code_cache_block_state_t     new_state = CPU_CODE_CACHE_BS_INVALIDATED;
+  cpu_code_cache_page_prot_info_t* p         = &s_page_protection[page_index];
 
-  const u32 frame = system_get_frame_number();
+  const u32 frame       = system_get_frame_number();
   const u32 frame_delta = frame - p->invalidate_frame;
   p->invalidate_count++;
   if (frame_delta >= INVALIDATE_FRAMES_FOR_MANUAL_PROTECTION) {
     p->invalidate_count = 1u;
     p->invalidate_frame = frame;
   } else if (p->invalidate_count > INVALIDATE_COUNT_FOR_MANUAL_PROTECTION) {
-    p->mode = CPU_CODE_CACHE_PROT_MANUAL_CHECK;
+    p->mode   = CPU_CODE_CACHE_PROT_MANUAL_CHECK;
     new_state = CPU_CODE_CACHE_BS_NEEDS_RECOMPILE;
   }
 
@@ -842,14 +797,13 @@ void cpu_code_cache_invalidate_blocks_with_page_index(u32 page_index)
     cpu_code_cache_block_t* next = b->next_block_in_page;
     invalidate_block(b, new_state);
     b->next_block_in_page = NULL;
-    b = next;
+    b                     = next;
   }
   p->first_block_in_page = NULL;
   p->last_block_in_page  = NULL;
 }
 
-void cpu_code_cache_invalidate_all_ram_blocks(void)
-{
+void cpu_code_cache_invalidate_all_ram_blocks(void) {
   for (u32 i = 0; i < s_blocks_count; i++) {
     cpu_code_cache_block_t* b = s_blocks[i];
     if (address_in_ram(b->pc)) {
@@ -864,19 +818,41 @@ void cpu_code_cache_invalidate_all_ram_blocks(void)
   bus_clear_ram_code_page_flags();
 }
 
-static bool is_block_code_current(const cpu_code_cache_block_t* b)
-{
+static bool read_block_instruction(u32 pc, u32* word) {
+  if (cpu_code_cache_is_using_recompiler() && cpu_get_prefetched_instruction(pc, word)) return true;
+  if (cpu_code_cache_is_using_recompiler() && g_settings.cpu_recompiler_icache &&
+      g_cpu_state.cache_control.icache_enable && cpu_is_cached_address(pc) && cpu_compare_icache_tag(pc)) {
+    *word = g_cpu_state
+                .icache_data[cpu_get_icache_line(pc) * CPU_ICACHE_WORDS_PER_LINE + cpu_get_icache_line_word_offset(pc)];
+    return true;
+  }
+  return cpu_safe_read_instruction(pc, word);
+}
+
+bool cpu_code_cache_prepare_native_instruction(cpu_code_cache_block_t* block, u32 pc, u32 word, u32 flags) {
+  /* Re-decode invalidated RAM blocks before entering a branch with an old slot.
+   * The retained prefetch still supplies this word; no extra guest tick is charged. */
+  if (block->state != CPU_CODE_CACHE_BS_VALID && !(block->flags & CPU_CODE_CACHE_BF_IS_USING_ICACHE) &&
+      !(flags & CPU_NATIVE_FETCH_DELAY_SLOT))
+    flags |= CPU_NATIVE_FETCH_BLOCK_INVALIDATED;
+  const u32 result = cpu_native_prepare_instruction(pc, word, flags);
+  if (result == CPU_NATIVE_FETCH_RECOMPILE) {
+    remove_block_from_page_list(block);
+    invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
+  }
+  return result == CPU_NATIVE_FETCH_READY;
+}
+
+static bool is_block_code_current(const cpu_code_cache_block_t* b) {
   const cpu_instruction_t* instructions = cpu_code_cache_block_instructions_const(b);
   for (u32 i = 0; i < b->size; i++) {
     u32 word;
-    if (!cpu_safe_read_instruction(b->pc + i * CPU_INSTRUCTION_SIZE, &word) || word != instructions[i].bits)
-      return false;
+    if (!read_block_instruction(b->pc + i * CPU_INSTRUCTION_SIZE, &word) || word != instructions[i].bits) return false;
   }
   return true;
 }
 
-static bool revalidate_block(cpu_code_cache_block_t* b)
-{
+static bool revalidate_block(cpu_code_cache_block_t* b) {
   DebugAssert(b->state != CPU_CODE_CACHE_BS_VALID);
   if (b->state >= CPU_CODE_CACHE_BS_NEEDS_RECOMPILE) return false;
   if (b->protection != get_protection_mode_for_block(b)) return false;
@@ -887,19 +863,17 @@ static bool revalidate_block(cpu_code_cache_block_t* b)
   return true;
 }
 
-static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_t* metadata);
-static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile_pair_t* instructions,
-                                          u32 size, const cpu_code_cache_block_metadata_t* metadata);
+static bool                    read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_t* metadata);
+static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile_pair_t* instructions, u32 size,
+                                            const cpu_code_cache_block_metadata_t* metadata);
 
-static NORETURN void execute_cached_interpreter(void)
-{
+static NORETURN void execute_cached_interpreter(void) {
   for (;;) {
-    if (g_cpu_state.pending_ticks >= g_cpu_state.downcount)
-      timing_events_run_events();
+    if (g_cpu_state.pending_ticks >= g_cpu_state.downcount) timing_events_run_events();
 
-    const u32 pc = g_cpu_state.pc;
+    const u32               pc    = g_cpu_state.pc;
     cpu_code_cache_block_t* block = lookup_block(pc);
-    bool hit = block && block->state == CPU_CODE_CACHE_BS_VALID;
+    bool                    hit   = block && block->state == CPU_CODE_CACHE_BS_VALID;
     if (has_block_lut(pc) && (!block || block->state != CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER)) {
       if (block && ((block->state != CPU_CODE_CACHE_BS_VALID && !revalidate_block(block)) ||
                     (block->protection == CPU_CODE_CACHE_PROT_MANUAL_CHECK && !is_block_code_current(block)))) {
@@ -918,8 +892,7 @@ static NORETURN void execute_cached_interpreter(void)
         if (result.steps > 0) {
           s_cached_stats.blocks_executed++;
           s_cached_stats.instructions_executed += result.instructions;
-          if (hit)
-            s_cached_stats.block_hits++;
+          if (hit) s_cached_stats.block_hits++;
           continue;
         }
       }
@@ -930,83 +903,83 @@ static NORETURN void execute_cached_interpreter(void)
   }
 }
 
-static void clear_blocks(void)
-{
+static void clear_blocks(void) {
   for (u32 i = 0; i < BUS_RAM_8MB_CODE_PAGE_COUNT; i++) {
     cpu_code_cache_page_prot_info_t* p = &s_page_protection[i];
-    if (p->mode == CPU_CODE_CACHE_PROT_WRITE_PROTECTED && p->first_block_in_page)
-      bus_clear_ram_code_page(i);
+    if (p->mode == CPU_CODE_CACHE_PROT_WRITE_PROTECTED && p->first_block_in_page) bus_clear_ram_code_page(i);
     memset(p, 0, sizeof(*p));
   }
 
   block_links_clear();
 
   for (u32 i = 0; i < s_blocks_count; i++)
-    free(s_blocks[i]);
+    AlignedFree(s_blocks[i]);
   s_blocks_count = 0u;
 
-  if (s_lut_block_pointers)
-    memset(s_lut_block_pointers, 0, sizeof(cpu_code_cache_block_t*) * lut_slot_count(false));
+  if (s_lut_block_pointers) memset(s_lut_block_pointers, 0, sizeof(cpu_code_cache_block_t*) * lut_slot_count(false));
 }
 
 static void fill_block_reg_info(cpu_code_cache_block_t* block);
 
-static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile_pair_t* instructions,
-                                            u32 size, const cpu_code_cache_block_metadata_t* metadata)
-{
+static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile_pair_t* instructions, u32 size,
+                                            const cpu_code_cache_block_metadata_t* metadata) {
   const u32 table = pc >> CPU_CODE_CACHE_LUT_TABLE_SHIFT;
   Assert(s_block_lut[table] != NULL);
   const u32 idx = (pc & 0xFFFFu) >> 2;
 
-  const u32 frame = system_get_frame_number();
-  u32 recompile_frame = frame;
-  u8  recompile_count = 0u;
+  const u32 frame           = system_get_frame_number();
+  u32       recompile_frame = frame;
+  u8        recompile_count = 0u;
 
   cpu_code_cache_block_t* block = s_block_lut[table][idx];
   if (block != NULL) {
     Assert(block->next_block_in_page == NULL);
     recompile_frame = block->compile_frame;
     recompile_count = block->compile_count;
+    /* Cache selection and ROM transfer controls select a different fetch view.
+     * Count repeated code mutations within that view. */
+    const u32 fetch_view_flags = CPU_CODE_CACHE_BF_IS_USING_ICACHE | CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE;
+    if ((block->flags ^ metadata->flags) & fetch_view_flags) {
+      recompile_frame = frame;
+      recompile_count = 0u;
+    }
     if (block->size != size) {
       blocks_unregister(block);
-      free(block);
+      AlignedFree(block);
       block = NULL;
     }
   }
 
   if (block == NULL) {
-    const size_t bytes = sizeof(cpu_code_cache_block_t) +
-                         CPU_INSTRUCTION_SIZE * size +
-                         sizeof(cpu_code_cache_inst_info_t) * size;
-    /* posix_memalign for 16-byte alignment (alignas(16) struct). */
-    void* mem = NULL;
-    if (posix_memalign(&mem, 16u, bytes) != 0) mem = NULL;
+    const size_t bytes =
+        sizeof(cpu_code_cache_block_t) + CPU_INSTRUCTION_SIZE * size + sizeof(cpu_code_cache_inst_info_t) * size;
+    void* mem = AlignedMalloc(bytes, 16u);
     AssertMsg(mem != NULL, "block allocation failed");
     block = (cpu_code_cache_block_t*)mem;
     memset(block, 0, sizeof(*block));
     blocks_register(block);
   }
 
-  block->pc = pc;
-  block->size = size;
-  block->host_code = NULL;
-  block->next_block_in_page = NULL;
-  block->num_exit_links = 0u;
-  block->state = CPU_CODE_CACHE_BS_VALID;
-  block->flags = metadata->flags;
-  block->protection = get_protection_mode_for_block(block);
+  block->pc                   = pc;
+  block->size                 = size;
+  block->host_code            = NULL;
+  block->next_block_in_page   = NULL;
+  block->num_exit_links       = 0u;
+  block->state                = CPU_CODE_CACHE_BS_VALID;
+  block->flags                = metadata->flags;
+  block->protection           = get_protection_mode_for_block(block);
   block->uncached_fetch_ticks = metadata->uncached_fetch_ticks;
-  block->icache_line_count = metadata->icache_line_count;
-  block->host_code_size = 0u;
-  block->compile_frame = recompile_frame;
-  block->compile_count = recompile_count + 1u;
+  block->icache_line_count    = metadata->icache_line_count;
+  block->host_code_size       = 0u;
+  block->compile_frame        = recompile_frame;
+  block->compile_count        = recompile_count + 1u;
 
   /* Copy decoded instructions + their reg-flow info into trailing arrays. */
-  cpu_instruction_t* dst_inst = cpu_code_cache_block_instructions(block);
+  cpu_instruction_t*          dst_inst = cpu_code_cache_block_instructions(block);
   cpu_code_cache_inst_info_t* dst_info = cpu_code_cache_block_instructions_info(block);
   for (u32 i = 0; i < size; i++) {
     dst_inst[i].bits = instructions[i].inst.bits;
-    dst_info[i] = instructions[i].info;
+    dst_info[i]      = instructions[i].info;
   }
 
   s_block_lut[table][idx] = block;
@@ -1027,7 +1000,7 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
   }
 
   if (block->size == 0u) {
-    block->state = CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER;
+    block->state      = CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER;
     block->protection = CPU_CODE_CACHE_PROT_UNPROTECTED;
     return block;
   }
@@ -1037,73 +1010,84 @@ static cpu_code_cache_block_t* create_block(u32 pc, const cpu_code_cache_compile
   return block;
 }
 
-static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_t* metadata)
-{
+static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_t* metadata) {
   const cpu_code_cache_page_protection_mode_t protection = get_protection_mode_for_pc(start_pc);
-  const bool use_icache = cpu_is_cached_address(start_pc);
-  const bool dynamic_fetch_ticks = !use_icache &&
-      bus_get_memory_access_time_ptr(cpu_virtual_to_physical(start_pc), MEMORY_ACCESS_SIZE_WORD) != NULL;
-  u32 pc = start_pc;
+  const bool use_icache = cpu_is_cached_address(start_pc) && g_cpu_state.cache_control.icache_enable &&
+                          (!cpu_code_cache_is_using_recompiler() || g_settings.cpu_recompiler_icache);
+  const bool dynamic_fetch_ticks =
+      !use_icache && bus_get_memory_access_time_ptr(cpu_virtual_to_physical(start_pc), MEMORY_ACCESS_SIZE_WORD) != NULL;
+  u32  pc                   = start_pc;
   bool is_branch_delay_slot = false;
-  bool is_load_delay_slot = false;
+  bool is_load_delay_slot   = false;
 
   block_instructions_reset();
-  metadata->icache_line_count = 0u;
+  metadata->icache_line_count    = 0u;
   metadata->uncached_fetch_ticks = 0;
-   metadata->flags = use_icache ? CPU_CODE_CACHE_BF_IS_USING_ICACHE :
-                    (dynamic_fetch_ticks ? CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS : 
-                                           CPU_CODE_CACHE_BF_NONE);
+  metadata->flags                = use_icache
+                                       ? CPU_CODE_CACHE_BF_IS_USING_ICACHE
+                                       : (dynamic_fetch_ticks ? CPU_CODE_CACHE_BF_NEEDS_DYNAMIC_FETCH_TICKS : CPU_CODE_CACHE_BF_NONE);
+  const u32 physical_pc          = cpu_virtual_to_physical(start_pc);
+  if (physical_pc >= BUS_BIOS_BASE && physical_pc - BUS_BIOS_BASE < BUS_BIOS_MIRROR_SIZE &&
+      bus_bios_reads_repeat_byte())
+    metadata->flags = (cpu_code_cache_block_flags_t)(metadata->flags | CPU_CODE_CACHE_BF_BIOS_REPEATS_BYTE);
 
   u32 last_cache_line = (u32)-1;
-  u32 last_page = (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) ?
-                    bus_get_ram_code_page_index(start_pc) : 0u;
+  u32 last_page = (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) ? bus_get_ram_code_page_index(start_pc) : 0u;
+  const u32 start_page = start_pc >> HOST_PAGE_SHIFT;
 
   for (;;) {
+    /* Bound translation work for ROM and manually checked mappings as well
+     * as protected RAM. A branch still owns its delay slot across the edge. */
+    if (protection != CPU_CODE_CACHE_PROT_WRITE_PROTECTED && (pc >> HOST_PAGE_SHIFT) != start_page &&
+        !is_branch_delay_slot)
+      break;
     if (protection == CPU_CODE_CACHE_PROT_WRITE_PROTECTED) {
       const u32 this_page = bus_get_ram_code_page_index(pc);
       if (this_page != last_page) {
         if (!is_branch_delay_slot) {
-          metadata->flags = (cpu_code_cache_block_flags_t)
-              ((u32)metadata->flags | CPU_CODE_CACHE_BF_SPANS_PAGES);
+          metadata->flags = (cpu_code_cache_block_flags_t)((u32)metadata->flags | CPU_CODE_CACHE_BF_SPANS_PAGES);
           break;
         } else {
-          metadata->flags = (cpu_code_cache_block_flags_t)
-              ((u32)metadata->flags | CPU_CODE_CACHE_BF_BRANCH_DELAY_SPANS_PAGES);
+          metadata->flags =
+              (cpu_code_cache_block_flags_t)((u32)metadata->flags | CPU_CODE_CACHE_BF_BRANCH_DELAY_SPANS_PAGES);
         }
       }
     }
 
     cpu_instruction_t inst = {.bits = 0u};
-    if (!cpu_safe_read_instruction(pc, &inst.bits) || !cpu_is_valid_instruction(inst)) {
+    if (!read_block_instruction(pc, &inst.bits)) {
       ERROR_LOG("Instruction read failed at PC=0x%08X, truncating block", pc);
-      if (is_branch_delay_slot && s_block_instructions_count > 0u)
-        s_block_instructions_count--;
+      if (is_branch_delay_slot && s_block_instructions_count > 0u) s_block_instructions_count--;
       break;
     }
+    /* A readable reserved word ends the block with a trap, not a fetch failure. */
+    const bool reserved = !cpu_is_valid_instruction(inst);
 
     cpu_code_cache_inst_info_t info;
     memset(&info, 0, sizeof(info));
-    info.is_branch_delay_slot              = is_branch_delay_slot ? 1u : 0u;
-    info.is_load_delay_slot                = is_load_delay_slot   ? 1u : 0u;
-    info.is_branch_instruction             = cpu_is_branch_instruction(inst) ? 1u : 0u;
-    info.is_direct_branch_instruction      = cpu_is_direct_branch_instruction(inst) ? 1u : 0u;
+    info.is_branch_delay_slot                = is_branch_delay_slot ? 1u : 0u;
+    info.is_load_delay_slot                  = is_load_delay_slot ? 1u : 0u;
+    info.is_branch_instruction               = cpu_is_branch_instruction(inst) ? 1u : 0u;
+    info.is_direct_branch_instruction        = cpu_is_direct_branch_instruction(inst) ? 1u : 0u;
     info.is_unconditional_branch_instruction = cpu_is_unconditional_branch_instruction(inst) ? 1u : 0u;
-    info.is_load_instruction               = cpu_is_memory_load_instruction(inst) ? 1u : 0u;
-    info.is_store_instruction              = cpu_is_memory_store_instruction(inst) ? 1u : 0u;
-    info.has_load_delay                    = cpu_instruction_has_load_delay(inst) ? 1u : 0u;
+    info.is_load_instruction                 = cpu_is_memory_load_instruction(inst) ? 1u : 0u;
+    info.is_store_instruction                = cpu_is_memory_store_instruction(inst) ? 1u : 0u;
+    info.has_load_delay                      = cpu_instruction_has_load_delay(inst) ? 1u : 0u;
 
     if (use_icache) {
       if (g_settings.cpu_recompiler_icache) {
         const u32 line = cpu_get_icache_line(pc);
-        if (line != last_cache_line) { metadata->icache_line_count++; last_cache_line = line; }
+        if (line != last_cache_line) {
+          metadata->icache_line_count++;
+          last_cache_line = line;
+        }
       }
     } else if (!dynamic_fetch_ticks) {
       metadata->uncached_fetch_ticks += cpu_get_instruction_read_ticks(pc);
     }
 
     if (info.is_load_instruction || info.is_store_instruction)
-      metadata->flags = (cpu_code_cache_block_flags_t)
-          ((u32)metadata->flags | CPU_CODE_CACHE_BF_CONTAINS_LOADSTORE);
+      metadata->flags = (cpu_code_cache_block_flags_t)((u32)metadata->flags | CPU_CODE_CACHE_BF_CONTAINS_LOADSTORE);
 
     pc += CPU_INSTRUCTION_SIZE;
 
@@ -1114,14 +1098,12 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
 
     block_instructions_push(inst, &info);
 
-    if (is_branch_delay_slot && !info.is_branch_instruction)
-      break;
+    if (is_branch_delay_slot && !info.is_branch_instruction) break;
 
     is_branch_delay_slot = info.is_branch_instruction;
-    is_load_delay_slot = info.has_load_delay;
+    is_load_delay_slot   = info.has_load_delay;
 
-    if (cpu_is_exit_block_instruction(inst))
-      break;
+    if (reserved || cpu_is_exit_block_instruction(inst)) break;
   }
 
   if (s_block_instructions_count == 0u) {
@@ -1132,43 +1114,45 @@ static bool read_block_instructions(u32 start_pc, cpu_code_cache_block_metadata_
   return true;
 }
 
-static void copy_reg_info(cpu_code_cache_inst_info_t* dst, const cpu_code_cache_inst_info_t* src)
-{
+static void copy_reg_info(cpu_code_cache_inst_info_t* dst, const cpu_code_cache_inst_info_t* src) {
   memcpy(dst->reg_flags, src->reg_flags, sizeof(dst->reg_flags));
   memcpy(dst->read_reg, src->read_reg, sizeof(dst->read_reg));
 }
 
-static void set_reg_access(cpu_code_cache_inst_info_t* inst, cpu_reg_t r, bool write)
-{
+static void set_reg_access(cpu_code_cache_inst_info_t* inst, cpu_reg_t r, bool write) {
   if ((u32)r == 0u) return;
   if (!write) {
     for (u32 i = 0; i < (u32)(sizeof(inst->read_reg) / sizeof(inst->read_reg[0])); i++) {
-      if ((u32)inst->read_reg[i] == 0u) { inst->read_reg[i] = r; break; }
+      if ((u32)inst->read_reg[i] == 0u) {
+        inst->read_reg[i] = r;
+        break;
+      }
     }
   }
 }
 
-#define BPSET_READS(REG) do { \
-    if (!(inst->reg_flags[(u32)(REG)] & CPU_CODE_CACHE_RI_USED)) \
-       inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_LASTUSE; \
+#define BPSET_READS(REG)                                                            \
+  do {                                                                              \
+    if (!(inst->reg_flags[(u32)(REG)] & CPU_CODE_CACHE_RI_USED))                    \
+      inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_LASTUSE;                     \
     prev->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_LIVE | CPU_CODE_CACHE_RI_USED; \
-    inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_USED; \
-    set_reg_access(inst, (REG), false); \
+    inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_USED;                          \
+    set_reg_access(inst, (REG), false);                                             \
   } while (0)
 
-#define BPSET_WRITES(REG) do { \
-    prev->reg_flags[(u32)(REG)] &= (u8)~(CPU_CODE_CACHE_RI_LIVE | CPU_CODE_CACHE_RI_USED); \
-    if (!(inst->reg_flags[(u32)(REG)] & CPU_CODE_CACHE_RI_USED)) \
-       inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_LASTUSE; \
-    inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_USED; \
-    set_reg_access(inst, (REG), true); \
+#define BPSET_WRITES(REG)                                                                   \
+  do {                                                                                      \
+    prev->reg_flags[(u32)(REG)] &= (u8) ~(CPU_CODE_CACHE_RI_LIVE | CPU_CODE_CACHE_RI_USED); \
+    if (!(inst->reg_flags[(u32)(REG)] & CPU_CODE_CACHE_RI_USED))                            \
+      inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_LASTUSE;                             \
+    inst->reg_flags[(u32)(REG)] |= CPU_CODE_CACHE_RI_USED;                                  \
+    set_reg_access(inst, (REG), true);                                                      \
   } while (0)
 
-static void fill_block_reg_info(cpu_code_cache_block_t* block)
-{
-  const cpu_instruction_t* iinst = cpu_code_cache_block_instructions(block) + (block->size - 1u);
+static void fill_block_reg_info(cpu_code_cache_block_t* block) {
+  const cpu_instruction_t*          iinst = cpu_code_cache_block_instructions(block) + (block->size - 1u);
   cpu_code_cache_inst_info_t* const start = cpu_code_cache_block_instructions_info(block);
-  cpu_code_cache_inst_info_t* inst = start + (block->size - 1u);
+  cpu_code_cache_inst_info_t*       inst  = start + (block->size - 1u);
 
   /* Last instruction: all regs live + no read tracking yet. */
   memset(inst->reg_flags, CPU_CODE_CACHE_RI_LIVE, sizeof(inst->reg_flags));
@@ -1185,27 +1169,66 @@ static void fill_block_reg_info(cpu_code_cache_block_t* block)
       case CPU_OP_FUNCT: {
         const cpu_reg_t rd = (cpu_reg_t)iinst->r.rd;
         switch ((cpu_instruction_funct_t)iinst->r.funct) {
-          case CPU_FUNCT_SLL: case CPU_FUNCT_SRL: case CPU_FUNCT_SRA:
-            BPSET_WRITES(rd); BPSET_READS(rt); break;
-          case CPU_FUNCT_SLLV: case CPU_FUNCT_SRLV: case CPU_FUNCT_SRAV:
-          case CPU_FUNCT_ADD:  case CPU_FUNCT_ADDU:
-          case CPU_FUNCT_SUB:  case CPU_FUNCT_SUBU:
-          case CPU_FUNCT_AND:  case CPU_FUNCT_OR:
-          case CPU_FUNCT_XOR:  case CPU_FUNCT_NOR:
-          case CPU_FUNCT_SLT:  case CPU_FUNCT_SLTU:
-            BPSET_WRITES(rd); BPSET_READS(rt); BPSET_READS(rs); break;
-          case CPU_FUNCT_JR:    BPSET_READS(rs); break;
-          case CPU_FUNCT_JALR:  BPSET_READS(rs); BPSET_WRITES(rd); break;
-          case CPU_FUNCT_MFHI:  BPSET_WRITES(rd); BPSET_READS((cpu_reg_t)CPU_REG_HI); break;
-          case CPU_FUNCT_MFLO:  BPSET_WRITES(rd); BPSET_READS((cpu_reg_t)CPU_REG_LO); break;
-          case CPU_FUNCT_MTHI:  BPSET_WRITES((cpu_reg_t)CPU_REG_HI); BPSET_READS(rs); break;
-          case CPU_FUNCT_MTLO:  BPSET_WRITES((cpu_reg_t)CPU_REG_LO); BPSET_READS(rs); break;
-          case CPU_FUNCT_MULT: case CPU_FUNCT_MULTU:
-          case CPU_FUNCT_DIV:  case CPU_FUNCT_DIVU:
-            BPSET_WRITES((cpu_reg_t)CPU_REG_HI); BPSET_WRITES((cpu_reg_t)CPU_REG_LO);
-            BPSET_READS(rs); BPSET_READS(rt); break;
-          case CPU_FUNCT_SYSCALL: case CPU_FUNCT_BREAK: break;
-          default: break;
+          case CPU_FUNCT_SLL:
+          case CPU_FUNCT_SRL:
+          case CPU_FUNCT_SRA:
+            BPSET_WRITES(rd);
+            BPSET_READS(rt);
+            break;
+          case CPU_FUNCT_SLLV:
+          case CPU_FUNCT_SRLV:
+          case CPU_FUNCT_SRAV:
+          case CPU_FUNCT_ADD:
+          case CPU_FUNCT_ADDU:
+          case CPU_FUNCT_SUB:
+          case CPU_FUNCT_SUBU:
+          case CPU_FUNCT_AND:
+          case CPU_FUNCT_OR:
+          case CPU_FUNCT_XOR:
+          case CPU_FUNCT_NOR:
+          case CPU_FUNCT_SLT:
+          case CPU_FUNCT_SLTU:
+            BPSET_WRITES(rd);
+            BPSET_READS(rt);
+            BPSET_READS(rs);
+            break;
+          case CPU_FUNCT_JR:
+            BPSET_READS(rs);
+            break;
+          case CPU_FUNCT_JALR:
+            BPSET_READS(rs);
+            BPSET_WRITES(rd);
+            break;
+          case CPU_FUNCT_MFHI:
+            BPSET_WRITES(rd);
+            BPSET_READS((cpu_reg_t)CPU_REG_HI);
+            break;
+          case CPU_FUNCT_MFLO:
+            BPSET_WRITES(rd);
+            BPSET_READS((cpu_reg_t)CPU_REG_LO);
+            break;
+          case CPU_FUNCT_MTHI:
+            BPSET_WRITES((cpu_reg_t)CPU_REG_HI);
+            BPSET_READS(rs);
+            break;
+          case CPU_FUNCT_MTLO:
+            BPSET_WRITES((cpu_reg_t)CPU_REG_LO);
+            BPSET_READS(rs);
+            break;
+          case CPU_FUNCT_MULT:
+          case CPU_FUNCT_MULTU:
+          case CPU_FUNCT_DIV:
+          case CPU_FUNCT_DIVU:
+            BPSET_WRITES((cpu_reg_t)CPU_REG_HI);
+            BPSET_WRITES((cpu_reg_t)CPU_REG_LO);
+            BPSET_READS(rs);
+            BPSET_READS(rt);
+            break;
+          case CPU_FUNCT_SYSCALL:
+          case CPU_FUNCT_BREAK:
+            break;
+          default:
+            break;
         }
       } break;
 
@@ -1214,39 +1237,87 @@ static void fill_block_reg_info(cpu_code_cache_block_t* block)
         BPSET_READS(rs);
       } break;
 
-      case CPU_OP_J: break;
-      case CPU_OP_JAL: BPSET_WRITES((cpu_reg_t)CPU_REG_RA); break;
-      case CPU_OP_BEQ: case CPU_OP_BNE: BPSET_READS(rs); BPSET_READS(rt); break;
-      case CPU_OP_BLEZ: case CPU_OP_BGTZ: BPSET_READS(rs); break;
+      case CPU_OP_J:
+        break;
+      case CPU_OP_JAL:
+        BPSET_WRITES((cpu_reg_t)CPU_REG_RA);
+        break;
+      case CPU_OP_BEQ:
+      case CPU_OP_BNE:
+        BPSET_READS(rs);
+        BPSET_READS(rt);
+        break;
+      case CPU_OP_BLEZ:
+      case CPU_OP_BGTZ:
+        BPSET_READS(rs);
+        break;
 
-      case CPU_OP_ADDI: case CPU_OP_ADDIU: case CPU_OP_SLTI: case CPU_OP_SLTIU:
-      case CPU_OP_ANDI: case CPU_OP_ORI:   case CPU_OP_XORI:
-        BPSET_WRITES(rt); BPSET_READS(rs); break;
+      case CPU_OP_ADDI:
+      case CPU_OP_ADDIU:
+      case CPU_OP_SLTI:
+      case CPU_OP_SLTIU:
+      case CPU_OP_ANDI:
+      case CPU_OP_ORI:
+      case CPU_OP_XORI:
+        BPSET_WRITES(rt);
+        BPSET_READS(rs);
+        break;
 
-      case CPU_OP_LUI: BPSET_WRITES(rt); break;
+      case CPU_OP_LUI:
+        BPSET_WRITES(rt);
+        break;
 
-      case CPU_OP_LB: case CPU_OP_LH: case CPU_OP_LW: case CPU_OP_LBU: case CPU_OP_LHU:
-        BPSET_WRITES(rt); BPSET_READS(rs); break;
+      case CPU_OP_LB:
+      case CPU_OP_LH:
+      case CPU_OP_LW:
+      case CPU_OP_LBU:
+      case CPU_OP_LHU:
+        BPSET_WRITES(rt);
+        BPSET_READS(rs);
+        break;
 
-      case CPU_OP_LWL: case CPU_OP_LWR:
-        BPSET_WRITES(rt); BPSET_READS(rs); BPSET_READS(rt); break;
+      case CPU_OP_LWL:
+      case CPU_OP_LWR:
+        BPSET_WRITES(rt);
+        BPSET_READS(rs);
+        BPSET_READS(rt);
+        break;
 
-      case CPU_OP_SB: case CPU_OP_SH: case CPU_OP_SWL: case CPU_OP_SW: case CPU_OP_SWR:
-        BPSET_READS(rt); BPSET_READS(rs); break;
+      case CPU_OP_SB:
+      case CPU_OP_SH:
+      case CPU_OP_SWL:
+      case CPU_OP_SW:
+      case CPU_OP_SWR:
+        BPSET_READS(rt);
+        BPSET_READS(rs);
+        break;
 
-      case CPU_OP_COP0: case CPU_OP_COP2: {
+      case CPU_OP_COP0:
+      case CPU_OP_COP2: {
         if (cpu_cop_is_common_instruction(*iinst)) {
           switch (cpu_cop_common_op(*iinst)) {
-            case CPU_COP_COMMON_MFCN: case CPU_COP_COMMON_CFCN: BPSET_WRITES(rt); break;
-            case CPU_COP_COMMON_MTCN: case CPU_COP_COMMON_CTCN: BPSET_READS(rt); break;
-            default: break;
+            case CPU_COP_COMMON_MFCN:
+            case CPU_COP_COMMON_CFCN:
+              BPSET_WRITES(rt);
+              break;
+            case CPU_COP_COMMON_MTCN:
+            case CPU_COP_COMMON_CTCN:
+              BPSET_READS(rt);
+              break;
+            default:
+              break;
           }
         }
       } break;
 
-      case CPU_OP_LWC2: case CPU_OP_SWC2: BPSET_READS(rs); BPSET_READS(rt); break;
+      case CPU_OP_LWC2:
+      case CPU_OP_SWC2:
+        BPSET_READS(rs);
+        BPSET_READS(rt);
+        break;
 
-      default: break;
+      default:
+        break;
     }
 
     inst--;
@@ -1257,8 +1328,7 @@ static void fill_block_reg_info(cpu_code_cache_block_t* block)
 #undef BPSET_READS
 #undef BPSET_WRITES
 
-const void* cpu_code_cache_create_block_link(cpu_code_cache_block_t* from_block, void* code, u32 newpc)
-{
+const void* cpu_code_cache_create_block_link(cpu_code_cache_block_t* from_block, void* code, u32 newpc) {
   DebugAssert(newpc != from_block->pc);
 
   /* Safety net: if `newpc` is unaligned or in a non-executable segment,
@@ -1268,16 +1338,16 @@ const void* cpu_code_cache_create_block_link(cpu_code_cache_block_t* from_block,
    * unconditional dispatcher here means the link is not patched and the
    * branch falls through to the next dispatcher round-trip, which will
    * reach compile_or_revalidate_block(newpc) and raise AdEL/IBE there. */
-  if (g_settings.cpu_recompiler_block_linking && !cpu_recompiler_pc_is_executable(newpc))
-    return g_dispatcher;
+  if (g_settings.cpu_recompiler_block_linking && !cpu_recompiler_pc_is_executable(newpc)) return g_dispatcher;
 
   const void* dst = g_dispatcher;
   if (g_settings.cpu_recompiler_block_linking) {
     const cpu_code_cache_block_t* nb = lookup_block(newpc);
     if (nb != NULL) {
-      dst = (nb->state == CPU_CODE_CACHE_BS_VALID) ? nb->host_code :
-            ((nb->state == CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER) ?
-                g_interpret_block : g_compile_or_revalidate_block);
+      dst = (nb->state == CPU_CODE_CACHE_BS_VALID)
+                ? nb->host_code
+                : ((nb->state == CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER) ? g_interpret_block
+                                                                            : g_compile_or_revalidate_block);
     } else {
       dst = has_block_lut(newpc) ? g_compile_or_revalidate_block : g_interpret_block;
     }
@@ -1289,11 +1359,10 @@ const void* cpu_code_cache_create_block_link(cpu_code_cache_block_t* from_block,
   return dst;
 }
 
-const void* cpu_code_cache_create_self_block_link(cpu_code_cache_block_t* b, void* code, const void* block_start)
-{
+const void* cpu_code_cache_create_self_block_link(cpu_code_cache_block_t* b, void* code, const void* block_start) {
   const void* dst = g_dispatcher;
   if (g_settings.cpu_recompiler_block_linking) {
-    dst = block_start;
+    dst           = block_start;
     const u32 idx = block_links_emplace(b->pc, code);
     DebugAssert(b->num_exit_links < CPU_CODE_CACHE_MAX_BLOCK_EXIT_LINKS);
     b->exit_links[b->num_exit_links++] = &s_block_links[idx];
@@ -1303,49 +1372,42 @@ const void* cpu_code_cache_create_self_block_link(cpu_code_cache_block_t* b, voi
 
 static void (*s_emit_jump_fn)(void* site, const void* dst, bool flush_icache) = NULL;
 
-void cpu_code_cache_set_emit_jump(void (*fn)(void* site, const void* dst, bool flush_icache))
-{
+void cpu_code_cache_set_emit_jump(void (*fn)(void* site, const void* dst, bool flush_icache)) {
   s_emit_jump_fn = fn;
 }
 
-static void backlink_blocks(u32 pc, const void* dst)
-{
-  if (!g_settings.cpu_recompiler_block_linking || s_emit_jump_fn == NULL)
-    return;
+static void backlink_blocks(u32 pc, const void* dst) {
+  if (!g_settings.cpu_recompiler_block_linking || s_emit_jump_fn == NULL) return;
 
   for (u32 i = 0; i < s_block_links_count; i++) {
     cpu_code_cache_block_link_entry_t* e = &s_block_links[i];
-    if (!e->dead && e->pc == pc)
-      s_emit_jump_fn(e->code, dst, true);
+    if (!e->dead && e->pc == pc) s_emit_jump_fn(e->code, dst, true);
   }
 }
 
-static void unlink_block_exits(cpu_code_cache_block_t* b)
-{
+static void unlink_block_exits(cpu_code_cache_block_t* b) {
   for (u32 i = 0; i < b->num_exit_links; i++) {
     cpu_code_cache_block_link_entry_t* e = b->exit_links[i];
     if (e != NULL) {
       /* Compute index from pointer arithmetic. */
       const ptrdiff_t idx = e - s_block_links;
-      if (idx >= 0 && (u32)idx < s_block_links_count)
-        block_links_erase((u32)idx);
+      if (idx >= 0 && (u32)idx < s_block_links_count) block_links_erase((u32)idx);
     }
   }
   b->num_exit_links = 0u;
 }
 
-static bool compile_block(cpu_code_cache_block_t* b)
-{
-  const void* host_code = NULL;
-  u32 host_code_size = 0u;
-  u32 host_far_code_size = 0u;
+static bool compile_block(cpu_code_cache_block_t* b) {
+  const void* host_code          = NULL;
+  u32         host_code_size     = 0u;
+  u32         host_far_code_size = 0u;
 
-  if (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER &&
-      g_cpu_compiler != NULL && g_cpu_compiler->v != NULL) {
+  if (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER && g_cpu_compiler != NULL &&
+      g_cpu_compiler->v != NULL) {
     host_code = cpu_recompiler_compile_block(g_cpu_compiler, b, &host_code_size, &host_far_code_size);
   }
 
-  b->host_code = host_code;
+  b->host_code      = host_code;
   b->host_code_size = host_code_size;
   if (host_code == NULL) {
     b->state = CPU_CODE_CACHE_BS_FALLBACK_TO_INTERPRETER;
@@ -1357,24 +1419,20 @@ static bool compile_block(cpu_code_cache_block_t* b)
 /* Two-level LUT lookup: g_code_lut[pc>>16][(pc&0xFFFC)>>2].
  * Returns the host_code address; uninitialized slots point at
  * g_compile_or_revalidate_block, so the caller can branch unconditionally. */
-const void* cpu_code_cache_dispatch_lookup(u32 pc)
-{
-  const u32 outer = pc >> CPU_CODE_CACHE_LUT_TABLE_SHIFT;
-  const u32 inner = (pc & 0xFFFFu) >> 2;
-  const void** sub = g_code_lut[outer];
+const void* cpu_code_cache_dispatch_lookup(u32 pc) {
+  const u32    outer = pc >> CPU_CODE_CACHE_LUT_TABLE_SHIFT;
+  const u32    inner = (pc & 0xFFFFu) >> 2;
+  const void** sub   = g_code_lut[outer];
 #ifdef CUPID_DEBUG_RECOMP_TRACE
   ERROR_LOG("dispatch_lookup pc=%08X outer=%u sub=%p", pc, outer, (void*)sub);
-  if (sub == NULL)
-    ERROR_LOG("  --> NULL inner table; host dispatcher will segfault");
+  if (sub == NULL) ERROR_LOG("  --> NULL inner table; host dispatcher will segfault");
 #endif
   return sub[inner];
 }
 
-void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
-{
+void cpu_code_cache_compile_or_revalidate_block(u32 start_pc) {
 #ifdef CUPID_DEBUG_RECOMP_TRACE
-  ERROR_LOG("compile_or_revalidate pc=%08X has_block=%d", start_pc,
-            (lookup_block(start_pc) != NULL));
+  ERROR_LOG("compile_or_revalidate pc=%08X has_block=%d", start_pc, (lookup_block(start_pc) != NULL));
 #endif
 
   /* Dispatcher safety net: a wild branch / corrupt JR target can write
@@ -1385,8 +1443,7 @@ void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
    * (misaligned) or IBE (segment fault) on the fetch; raise that
    * exception now so the BIOS handler picks it up, and bail out without
    * touching the LUT or the block table. */
-  if (cpu_recompiler_synth_pc_exception_if_invalid(start_pc))
-    return;
+  if (cpu_recompiler_synth_pc_exception_if_invalid(start_pc)) return;
   cpu_code_cache_block_t* b = lookup_block(start_pc);
   if (b != NULL) {
     /* An already valid block can be republished to the code LUT without
@@ -1417,11 +1474,12 @@ void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
 
   /* Reserve enough code-buffer space; if not, reset cache. */
   const u32 block_size = s_block_instructions_count;
-  const u32 free_code = cpu_code_cache_get_free_code_space();
-  const u32 free_far  = cpu_code_cache_get_free_far_code_space();
+  const u32 free_code  = cpu_code_cache_get_free_code_space();
+  const u32 free_far   = cpu_code_cache_get_free_far_code_space();
   if (free_code < (block_size * CPU_RECOMP_MAX_NEAR_HOST_BYTES_PER_INST) ||
       free_code < CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK ||
-      free_far  < CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK) {
+      free_far < (block_size * CPU_RECOMP_MAX_FAR_HOST_BYTES_PER_INST) ||
+      free_far < CPU_RECOMP_MIN_CODE_RESERVE_FOR_BLOCK) {
     ERROR_LOG("Out of code space while compiling %08X. Resetting code cache.", start_pc);
     cpu_code_cache_reset();
   }
@@ -1437,15 +1495,14 @@ void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
   set_code_lut(start_pc, b->host_code);
   backlink_blocks(start_pc, b->host_code);
 #ifdef CUPID_DEBUG_RECOMP_TRACE
-  ERROR_LOG("compiled pc=%08X host=%p size=%u", start_pc,
-            (void*)b->host_code, b->host_code_size);
+  ERROR_LOG("compiled pc=%08X host=%p size=%u", start_pc, (void*)b->host_code, b->host_code_size);
   /* For the BIOS scratchpad-clear loop block, dump full host bytes so we can
    * disassemble offline and find the bne mis-emit. */
   if (start_pc == 0xBFC00250u && b->host_code != NULL) {
     const u8* p = (const u8*)b->host_code;
     const u32 n = b->host_code_size;
-    char buf[2048];
-    u32 off = 0;
+    char      buf[2048];
+    u32       off = 0;
     for (u32 i = 0; i < n && off + 4 < sizeof(buf); i++)
       off += (u32)snprintf(buf + off, sizeof(buf) - off, "%02x ", p[i]);
     ERROR_LOG("HOSTBYTES BFC00250 (%u bytes): %s", n, buf);
@@ -1453,8 +1510,7 @@ void cpu_code_cache_compile_or_revalidate_block(u32 start_pc)
 #endif
 }
 
-void cpu_code_cache_discard_and_recompile_block(u32 start_pc)
-{
+void cpu_code_cache_discard_and_recompile_block(u32 start_pc) {
   cpu_code_cache_block_t* b = lookup_block(start_pc);
   DebugAssert(b != NULL && b->state == CPU_CODE_CACHE_BS_VALID);
   invalidate_block(b, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
@@ -1463,60 +1519,48 @@ void cpu_code_cache_discard_and_recompile_block(u32 start_pc)
 
 static u32 (*s_emit_asm_functions_fn)(void* code, u32 code_size) = NULL;
 
-void cpu_code_cache_set_emit_asm_functions(u32 (*fn)(void* code, u32 code_size))
-{
+void cpu_code_cache_set_emit_asm_functions(u32 (*fn)(void* code, u32 code_size)) {
   s_emit_asm_functions_fn = fn;
 }
 
-static void compile_asm_functions(void)
-{
+static void compile_asm_functions(void) {
   /* Backend supplies `emit_asm_functions` once the x64 backend registers
    * itself.  When NULL, dispatcher globals stay NULL and
    * cpu_code_cache_execute() falls through to the interpreter. */
-  if (s_emit_asm_functions_fn == NULL)
-    return;
-  if (g_cpu_compiler == NULL || g_cpu_compiler->v == NULL)
-    return;
+  if (s_emit_asm_functions_fn == NULL) return;
+  if (g_cpu_compiler == NULL || g_cpu_compiler->v == NULL) return;
 
   u8* const code = cpu_code_cache_get_free_code_pointer();
-  const u32 cap = cpu_code_cache_get_free_code_space();
+  const u32 cap  = cpu_code_cache_get_free_code_space();
   const u32 size = s_emit_asm_functions_fn(code, cap);
   Assert(size > 0u && size <= cap);
   cpu_code_cache_commit_code(size);
 #ifdef CUPID_DEBUG_RECOMP_TRACE
   ERROR_LOG("ASM funcs emitted: enter=%p dispatcher=%p compile=%p interp_block=%p run_events=%p (%u bytes)",
-            (void*)g_enter_recompiler, (void*)g_dispatcher,
-            (void*)g_compile_or_revalidate_block, (void*)g_interpret_block, 
-            (void*)g_run_events_and_dispatch, size);
+            (void*)g_enter_recompiler, (void*)g_dispatcher, (void*)g_compile_or_revalidate_block,
+            (void*)g_interpret_block, (void*)g_run_events_and_dispatch, size);
 #endif
 }
 
 NORETURN void cpu_run_interpreter_loop(void);
 
-bool cpu_code_cache_is_using_recompiler(void)
-{
+bool cpu_code_cache_is_using_recompiler(void) {
   /* Returns true if the user has selected recompiler mode AND a backend is
    * registered.  Note: g_enter_recompiler may still be NULL if the prelude
    * has not yet been emitted (first reset).  The execute() callsite below
    * guards against that explicitly so removing the guard from here lets
    * compile_asm_functions actually run on first reset (which is what
    * populates g_enter_recompiler in the first place). */
-  return (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER) &&
-         (g_cpu_compiler != NULL) && (g_cpu_compiler->v != NULL);
+  return (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_RECOMPILER) && (g_cpu_compiler != NULL) &&
+         (g_cpu_compiler->v != NULL);
 }
 
-bool cpu_code_cache_is_using_fastmem(void)
-{
-  /* M4c: MMap mode is the only path the recompiler can emit fastmem load/
-   * store sites against today.  LUT mode requires per-page pointer
-   * lookups that don't fit the inline `[RBX+addr]` SIB shape, so it stays
-   * slow-path only.  Fastmem only on if mode==MMAP and arena allocated. */
-  return g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP &&
-         bus_get_fastmem_base(/*isc=*/false) != NULL;
+bool cpu_code_cache_is_using_fastmem(void) {
+  return cpu_code_cache_is_using_recompiler() && !g_settings.cpu_recompiler_memory_exceptions &&
+         g_settings.cpu_fastmem_mode != CPU_FASTMEM_MODE_DISABLED && bus_get_fastmem_base(/*isc=*/false) != NULL;
 }
 
-bool cpu_code_cache_process_startup(Error* error)
-{
+bool cpu_code_cache_process_startup(Error* error) {
   s_code_buffer_ptr = (u8*)memmap_allocate_jit_memory(RECOMPILER_CODE_CACHE_SIZE);
   if (s_code_buffer_ptr == NULL) {
     ERROR_LOG("Failed to allocate %u bytes of JIT memory", RECOMPILER_CODE_CACHE_SIZE);
@@ -1543,14 +1587,12 @@ bool cpu_code_cache_process_startup(Error* error)
 #else
 #endif
 
-  INFO_LOG("code cache: process_startup ok (%u MB JIT, %u MB far)",
-           RECOMPILER_CODE_CACHE_SIZE / (1024u * 1024u),
+  INFO_LOG("code cache: process_startup ok (%u MB JIT, %u MB far)", RECOMPILER_CODE_CACHE_SIZE / (1024u * 1024u),
            RECOMPILER_FAR_CODE_CACHE_SIZE / (1024u * 1024u));
   return true;
 }
 
-void cpu_code_cache_process_shutdown(void)
-{
+void cpu_code_cache_process_shutdown(void) {
   Error error;
   Error_init(&error);
   if (!page_fault_handler_uninstall(&error))
@@ -1562,32 +1604,34 @@ void cpu_code_cache_process_shutdown(void)
   arm64_backend_shutdown();
 #endif
   deallocate_luts();
-  if (s_code_buffer_ptr)
-    memmap_release_jit_memory(s_code_buffer_ptr, RECOMPILER_CODE_CACHE_SIZE);
-  s_code_buffer_ptr = NULL;
-  s_code_ptr = NULL;
-  s_free_code_ptr = NULL;
-  s_code_size = 0;
-  s_code_used = 0;
-  s_far_code_ptr = NULL;
-  s_free_far_code_ptr = NULL;
-  s_far_code_size = 0;
-  s_far_code_used = 0;
-  g_enter_recompiler = NULL;
-  g_dispatcher = NULL;
-  g_run_events_and_dispatch = NULL;
+  if (s_code_buffer_ptr) memmap_release_jit_memory(s_code_buffer_ptr, RECOMPILER_CODE_CACHE_SIZE);
+  s_code_buffer_ptr             = NULL;
+  s_code_ptr                    = NULL;
+  s_free_code_ptr               = NULL;
+  s_code_size                   = 0;
+  s_code_used                   = 0;
+  s_far_code_ptr                = NULL;
+  s_free_far_code_ptr           = NULL;
+  s_far_code_size               = 0;
+  s_far_code_used               = 0;
+  g_enter_recompiler            = NULL;
+  g_dispatcher                  = NULL;
+  g_run_events_and_dispatch     = NULL;
   g_compile_or_revalidate_block = NULL;
   g_discard_and_recompile_block = NULL;
-  g_interpret_block = NULL;
-  /* Free dynamic backpatch buffer.  Cache resets only zero the count
-   * (buffer reused for next session); only process shutdown frees it. */
+  g_interpret_block             = NULL;
+  /* Cache resets retain these allocations; process shutdown releases them. */
   free(s_fastmem_backpatch_info);
   s_fastmem_backpatch_info     = NULL;
   s_fastmem_backpatch_info_cap = 0u;
+  free(s_fastmem_faulting_pcs);
+  s_fastmem_faulting_pcs       = NULL;
+  s_fastmem_faulting_pcs_count = 0u;
+  s_fastmem_faulting_pcs_cap   = 0u;
+  s_fastmem_faulted_at_zero    = false;
 }
 
-void cpu_code_cache_reset(void)
-{
+void cpu_code_cache_reset(void) {
   clear_blocks();
   memset(&s_cached_stats, 0, sizeof(s_cached_stats));
   if (cpu_code_cache_is_using_recompiler()) {
@@ -1597,22 +1641,26 @@ void cpu_code_cache_reset(void)
   }
 }
 
-void cpu_code_cache_shutdown(void)
-{
+void cpu_code_cache_shutdown(void) {
   clear_blocks();
-  free(s_blocks); s_blocks = NULL; s_blocks_cap = 0u; s_blocks_count = 0u;
-  free(s_block_links); s_block_links = NULL; s_block_links_cap = 0u; s_block_links_count = 0u;
-  free(s_block_instructions); s_block_instructions = NULL;
-  s_block_instructions_cap = 0u; s_block_instructions_count = 0u;
+  free(s_blocks);
+  s_blocks       = NULL;
+  s_blocks_cap   = 0u;
+  s_blocks_count = 0u;
+  free(s_block_links);
+  s_block_links       = NULL;
+  s_block_links_cap   = 0u;
+  s_block_links_count = 0u;
+  free(s_block_instructions);
+  s_block_instructions       = NULL;
+  s_block_instructions_cap   = 0u;
+  s_block_instructions_count = 0u;
 }
 
-NORETURN void cpu_code_cache_execute(void)
-{
-  if (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER)
-    execute_cached_interpreter();
+NORETURN void cpu_code_cache_execute(void) {
+  if (g_settings.cpu_execution_mode == CPU_EXECUTION_MODE_CACHED_INTERPRETER) execute_cached_interpreter();
 #ifdef CUPID_DEBUG_RECOMP_TRACE
-  ERROR_LOG("execute: using_recomp=%d g_enter=%p",
-            cpu_code_cache_is_using_recompiler(), (void*)g_enter_recompiler);
+  ERROR_LOG("execute: using_recomp=%d g_enter=%p", cpu_code_cache_is_using_recompiler(), (void*)g_enter_recompiler);
 #endif
   /* Native execution needs a registered backend and an emitted dispatcher. */
   if (cpu_code_cache_is_using_recompiler() && g_enter_recompiler != NULL) {
@@ -1624,126 +1672,131 @@ NORETURN void cpu_code_cache_execute(void)
 
 enum {
   FASTMEM_BACKPATCH_INFO_INITIAL_CAP = 4096u, /* grows on demand via realloc */
-  FASTMEM_FAULTING_PCS_CAP           = 4096u, /* power of two for mask wrap */
+  FASTMEM_FAULTING_PCS_INITIAL_CAP   = 4096u,
 };
 
-/* Dynamic-grow array (forward-declared near top of file so
- * process_shutdown can free it).  Was a fixed 16384-entry table; MGS Disc 1
- * emits more than that across its first ~60s (saturated at 16384 in repro),
- * and past saturation `cpu_code_cache_add_load_store_info` silently dropped
- * new entries.  The first fault at an unregistered site then aborted via
- * the crash handler.  Now grows by doubling; cleared on cache reset
- * (count zeroed, buffer reused). */
-
-/* Open-addressing hash set, key 0 = empty slot.  PC=0 is never a valid
- * guest PC (BIOS starts at 0xBFC00000), so the sentinel is safe. */
-static u32 s_fastmem_faulting_pcs[FASTMEM_FAULTING_PCS_CAP];
+/* Fault history grows before the table reaches 75 percent full. Empty slots
+ * contain zero; a separate flag records faults at guest PC zero. */
 
 /* FNV-1a 32-bit hash. */
-static u32 fastmem_pc_hash(u32 pc)
-{
+static u32 fastmem_pc_hash(u32 pc) {
   u32 h = 2166136261u;
-  h = (h ^ ((pc >>  0) & 0xFFu)) * 16777619u;
-  h = (h ^ ((pc >>  8) & 0xFFu)) * 16777619u;
-  h = (h ^ ((pc >> 16) & 0xFFu)) * 16777619u;
-  h = (h ^ ((pc >> 24) & 0xFFu)) * 16777619u;
+  h     = (h ^ ((pc >> 0) & 0xFFu)) * 16777619u;
+  h     = (h ^ ((pc >> 8) & 0xFFu)) * 16777619u;
+  h     = (h ^ ((pc >> 16) & 0xFFu)) * 16777619u;
+  h     = (h ^ ((pc >> 24) & 0xFFu)) * 16777619u;
   return h;
 }
 
-bool cpu_code_cache_has_previously_faulted_on_pc(u32 guest_pc)
-{
-  if (guest_pc == 0u) return false;
-  const u32 mask = FASTMEM_FAULTING_PCS_CAP - 1u;
-  u32 slot = fastmem_pc_hash(guest_pc) & mask;
-  for (u32 probes = 0u; probes < FASTMEM_FAULTING_PCS_CAP; probes++) {
+bool cpu_code_cache_has_previously_faulted_on_pc(u32 guest_pc) {
+  if (guest_pc == 0u) return s_fastmem_faulted_at_zero;
+  if (s_fastmem_faulting_pcs_cap == 0u) return false;
+  const u32 mask = s_fastmem_faulting_pcs_cap - 1u;
+  u32       slot = fastmem_pc_hash(guest_pc) & mask;
+  for (u32 probes = 0u; probes < s_fastmem_faulting_pcs_cap; probes++) {
     const u32 v = s_fastmem_faulting_pcs[slot];
-    if (v == 0u)        return false;
-    if (v == guest_pc)  return true;
+    if (v == 0u) return false;
+    if (v == guest_pc) return true;
     slot = (slot + 1u) & mask;
   }
   return false;
 }
 
-static void fastmem_record_faulting_pc(u32 guest_pc)
-{
-  if (guest_pc == 0u) return;
-  const u32 mask = FASTMEM_FAULTING_PCS_CAP - 1u;
-  u32 slot = fastmem_pc_hash(guest_pc) & mask;
-  for (u32 probes = 0u; probes < FASTMEM_FAULTING_PCS_CAP; probes++) {
+static bool fastmem_grow_faulting_pcs(void) {
+  if (s_fastmem_faulting_pcs_cap > UINT32_MAX / 2u) return false;
+  const u32 new_cap = s_fastmem_faulting_pcs_cap ? s_fastmem_faulting_pcs_cap * 2u : FASTMEM_FAULTING_PCS_INITIAL_CAP;
+  u32*      keys    = calloc(new_cap, sizeof(*keys));
+  if (!keys) return false;
+  for (u32 i = 0u; i < s_fastmem_faulting_pcs_cap; i++) {
+    const u32 pc = s_fastmem_faulting_pcs[i];
+    if (pc == 0u) continue;
+    u32 slot = fastmem_pc_hash(pc) & (new_cap - 1u);
+    while (keys[slot] != 0u)
+      slot = (slot + 1u) & (new_cap - 1u);
+    keys[slot] = pc;
+  }
+  free(s_fastmem_faulting_pcs);
+  s_fastmem_faulting_pcs     = keys;
+  s_fastmem_faulting_pcs_cap = new_cap;
+  return true;
+}
+
+static bool fastmem_record_faulting_pc(u32 guest_pc) {
+  if (guest_pc == 0u) {
+    s_fastmem_faulted_at_zero = true;
+    return true;
+  }
+  if (cpu_code_cache_has_previously_faulted_on_pc(guest_pc)) return true;
+  if ((s_fastmem_faulting_pcs_cap == 0u ||
+       s_fastmem_faulting_pcs_count >= s_fastmem_faulting_pcs_cap - s_fastmem_faulting_pcs_cap / 4u) &&
+      !fastmem_grow_faulting_pcs())
+    return false;
+  const u32 mask = s_fastmem_faulting_pcs_cap - 1u;
+  u32       slot = fastmem_pc_hash(guest_pc) & mask;
+  for (u32 probes = 0u; probes < s_fastmem_faulting_pcs_cap; probes++) {
     const u32 v = s_fastmem_faulting_pcs[slot];
-    if (v == 0u)        { s_fastmem_faulting_pcs[slot] = guest_pc; return; }
-    if (v == guest_pc)  return;
+    if (v == 0u) {
+      s_fastmem_faulting_pcs[slot] = guest_pc;
+      s_fastmem_faulting_pcs_count++;
+      return true;
+    }
     slot = (slot + 1u) & mask;
   }
+  return false;
 }
 
 /* Comparator for qsort: ascending by code_address. */
-static int backpatch_cmp(const void* lhs, const void* rhs)
-{
-  const cpu_code_cache_loadstore_backpatch_info_t* a =
-    (const cpu_code_cache_loadstore_backpatch_info_t*)lhs;
-  const cpu_code_cache_loadstore_backpatch_info_t* b =
-    (const cpu_code_cache_loadstore_backpatch_info_t*)rhs;
+static int backpatch_cmp(const void* lhs, const void* rhs) {
+  const cpu_code_cache_loadstore_backpatch_info_t* a = (const cpu_code_cache_loadstore_backpatch_info_t*)lhs;
+  const cpu_code_cache_loadstore_backpatch_info_t* b = (const cpu_code_cache_loadstore_backpatch_info_t*)rhs;
   if (a->code_address < b->code_address) return -1;
-  if (a->code_address > b->code_address) return  1;
+  if (a->code_address > b->code_address) return 1;
   return 0;
 }
 
-void cpu_code_cache_add_load_store_info(void* code_address, u32 code_size,
-                                         u32 guest_pc, u32 guest_block,
-                                        tick_count_t cycles, u32 gpr_bitmask,
-                                        u8 address_register, u8 data_register,
-                                        memory_access_size_t size,
-                                        bool is_signed, bool is_load)
-{
+void cpu_code_cache_add_load_store_info(void* code_address, u32 code_size, u32 guest_pc, u32 guest_block,
+                                        tick_count_t cycles, u32 gpr_bitmask, u8 address_register, u8 data_register,
+                                        memory_access_size_t size, bool is_signed, bool is_load) {
   if (s_fastmem_backpatch_info_count >= s_fastmem_backpatch_info_cap) {
-    const u32 new_cap = (s_fastmem_backpatch_info_cap == 0u) ?
-                          FASTMEM_BACKPATCH_INFO_INITIAL_CAP :
-                          s_fastmem_backpatch_info_cap * 2u;
-    cpu_code_cache_loadstore_backpatch_info_t* nb = (cpu_code_cache_loadstore_backpatch_info_t*)
-      realloc(s_fastmem_backpatch_info,
-              (size_t)new_cap * sizeof(s_fastmem_backpatch_info[0]));
+    const u32 new_cap =
+        (s_fastmem_backpatch_info_cap == 0u) ? FASTMEM_BACKPATCH_INFO_INITIAL_CAP : s_fastmem_backpatch_info_cap * 2u;
+    cpu_code_cache_loadstore_backpatch_info_t* nb = (cpu_code_cache_loadstore_backpatch_info_t*)realloc(
+        s_fastmem_backpatch_info, (size_t)new_cap * sizeof(s_fastmem_backpatch_info[0]));
     if (nb == NULL) {
-      WARNING_LOG("Fastmem backpatch table realloc(%u) failed; fastmem path will skip backpatch",
-                  new_cap);
+      WARNING_LOG("Fastmem backpatch table realloc(%u) failed; fastmem path will skip backpatch", new_cap);
       return;
     }
     s_fastmem_backpatch_info     = nb;
     s_fastmem_backpatch_info_cap = new_cap;
   }
-  cpu_code_cache_loadstore_backpatch_info_t* slot =
-    &s_fastmem_backpatch_info[s_fastmem_backpatch_info_count++];
-  slot->code_address     = code_address;
-  slot->code_size        = code_size;
-  slot->guest_pc         = guest_pc;
-  slot->guest_block      = guest_block;
-  slot->cycles           = cycles;
-  slot->gpr_bitmask      = gpr_bitmask;
-  slot->size             = size;
-  slot->address_register = address_register;
-  slot->data_register    = data_register;
-  slot->is_signed        = is_signed ? 1u : 0u;
-  slot->is_load          = is_load   ? 1u : 0u;
+  cpu_code_cache_loadstore_backpatch_info_t* slot = &s_fastmem_backpatch_info[s_fastmem_backpatch_info_count++];
+  slot->code_address                              = code_address;
+  slot->code_size                                 = code_size;
+  slot->guest_pc                                  = guest_pc;
+  slot->guest_block                               = guest_block;
+  slot->cycles                                    = cycles;
+  slot->gpr_bitmask                               = gpr_bitmask;
+  slot->size                                      = size;
+  slot->address_register                          = address_register;
+  slot->data_register                             = data_register;
+  slot->is_signed                                 = is_signed ? 1u : 0u;
+  slot->is_load                                   = is_load ? 1u : 0u;
 
   /* Keep the array sorted by code_address.  The recompiler emits sites in
    * monotonically increasing order within a single block, but blocks land
    * at different JIT addresses across resets, so we re-sort lazily via
    * insertion: only the new tail needs to bubble down.  qsort is overkill
    * but called rarely and simpler than a hand-rolled insertion. */
-  if (s_fastmem_backpatch_info_count > 1u &&
-      slot[-1].code_address > slot->code_address) {
-    qsort(s_fastmem_backpatch_info, s_fastmem_backpatch_info_count,
-          sizeof(s_fastmem_backpatch_info[0]), backpatch_cmp);
+  if (s_fastmem_backpatch_info_count > 1u && slot[-1].code_address > slot->code_address) {
+    qsort(s_fastmem_backpatch_info, s_fastmem_backpatch_info_count, sizeof(s_fastmem_backpatch_info[0]), backpatch_cmp);
   }
 }
 
-const cpu_code_cache_loadstore_backpatch_info_t*
-cpu_code_cache_find_backpatch_info(const void* host_pc)
-{
+const cpu_code_cache_loadstore_backpatch_info_t* cpu_code_cache_find_backpatch_info(const void* host_pc) {
   /* Binary search for the largest entry whose code_address <= host_pc;
    * then check that the entry's range contains host_pc. */
   const u8* target = (const u8*)host_pc;
-  u32 lo = 0u, hi = s_fastmem_backpatch_info_count;
+  u32       lo = 0u, hi = s_fastmem_backpatch_info_count;
   while (lo < hi) {
     const u32 mid = lo + (hi - lo) / 2u;
     if ((const u8*)s_fastmem_backpatch_info[mid].code_address <= target)
@@ -1752,55 +1805,61 @@ cpu_code_cache_find_backpatch_info(const void* host_pc)
       hi = mid;
   }
   if (lo == 0u) return NULL;
-  const cpu_code_cache_loadstore_backpatch_info_t* e = &s_fastmem_backpatch_info[lo - 1u];
-  const u8* base = (const u8*)e->code_address;
-  if (target >= base && target < base + e->code_size)
-    return e;
+  const cpu_code_cache_loadstore_backpatch_info_t* e    = &s_fastmem_backpatch_info[lo - 1u];
+  const u8*                                        base = (const u8*)e->code_address;
+  if (target >= base && target < base + e->code_size) return e;
   return NULL;
 }
 
-void cpu_code_cache_remove_backpatch_info_for_range(const void* start, u32 size)
-{
-  const u8* lo = (const u8*)start;
-  const u8* hi = lo + size;
-  u32 dst = 0u;
+void cpu_code_cache_remove_backpatch_info_for_range(const void* start, u32 size) {
+  const u8* lo  = (const u8*)start;
+  const u8* hi  = lo + size;
+  u32       dst = 0u;
   for (u32 src = 0u; src < s_fastmem_backpatch_info_count; src++) {
     const u8* a = (const u8*)s_fastmem_backpatch_info[src].code_address;
-    if (a >= lo && a < hi) continue;          /* drop */
-    if (dst != src)
-      s_fastmem_backpatch_info[dst] = s_fastmem_backpatch_info[src];
+    if (a >= lo && a < hi) continue; /* drop */
+    if (dst != src) s_fastmem_backpatch_info[dst] = s_fastmem_backpatch_info[src];
     dst++;
   }
   s_fastmem_backpatch_info_count = dst;
 }
 
-static void fastmem_backpatch_clear_all(void)
-{
+static void fastmem_backpatch_clear_all(void) {
   s_fastmem_backpatch_info_count = 0u;
-  memset(s_fastmem_faulting_pcs, 0, sizeof(s_fastmem_faulting_pcs));
+  if (s_fastmem_faulting_pcs)
+    memset(s_fastmem_faulting_pcs, 0, (size_t)s_fastmem_faulting_pcs_cap * sizeof(*s_fastmem_faulting_pcs));
+  s_fastmem_faulting_pcs_count = 0u;
+  s_fastmem_faulted_at_zero    = false;
 }
 
-/* x64 register IDs of the SysV caller-saved set we must spill across the
+/* x64 register IDs of the caller-saved set we must spill across the
  * C thunk call (excluding RAX which holds the thunk's return value). */
 static const x64_reg_t s_caller_saved_for_stub[] = {
-  X64_RDI, X64_RSI, X64_RDX, X64_RCX, X64_R8, X64_R9, X64_R10, X64_R11,
+#if !defined(_WIN32)
+    X64_RDI, X64_RSI,
+#endif
+    X64_RDX, X64_RCX, X64_R8, X64_R9, X64_R10, X64_R11,
 };
-enum { CALLER_SAVED_FOR_STUB_COUNT = sizeof(s_caller_saved_for_stub) /
-                                     sizeof(s_caller_saved_for_stub[0]) };
+enum { CALLER_SAVED_FOR_STUB_COUNT = sizeof(s_caller_saved_for_stub) / sizeof(s_caller_saved_for_stub[0]) };
 
-static const void* fastmem_thunk_for(memory_access_size_t size, bool is_load)
-{
+static const void* fastmem_thunk_for(memory_access_size_t size, bool is_load) {
   if (is_load) {
     switch (size) {
-      case MEMORY_ACCESS_SIZE_BYTE:     return (const void*)&cpu_recompiler_thunk_read_memory_byte;
-      case MEMORY_ACCESS_SIZE_HALFWORD: return (const void*)&cpu_recompiler_thunk_read_memory_halfword;
-      case MEMORY_ACCESS_SIZE_WORD:     return (const void*)&cpu_recompiler_thunk_read_memory_word;
+      case MEMORY_ACCESS_SIZE_BYTE:
+        return (const void*)&cpu_recompiler_thunk_read_memory_byte;
+      case MEMORY_ACCESS_SIZE_HALFWORD:
+        return (const void*)&cpu_recompiler_thunk_read_memory_halfword;
+      case MEMORY_ACCESS_SIZE_WORD:
+        return (const void*)&cpu_recompiler_thunk_read_memory_word;
     }
   } else {
     switch (size) {
-      case MEMORY_ACCESS_SIZE_BYTE:     return (const void*)&cpu_recompiler_thunk_write_memory_byte;
-      case MEMORY_ACCESS_SIZE_HALFWORD: return (const void*)&cpu_recompiler_thunk_write_memory_halfword;
-      case MEMORY_ACCESS_SIZE_WORD:     return (const void*)&cpu_recompiler_thunk_write_memory_word;
+      case MEMORY_ACCESS_SIZE_BYTE:
+        return (const void*)&cpu_recompiler_thunk_write_memory_byte;
+      case MEMORY_ACCESS_SIZE_HALFWORD:
+        return (const void*)&cpu_recompiler_thunk_write_memory_halfword;
+      case MEMORY_ACCESS_SIZE_WORD:
+        return (const void*)&cpu_recompiler_thunk_write_memory_word;
     }
   }
   return NULL;
@@ -1808,16 +1867,14 @@ static const void* fastmem_thunk_for(memory_access_size_t size, bool is_load)
 
 /* Emit one slow-path stub in far code.  Returns the host address of the
  * stub on success, NULL if anything failed (out of far code, etc.). */
-static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatch_info_t* info)
-{
+static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatch_info_t* info) {
   /* Worst-case stub size: 8 push (1B each) + 2 push for arg load (1-2B
    * each) + 2 pop (1-2B each) + 10B abs64-call + 10B sign/zero-extend +
    * 8 pop + 5B jmp rel32.  ~80B is plenty; 256 leaves headroom. */
   enum { STUB_RESERVE = 256u };
-  if (cpu_code_cache_get_free_far_code_space() < STUB_RESERVE)
-    return NULL;
+  if (cpu_code_cache_get_free_far_code_space() < STUB_RESERVE) return NULL;
 
-  u8* base = cpu_code_cache_get_free_far_code_pointer();
+  u8*        base = cpu_code_cache_get_free_far_code_pointer();
   x64_emit_t e;
   x64_emit_init(&e, base, STUB_RESERVE);
 
@@ -1829,8 +1886,7 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
    * BUS_RAM_READ_TICKS net regardless of fastmem vs slow-path resolution.
    * Only loads pre-charge (RAM writes do not stall in bus.c; ram_write_*
    * call no BUS_CYCLES), so stores skip this adjustment. */
-  if (info->is_load)
-    x64_backend_emit_sub_pending_ticks(&e, (s32)BUS_RAM_READ_TICKS);
+  if (info->is_load) x64_backend_emit_sub_pending_ticks(&e, (s32)BUS_RAM_READ_TICKS);
 
   /* 1. Spill caller-saved (excluding RAX). */
   for (u32 i = 0u; i < CALLER_SAVED_FOR_STUB_COUNT; i++)
@@ -1841,20 +1897,32 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
    *    !is_load: RWARG1 = addr, RWARG2 = data. */
   const x64_reg_t addr_reg = (x64_reg_t)info->address_register;
   const x64_reg_t data_reg = (x64_reg_t)info->data_register;
+#if defined(_WIN32)
+  const x64_reg_t arg1 = X64_RCX, arg2 = X64_RDX;
+#else
+  const x64_reg_t arg1 = X64_RDI, arg2 = X64_RSI;
+#endif
   if (info->is_load) {
     x64_push_r(&e, addr_reg);
-    x64_pop_r (&e, X64_RDI);
+    x64_pop_r(&e, arg1);
   } else {
     x64_push_r(&e, addr_reg);
     x64_push_r(&e, data_reg);
-    x64_pop_r (&e, X64_RSI);
-    x64_pop_r (&e, X64_RDI);
+    x64_pop_r(&e, arg2);
+    x64_pop_r(&e, arg1);
   }
 
   /* 3. Call the appropriate C thunk via abs64. */
   const void* thunk = fastmem_thunk_for(info->size, info->is_load != 0u);
   if (thunk == NULL || e.overflow) return NULL;
+#if defined(_WIN32)
+  /* The register spills occupy the dispatcher's original home area. */
+  x64_alu_r_imm(&e, X64_ALU_SUB, X64_SZ_64, X64_RSP, 32);
+#endif
   x64_call_abs64(&e, thunk);
+#if defined(_WIN32)
+  x64_alu_r_imm(&e, X64_ALU_ADD, X64_SZ_64, X64_RSP, 32);
+#endif
 
   /* 4. For loads, sign/zero-extend the result IN-PLACE in RAX (which is
    *    NOT in the spilled set, so it survives the pop sequence), then
@@ -1864,12 +1932,16 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
   if (info->is_load) {
     switch (info->size) {
       case MEMORY_ACCESS_SIZE_BYTE:
-        if (info->is_signed) x64_movsx_r_r8 (&e, X64_SZ_32, X64_RAX, X64_RAX);
-        else                 x64_movzx_r_r8 (&e, X64_SZ_32, X64_RAX, X64_RAX);
+        if (info->is_signed)
+          x64_movsx_r_r8(&e, X64_SZ_32, X64_RAX, X64_RAX);
+        else
+          x64_movzx_r_r8(&e, X64_SZ_32, X64_RAX, X64_RAX);
         break;
       case MEMORY_ACCESS_SIZE_HALFWORD:
-        if (info->is_signed) x64_movsx_r_r16(&e, X64_SZ_32, X64_RAX, X64_RAX);
-        else                 x64_movzx_r_r16(&e, X64_SZ_32, X64_RAX, X64_RAX);
+        if (info->is_signed)
+          x64_movsx_r_r16(&e, X64_SZ_32, X64_RAX, X64_RAX);
+        else
+          x64_movzx_r_r16(&e, X64_SZ_32, X64_RAX, X64_RAX);
         break;
       case MEMORY_ACCESS_SIZE_WORD:
         /* No-op: thunk return is already a u32 in RAX. */
@@ -1877,8 +1949,7 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
     }
     for (s32 i = (s32)CALLER_SAVED_FOR_STUB_COUNT - 1; i >= 0; i--)
       x64_pop_r(&e, s_caller_saved_for_stub[(u32)i]);
-    if (data_reg != X64_RAX)
-      x64_mov_r_r(&e, X64_SZ_32, data_reg, X64_RAX);
+    if (data_reg != X64_RAX) x64_mov_r_r(&e, X64_SZ_32, data_reg, X64_RAX);
   } else {
     for (s32 i = (s32)CALLER_SAVED_FOR_STUB_COUNT - 1; i >= 0; i--)
       x64_pop_r(&e, s_caller_saved_for_stub[(u32)i]);
@@ -1886,8 +1957,8 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
 
   /* 5. Jump back to one-past the faulting instruction (resumes the
    *    block's normal control flow). */
-  u8* jmp_site = x64_jmp_rel32(&e);
-  void* resume = (u8*)info->code_address + info->code_size;
+  u8*   jmp_site = x64_jmp_rel32(&e);
+  void* resume   = (u8*)info->code_address + info->code_size;
   x64_patch_rel32(jmp_site, resume);
 
   if (e.overflow) return NULL;
@@ -1897,51 +1968,54 @@ static void* emit_fastmem_slow_path_stub(const cpu_code_cache_loadstore_backpatc
   return base;
 }
 
-/* Patch the original [RBX+addr] site as `JMP rel32` to the stub, NOP-pad
+/* Patch the registered memory site as `JMP rel32` to the stub, NOP-pad
  * any extra bytes.  Site MUST be at least 5 bytes (the JMP rel32 size). */
-static bool patch_fastmem_site_to_stub(
-  const cpu_code_cache_loadstore_backpatch_info_t* info,
-  const void* stub)
-{
-  if (info->code_size < 5u)
-    return false;
+static bool patch_fastmem_site_to_stub(const cpu_code_cache_loadstore_backpatch_info_t* info, const void* stub) {
+  if (info->code_size < 5u) return false;
 
   x64_emit_t patch;
   x64_emit_init(&patch, info->code_address, info->code_size);
   u8* jmp_site = x64_jmp_rel32(&patch);
   x64_patch_rel32(jmp_site, (void*)stub);
   const u32 emitted = (u32)x64_emit_size(&patch);
-  if (emitted < info->code_size)
-    x64_nop_n(&patch, info->code_size - emitted);
+  if (emitted < info->code_size) x64_nop_n(&patch, info->code_size - emitted);
   return !patch.overflow;
 }
 
-page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address, bool is_write)
-{
-  /* SMC branch. */
-  if (cpu_code_cache_is_using_fastmem()) {
+page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* exception_pc, void* fault_address,
+                                                                    bool is_write) {
+  /* LUT stores and host-side RAM writes share the canonical protected mapping. */
+  const uintptr_t ram   = (uintptr_t)bus_get_ram_pointer();
+  const uintptr_t fault = (uintptr_t)fault_address;
+  if (is_write && ram && fault >= ram && fault - ram < bus_get_ram_size()) {
+    const u32 page = bus_get_ram_code_page_index((u32)(fault - ram));
+    if (bus_is_ram_code_page(page)) {
+      cpu_code_cache_invalidate_blocks_with_page_index(page);
+      return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
+    }
+  }
+
+  /* Mmap aliases have separate host addresses for the same RAM pages. */
+  if (g_settings.cpu_fastmem_mode == CPU_FASTMEM_MODE_MMAP && cpu_code_cache_is_using_fastmem()) {
     u8* arena = (u8*)bus_get_fastmem_base(/*isc=*/false);
     u8* fa    = (u8*)fault_address;
-    if (arena != NULL && fa >= arena &&
-        (uintptr_t)(fa - arena) < (uintptr_t)BUS_FASTMEM_ARENA_SIZE) {
+    if (arena != NULL && fa >= arena && (uintptr_t)(fa - arena) < (uintptr_t)BUS_FASTMEM_ARENA_SIZE) {
       const u32 guest_address = (u32)(uintptr_t)(fa - arena);
-      /* KSEG2 starts at 0xC0000000; arena only mirrors KUSEG/KSEG0/KSEG1
-       * so this check is redundant in cupid-ps1's layout but kept for parity
-       */
-      if (!g_cpu_state.cop0_regs.sr.Isc &&
-          /* guest_address < 0xC0000000u && */
-          guest_address < bus_get_ram_size()) {
-        (void)is_write;
-        cpu_code_cache_invalidate_blocks_with_page_index(
-          bus_get_ram_code_page_index(guest_address));
+      const u32 physical      = cpu_virtual_to_physical_address(guest_address);
+      const u32 page          = bus_get_ram_code_page_index(physical);
+      if (is_write && !g_cpu_state.cop0_regs.sr.Isc && bus_can_use_fastmem_for_address(guest_address) &&
+          bus_is_ram_code_page(page)) {
+        cpu_code_cache_invalidate_blocks_with_page_index(page);
         return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
       }
     }
   }
 
-  /* MMIO-via-fastmem branch. */
-  const cpu_code_cache_loadstore_backpatch_info_t* info =
-    cpu_code_cache_find_backpatch_info(exception_pc);
+  /* Only a registered JIT site can be replaced with a bus-handler call. */
+  const uintptr_t code = (uintptr_t)s_code_buffer_ptr;
+  const uintptr_t pc   = (uintptr_t)exception_pc;
+  if (!code || pc < code || pc - code >= RECOMPILER_CODE_CACHE_SIZE) return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
+  const cpu_code_cache_loadstore_backpatch_info_t* info = cpu_code_cache_find_backpatch_info(exception_pc);
   if (info == NULL) {
     /* Diag: a SIGSEGV in the JIT region with no backpatch entry will
      * fall through to the crash handler -> abort.  Dump enough context to
@@ -1951,32 +2025,31 @@ page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* except
     fprintf(stderr,
             "[fastmem-diag] no backpatch entry: rip=%p fault=%p is_write=%d "
             "guest_pc=%08X Isc=%d cop0_sr=%08X bytes=",
-            exception_pc, fault_address, is_write,
-            g_cpu_state.pc, (int)g_cpu_state.cop0_regs.sr.Isc,
+            exception_pc, fault_address, is_write, g_cpu_state.pc, (int)g_cpu_state.cop0_regs.sr.Isc,
             g_cpu_state.cop0_regs.sr.bits);
     for (u32 i = 0; i < 16u; i++)
       fprintf(stderr, "%02x ", rip_bytes[i]);
-    fprintf(stderr, "\n[fastmem-diag] backpatch_count=%u arena=%p arena_size=%u\n",
-            s_fastmem_backpatch_info_count,
-            bus_get_fastmem_base(/*isc=*/false),
-            (u32)BUS_FASTMEM_ARENA_SIZE);
+    fprintf(stderr, "\n[fastmem-diag] backpatch_count=%u arena=%p arena_size=%u\n", s_fastmem_backpatch_info_count,
+            bus_get_fastmem_base(/*isc=*/false), (u32)BUS_FASTMEM_ARENA_SIZE);
     /* Print 3 nearest entries by code_address. */
     if (s_fastmem_backpatch_info_count > 0u) {
-      u32 best = 0u;
+      u32       best   = 0u;
       ptrdiff_t best_d = (ptrdiff_t)0x7fffffffffffffffLL;
       for (u32 i = 0u; i < s_fastmem_backpatch_info_count; i++) {
         ptrdiff_t d = (const u8*)s_fastmem_backpatch_info[i].code_address - (const u8*)exception_pc;
         if (d < 0) d = -d;
-        if (d < best_d) { best_d = d; best = i; }
+        if (d < best_d) {
+          best_d = d;
+          best   = i;
+        }
       }
       const u32 lo = best > 1u ? best - 1u : 0u;
       const u32 hi = best + 2u < s_fastmem_backpatch_info_count ? best + 2u : s_fastmem_backpatch_info_count;
       for (u32 i = lo; i < hi; i++) {
         const cpu_code_cache_loadstore_backpatch_info_t* e = &s_fastmem_backpatch_info[i];
         fprintf(stderr,
-                "[fastmem-diag]   entry[%u]: code=%p sz=%u guest_pc=%08X is_load=%u sz=%u addr_reg=%u data_reg=%u\n",
-                i, e->code_address, e->code_size, e->guest_pc,
-                e->is_load, e->size, e->address_register, e->data_register);
+                "[fastmem-diag]   entry[%u]: code=%p sz=%u guest_pc=%08X is_load=%u sz=%u addr_reg=%u data_reg=%u\n", i,
+                e->code_address, e->code_size, e->guest_pc, e->is_load, e->size, e->address_register, e->data_register);
       }
     }
     fflush(stderr);
@@ -1985,38 +2058,34 @@ page_fault_handler_result_t cpu_code_cache_handle_fastmem_exception(void* except
 
   /* Mark the guest PC as a known fastmem-fault site so subsequent compiles
    * of the same MIPS instruction skip fastmem and emit straight slow path. */
-  fastmem_record_faulting_pc(info->guest_pc);
+  const bool recorded = fastmem_record_faulting_pc(info->guest_pc);
 
   void* stub = emit_fastmem_slow_path_stub(info);
-  if (stub == NULL)
-    return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
-  if (!patch_fastmem_site_to_stub(info, stub))
-    return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
+  if (stub == NULL) return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
+  if (!patch_fastmem_site_to_stub(info, stub)) return PAGE_FAULT_HANDLER_EXECUTE_NEXT;
 
-  /* Evict the owning JIT block so a clean recompile picks up the per-PC
-   * faulting flag we just set, rather than re-emitting the same broken
-   * lookup_block may return NULL after races; guard. */
+  /* Recompile with C helpers when the fault history was retained. Otherwise
+   * keep the patched block so it can reuse its recovery stub. */
   cpu_code_cache_block_t* block = lookup_block(info->guest_block);
-  if (block != NULL) {
+  if (recorded && block != NULL) {
     remove_block_from_page_list(block);
     invalidate_block(block, CPU_CODE_CACHE_BS_NEEDS_RECOMPILE);
     block->compile_frame = system_get_frame_number();
     block->compile_count = 1u;
   }
+  if (!recorded)
+    WARNING_LOG("Could not retain fastmem fault history for %08X; keeping the patched block", info->guest_pc);
 
   /* Drop the now-handled entry so the binary-search table stays tight
    * (s_fastmem_backpatch_info.erase(iter)). */
-  cpu_code_cache_remove_backpatch_info_for_range(info->code_address,
-                                                 info->code_size);
+  cpu_code_cache_remove_backpatch_info_for_range(info->code_address, info->code_size);
 
   return PAGE_FAULT_HANDLER_CONTINUE_EXECUTION;
 }
 
-void cpu_code_cache_dbg_dump_recent_blocks(FILE* out)
-{
+void cpu_code_cache_dbg_dump_recent_blocks(FILE* out) {
   if (!out) out = stderr;
-  fprintf(out, "===== last %u recompiled blocks (oldest first) =====\n",
-          s_dbg_block_ring_count);
+  fprintf(out, "===== last %u recompiled blocks (oldest first) =====\n", s_dbg_block_ring_count);
   const u32 n = s_dbg_block_ring_count;
   if (n == 0u) {
     fprintf(out, "  (no blocks recorded)\n");
@@ -2024,11 +2093,10 @@ void cpu_code_cache_dbg_dump_recent_blocks(FILE* out)
   }
   /* Oldest entry is one slot past the next-write position when the ring
    * is full; otherwise it's index 0. */
-  const u32 start = (n < CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE) ? 0u :
-                    (s_dbg_block_ring_pos % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE);
+  const u32 start =
+      (n < CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE) ? 0u : (s_dbg_block_ring_pos % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE);
   for (u32 i = 0; i < n; i++) {
-    const cpu_code_cache_dbg_block_entry_t* e =
-      &s_dbg_block_ring[(start + i) % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE];
+    const cpu_code_cache_dbg_block_entry_t* e = &s_dbg_block_ring[(start + i) % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE];
     fprintf(out, "  [%2u] pc=%08X size=%u host=%p\n", i, e->pc, e->size, e->host_code);
   }
 }
@@ -2036,15 +2104,14 @@ void cpu_code_cache_dbg_dump_recent_blocks(FILE* out)
 /* Safety-net AdEL/IBE diagnostic.  First N triggers print register state
  * + last 4 ring entries to stderr; subsequent triggers stay silent so the
  * BIOS exception loop doesn't drown the log. */
-void cpu_code_cache_dbg_log_safety_net_exception(u32 bad_pc)
-{
+void cpu_code_cache_dbg_log_safety_net_exception(u32 bad_pc) {
   enum {
     CPU_CODE_CACHE_SAFETY_NET_LOG_LIMIT      = 4u,
     CPU_CODE_CACHE_SAFETY_NET_BLOCK_DUMP_CAP = 64u,
   };
   static u32 s_safety_net_count = 0u;
   if (s_safety_net_count >= CPU_CODE_CACHE_SAFETY_NET_LOG_LIMIT) {
-    s_safety_net_count++;  /* keep counting for the final summary */
+    s_safety_net_count++; /* keep counting for the final summary */
     return;
   }
   s_safety_net_count++;
@@ -2052,16 +2119,12 @@ void cpu_code_cache_dbg_log_safety_net_exception(u32 bad_pc)
           "[recomp-safety-net] bad PC=0x%08X (event #%u): "
           "g_cpu_state.pc=%08X npc=%08X "
           "cop0.sr=%08X cop0.cause=%08X cop0.epc=%08X bad_vaddr=%08X\n",
-          bad_pc, s_safety_net_count,
-          g_cpu_state.pc, g_cpu_state.npc,
-          g_cpu_state.cop0_regs.sr.bits, g_cpu_state.cop0_regs.cause.bits,
-          g_cpu_state.cop0_regs.EPC, g_cpu_state.cop0_regs.BadVaddr);
+          bad_pc, s_safety_net_count, g_cpu_state.pc, g_cpu_state.npc, g_cpu_state.cop0_regs.sr.bits,
+          g_cpu_state.cop0_regs.cause.bits, g_cpu_state.cop0_regs.EPC, g_cpu_state.cop0_regs.BadVaddr);
   /* All 32 GPRs (4 per row, 8 rows). */
   static const char* const s_gpr_names[32] = {
-    "zero","at","v0","v1","a0","a1","a2","a3",
-    "t0","t1","t2","t3","t4","t5","t6","t7",
-    "s0","s1","s2","s3","s4","s5","s6","s7",
-    "t8","t9","k0","k1","gp","sp","fp","ra",
+      "zero", "at", "v0", "v1", "a0", "a1", "a2", "a3", "t0", "t1", "t2", "t3", "t4", "t5", "t6", "t7",
+      "s0",   "s1", "s2", "s3", "s4", "s5", "s6", "s7", "t8", "t9", "k0", "k1", "gp", "sp", "fp", "ra",
   };
   for (u32 row = 0u; row < 8u; row++) {
     fprintf(stderr, "  ");
@@ -2096,73 +2159,71 @@ void cpu_code_cache_dbg_log_safety_net_exception(u32 bad_pc)
   fprintf(stderr, "  64 bytes around sp=%08X:\n", sp);
   for (s32 off = -64; off < 64; off += 4) {
     const u32 a = sp + (u32)off;
-    u32 v = 0;
-    if (cpu_safe_read_memory_word(a, &v))
-      fprintf(stderr, "    %08X (%+4d): %08X\n", a, off, v);
+    u32       v = 0;
+    if (cpu_safe_read_memory_word(a, &v)) fprintf(stderr, "    %08X (%+4d): %08X\n", a, off, v);
   }
   /* Per-block EXECUTION ring (if CUPID_TRACE_EXEC=1).  Shows the actual
    * dispatch order, not the compile order - this is what tells us which
    * block wrote $ra=9. */
   if (s_exec_trace_active && s_dbg_exec_ring_count > 0u) {
-    const u32 cap = CPU_CODE_CACHE_DBG_EXEC_RING_SIZE;
-    const u32 nx = s_dbg_exec_ring_count;
+    const u32 cap  = CPU_CODE_CACHE_DBG_EXEC_RING_SIZE;
+    const u32 nx   = s_dbg_exec_ring_count;
     const u32 want = nx < 8u ? nx : 8u;
     fprintf(stderr, "  last %u EXECUTED blocks (newest first; pc / ra at entry / sp) WITH DISASM:\n", want);
     for (u32 k = 0u; k < want; k++) {
-      const u32 idx = (s_dbg_exec_ring_pos + cap - 1u - k) % cap;
-      const cpu_code_cache_dbg_exec_entry_t* e = &s_dbg_exec_ring[idx];
-      fprintf(stderr, "    -%-2u  pc=%08X  ra=%08X  sp=%08X\n",
-              k, e->pc, e->ra, e->sp);
+      const u32                              idx = (s_dbg_exec_ring_pos + cap - 1u - k) % cap;
+      const cpu_code_cache_dbg_exec_entry_t* e   = &s_dbg_exec_ring[idx];
+      fprintf(stderr, "    -%-2u  pc=%08X  ra=%08X  sp=%08X\n", k, e->pc, e->ra, e->sp);
       /* Up to 16 instructions of the block. */
       for (u32 i = 0u; i < 16u; i++) {
-        const u32 ipc = e->pc + i * 4u;
-        u32 raw = 0u;
-        char buf[96];
+        const u32      ipc = e->pc + i * 4u;
+        u32            raw = 0u;
+        char           buf[96];
         small_string_t s2;
         small_string_init_stack(&s2, buf, sizeof(buf));
         if (cpu_safe_read_memory_word(ipc, &raw)) {
           cpu_disassemble(&s2, raw, ipc);
-          fprintf(stderr, "         %08X: %08X  %s\n",
-                  ipc, raw, small_string_c_str(&s2));
+          fprintf(stderr, "         %08X: %08X  %s\n", ipc, raw, small_string_c_str(&s2));
         } else {
           fprintf(stderr, "         %08X: <unreadable>\n", ipc);
           break;
         }
         /* Stop at JR / JALR / J / JAL / branch-likely; common terminators */
-        const u32 op = raw >> 26;
+        const u32 op    = raw >> 26;
         const u32 funct = raw & 0x3Fu;
-        if (op == 0u && (funct == 8u || funct == 9u)) break;  /* JR / JALR */
-        if (op == 2u || op == 3u) break;                      /* J / JAL */
+        if (op == 0u && (funct == 8u || funct == 9u)) break; /* JR / JALR */
+        if (op == 2u || op == 3u) break;                     /* J / JAL */
       }
     }
   }
   /* Last N ring entries (most recent compiles before the wild jump). */
   const u32 n = s_dbg_block_ring_count;
-  if (n == 0u) { fflush(stderr); return; }
-  const u32 want = n < CPU_CODE_CACHE_SAFETY_NET_BLOCK_DUMP_CAP ?
-                     n : CPU_CODE_CACHE_SAFETY_NET_BLOCK_DUMP_CAP;
+  if (n == 0u) {
+    fflush(stderr);
+    return;
+  }
+  const u32 want = n < CPU_CODE_CACHE_SAFETY_NET_BLOCK_DUMP_CAP ? n : CPU_CODE_CACHE_SAFETY_NET_BLOCK_DUMP_CAP;
   fprintf(stderr, "  last %u compiled blocks before this:\n", want);
   /* Walk from newest to oldest, with a per-block disassembly so the next
    * debugging session can spot the buggy emit pattern (e.g. lw $reg; JR
    * $reg load-delay misordering) without re-running. */
   for (u32 k = 0u; k < want; k++) {
-    const u32 idx = (s_dbg_block_ring_pos + CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE - 1u - k) %
-                    CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE;
+    const u32 idx =
+        (s_dbg_block_ring_pos + CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE - 1u - k) % CPU_CODE_CACHE_DBG_BLOCK_RING_SIZE;
     const cpu_code_cache_dbg_block_entry_t* e = &s_dbg_block_ring[idx];
     fprintf(stderr, "    -%u  pc=%08X size=%u  disasm:\n", k, e->pc, e->size);
     /* Cap at 32 instructions per dump entry so a runaway block doesn't
      * blow up the log. */
     const u32 inst_cap = (e->size < 32u) ? e->size : 32u;
     for (u32 i = 0u; i < inst_cap; i++) {
-      const u32 ipc = e->pc + i * 4u;
-      u32 raw = 0u;
-      char buf[96];
+      const u32      ipc = e->pc + i * 4u;
+      u32            raw = 0u;
+      char           buf[96];
       small_string_t s;
       small_string_init_stack(&s, buf, sizeof(buf));
       if (cpu_safe_read_memory_word(ipc, &raw)) {
         cpu_disassemble(&s, raw, ipc);
-        fprintf(stderr, "         %08X: %08X  %s\n",
-                ipc, raw, small_string_c_str(&s));
+        fprintf(stderr, "         %08X: %08X  %s\n", ipc, raw, small_string_c_str(&s));
       } else {
         fprintf(stderr, "         %08X: <unreadable>\n", ipc);
       }

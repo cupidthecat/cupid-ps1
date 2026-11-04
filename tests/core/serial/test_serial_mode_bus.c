@@ -3,13 +3,11 @@
 #include "core/input/pad.h"
 #include "core/serial/sio.h"
 
-static u32 memory_instruction(u32 opcode, u32 base, u32 value, u32 offset)
-{
+static u32 memory_instruction(u32 opcode, u32 base, u32 value, u32 offset) {
   return (opcode << 26) | (base << 21) | (value << 16) | offset;
 }
 
-static void check_mode_bus(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem)
-{
+static void check_mode_bus(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem) {
   const u32 stores[] = {0x28, 0x29, 0x2B}; /* sb, sh, sw */
   const u32 loads[]  = {0x24, 0x25, 0x23}; /* lbu, lhu, lw */
   const u32 values[] = {0x12345678, 0xFFFFFFFF};
@@ -66,19 +64,15 @@ static void check_mode_bus(cpu_execution_mode_t mode, cpu_fastmem_mode_t fastmem
   }
 }
 
-TEST(SerialModeBus, interpreter_access_widths)
-{
+TEST(SerialModeBus, interpreter_access_widths) {
   check_mode_bus(CPU_EXECUTION_MODE_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
-TEST(SerialModeBus, cached_access_widths)
-{
+TEST(SerialModeBus, cached_access_widths) {
   check_mode_bus(CPU_EXECUTION_MODE_CACHED_INTERPRETER, CPU_FASTMEM_MODE_DISABLED);
 }
-TEST(SerialModeBus, native_access_widths)
-{
+TEST(SerialModeBus, native_access_widths) {
   check_mode_bus(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_DISABLED);
 }
-TEST(SerialModeBus, mmap_access_widths)
-{
+TEST(SerialModeBus, mmap_access_widths) {
   check_mode_bus(CPU_EXECUTION_MODE_RECOMPILER, CPU_FASTMEM_MODE_MMAP);
 }

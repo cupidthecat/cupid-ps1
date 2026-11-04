@@ -16,24 +16,24 @@
 
 #include "common/types.h"
 
-typedef struct Error Error;
+typedef struct Error         Error;
 typedef struct state_wrapper state_wrapper_t;
 
 enum {
-  BUS_RAM_BASE                  = 0x00000000u,
-  BUS_RAM_2MB_SIZE              = 0x200000u,
-  BUS_RAM_2MB_MASK              = BUS_RAM_2MB_SIZE - 1u,
-  BUS_RAM_8MB_SIZE              = 0x800000u,
-  BUS_RAM_8MB_MASK              = BUS_RAM_8MB_SIZE - 1u,
-  BUS_RAM_MIRROR_END            = 0x800000u, /* end of the four 2MB mirrors */
-  BUS_RAM_MIRROR_SIZE           = 0x800000u,
+  BUS_RAM_BASE        = 0x00000000u,
+  BUS_RAM_2MB_SIZE    = 0x200000u,
+  BUS_RAM_2MB_MASK    = BUS_RAM_2MB_SIZE - 1u,
+  BUS_RAM_8MB_SIZE    = 0x800000u,
+  BUS_RAM_8MB_MASK    = BUS_RAM_8MB_SIZE - 1u,
+  BUS_RAM_MIRROR_END  = 0x800000u, /* end of the four 2MB mirrors */
+  BUS_RAM_MIRROR_SIZE = 0x800000u,
 
-  BUS_EXP1_BASE                 = 0x1F000000u,
-  BUS_EXP1_SIZE                 = 0x800000u,
-  BUS_EXP1_MASK                 = BUS_EXP1_SIZE - 1u,
+  BUS_EXP1_BASE = 0x1F000000u,
+  BUS_EXP1_SIZE = 0x800000u,
+  BUS_EXP1_MASK = BUS_EXP1_SIZE - 1u,
 
-  BUS_HW_BASE                   = 0x1F801000u,
-  BUS_HW_SIZE                   = 0x1000u,
+  BUS_HW_BASE = 0x1F801000u,
+  BUS_HW_SIZE = 0x1000u,
 
   BUS_MEMCTRL_BASE              = 0x1F801000u,
   BUS_MEMCTRL_SIZE              = 0x40u,
@@ -69,30 +69,26 @@ enum {
   BUS_SPU_SIZE                  = 0x400u,
   BUS_SPU_MASK                  = BUS_SPU_SIZE - 1u,
 
-  BUS_SIO2_BASE                 = 0x1F808000u,
-  BUS_SIO2_SIZE                 = 0x1000u,
-  BUS_SIO2_MASK                 = BUS_SIO2_SIZE - 1u,
-  BUS_EXP2_BASE                 = 0x1F802000u,
-  BUS_EXP2_SIZE                 = 0x2000u,
-  BUS_EXP2_MASK                 = BUS_EXP2_SIZE - 1u,
-  BUS_EXP3_BASE                 = 0x1FA00000u,
-  BUS_EXP3_SIZE                 = 0x200000u,
-  BUS_EXP3_MASK                 = BUS_EXP3_SIZE - 1u,
+  BUS_SIO2_BASE = 0x1F808000u,
+  BUS_SIO2_SIZE = 0x1000u,
+  BUS_SIO2_MASK = BUS_SIO2_SIZE - 1u,
+  BUS_EXP2_BASE = 0x1F802000u,
+  BUS_EXP2_SIZE = 0x2000u,
+  BUS_EXP2_MASK = BUS_EXP2_SIZE - 1u,
+  BUS_EXP3_BASE = 0x1FA00000u,
+  BUS_EXP3_SIZE = 0x200000u,
+  BUS_EXP3_MASK = BUS_EXP3_SIZE - 1u,
 
-  BUS_BIOS_BASE                 = 0x1FC00000u,
-  BUS_BIOS_SIZE                 = 0x80000u,
-  BUS_BIOS_MIRROR_SIZE          = 0x400000u,
-  BUS_BIOS_MASK                 = 0x7FFFFu,
+  BUS_BIOS_BASE        = 0x1FC00000u,
+  BUS_BIOS_SIZE        = 0x80000u,
+  BUS_BIOS_MIRROR_SIZE = 0x400000u,
+  BUS_BIOS_MASK        = 0x7FFFFu,
 };
 
-enum {
-  BUS_MEMCTRL_REG_COUNT = 9
-};
+enum { BUS_MEMCTRL_REG_COUNT = 9 };
 
 /* DRAM access cost in CPU cycles per word (CPU-side, not DMA). */
-enum {
-  BUS_RAM_READ_TICKS = 6
-};
+enum { BUS_RAM_READ_TICKS = 6 };
 
 enum {
   BUS_RAM_2MB_CODE_PAGE_COUNT = (BUS_RAM_2MB_SIZE + (MIN_HOST_PAGE_SIZE - 1u)) / MIN_HOST_PAGE_SIZE,
@@ -103,7 +99,7 @@ enum {
   BUS_MEMORY_LUT_PAGE_SIZE  = 4096,
   BUS_MEMORY_LUT_PAGE_SHIFT = 12,
   BUS_MEMORY_LUT_PAGE_MASK  = BUS_MEMORY_LUT_PAGE_SIZE - 1,
-  BUS_MEMORY_LUT_SIZE       = 0x100000,                  /* 4GB / 4KB */
+  BUS_MEMORY_LUT_SIZE       = 0x100000,                    /* 4GB / 4KB */
   BUS_MEMORY_LUT_SLOTS      = BUS_MEMORY_LUT_SIZE * 3 * 2, /* size * (read|write) */
 
   BUS_FASTMEM_LUT_PAGE_SIZE  = 4096,
@@ -113,14 +109,14 @@ enum {
   BUS_FASTMEM_LUT_SLOTS      = BUS_FASTMEM_LUT_SIZE * 2, /* normal + isolated */
 };
 
- /* MMAP-mode fastmem arena: 4 GiB virtual reservation; PSX RAM mmap'd at the
+/* MMAP-mode fastmem arena: 4 GiB virtual reservation; PSX RAM mmap'd at the
  * 12 KUSEG/KSEG0/KSEG1 mirror offsets.  Out-of-RAM accesses fault →
  * cpu_code_cache_handle_fastmem_exception. */
 #define BUS_FASTMEM_ARENA_SIZE 0x100000000ULL
 
 /* Handler signatures: read returns up to a u32 and only consumes the address;
  * write consumes the address plus the (possibly truncated) value to store. */
-typedef u32  (*bus_memory_read_handler_t) (virtual_memory_address_t address);
+typedef u32 (*bus_memory_read_handler_t)(virtual_memory_address_t address);
 typedef void (*bus_memory_write_handler_t)(virtual_memory_address_t address, u32 value);
 
 /* Allocates the shared-memory backing for RAM/BIOS/LUTs and (if enabled)
@@ -142,32 +138,35 @@ bool bus_do_state(state_wrapper_t* sw);
  * tables instead of real memory.  swap_caches is currently informational. */
 void** bus_get_memory_handlers(bool isolate_cache, bool swap_caches);
 
-ALWAYS_INLINE bus_memory_read_handler_t* bus_offset_read_handler_array(void** handlers,
-                                                                       memory_access_size_t size)
-{
+ALWAYS_INLINE bus_memory_read_handler_t* bus_offset_read_handler_array(void** handlers, memory_access_size_t size) {
   return (bus_memory_read_handler_t*)(handlers + (((size_t)size * 2u + 0u) * BUS_MEMORY_LUT_SIZE));
 }
-ALWAYS_INLINE bus_memory_write_handler_t* bus_offset_write_handler_array(void** handlers,
-                                                                         memory_access_size_t size)
-{
+ALWAYS_INLINE bus_memory_write_handler_t* bus_offset_write_handler_array(void** handlers, memory_access_size_t size) {
   return (bus_memory_write_handler_t*)(handlers + (((size_t)size * 2u + 1u) * BUS_MEMORY_LUT_SIZE));
 }
 
 void* bus_get_fastmem_base(bool isc);
 void  bus_remap_fastmem_views(void);
 bool  bus_can_use_fastmem_for_address(virtual_memory_address_t address);
+bool  bus_is_word_latch_address(virtual_memory_address_t address);
+bool  bus_is_word_read_address(virtual_memory_address_t address);
+bool  bus_try_write_partial_device(virtual_memory_address_t address, u32 value, u32 enabled_bytes);
 
 /* Optional RAM-write tap for diagnostics. Fastmem writes can bypass this hook.
  * writer_pc is the CPU's current-instruction field and can be stale in native code. */
 typedef void (*bus_ram_write_tap_fn)(u32 paddr, u8 size, u32 value, u32 writer_pc);
 extern bus_ram_write_tap_fn g_bus_ram_write_tap;
 
-u8*  bus_get_ram_pointer(void);             /* page-protected (write triggers SMC) */
-u8*  bus_get_unprotected_ram_pointer(void); /* alias view, debugger-safe writes */
-u32  bus_get_ram_size(void);
-u32  bus_get_ram_mapped_size(void);
-u32  bus_get_ram_mask(void);
-u8*  bus_get_bios_pointer(void);
+u8* bus_get_ram_pointer(void);             /* page-protected (write triggers SMC) */
+u8* bus_get_unprotected_ram_pointer(void); /* alias view, debugger-safe writes */
+u32 bus_get_ram_size(void);
+u32 bus_get_ram_mapped_size(void);
+u32 bus_get_ram_mask(void);
+u8* bus_get_bios_pointer(void);
+
+/* Applies ROM bus address stepping without charging CPU ticks. */
+u32  bus_read_bios_data(u32 address, memory_access_size_t size);
+bool bus_bios_reads_repeat_byte(void);
 
 /* Per-region access timing tables, indexed by memory_access_size_t. */
 const tick_count_t* bus_get_exp1_access_time(void);
@@ -184,22 +183,19 @@ void bus_clear_ram_code_page_flags(void);
 
 /* Returns true if the address specified is writable RAM (within the 4
  * mirrors).  Equivalent to (address < RAM_MIRROR_END). */
-ALWAYS_INLINE bool bus_is_ram_address(physical_memory_address_t address)
-{
+ALWAYS_INLINE bool bus_is_ram_address(physical_memory_address_t address) {
   return address < BUS_RAM_MIRROR_END;
 }
 
 /* RAM offset → host-page index, masked to active RAM size. */
-ALWAYS_INLINE u32 bus_get_ram_code_page_index(physical_memory_address_t address)
-{
+ALWAYS_INLINE u32 bus_get_ram_code_page_index(physical_memory_address_t address) {
   return (address & bus_get_ram_mask()) >> HOST_PAGE_SHIFT;
 }
 
 /* Estimated DMA tick count for `word_count` words.  PS1 DMA uses DRAM
  * Hyper Page mode at ~1 cycle/word, plus ~1 row-load cycle per 16 words.
  * Substantially faster than CPU DRAM access (1 + 6 waitstates = 7 / word). */
-ALWAYS_INLINE tick_count_t bus_get_dma_ram_tick_count(u32 word_count)
-{
+ALWAYS_INLINE tick_count_t bus_get_dma_ram_tick_count(u32 word_count) {
   return (tick_count_t)(word_count + ((word_count + 15u) / 16u));
 }
 
@@ -212,8 +208,7 @@ bool bus_has_code_pages_in_range(physical_memory_address_t start_address, u32 si
 
 /* Returns a pointer to the cycle count for a non-RAM access (BIOS, EXP1).
  * NULL when the address is in RAM or has no defined timing. */
-const tick_count_t* bus_get_memory_access_time_ptr(physical_memory_address_t address,
-                                                   memory_access_size_t size);
+const tick_count_t* bus_get_memory_access_time_ptr(physical_memory_address_t address, memory_access_size_t size);
 
 typedef enum {
   BUS_MEMORY_REGION_RAM,
@@ -236,10 +231,11 @@ u8*                       bus_get_memory_region_pointer(bus_memory_region_t regi
 /* Linear scan from start_address; returns address of first match, or
  * UINT32_MAX (>= 4GB equivalent) when not found.  Caller checks for the
  * sentinel via bus_search_memory_found(). */
-physical_memory_address_t bus_search_memory(physical_memory_address_t start_address,
-                                            const u8* pattern, const u8* mask,
+physical_memory_address_t bus_search_memory(physical_memory_address_t start_address, const u8* pattern, const u8* mask,
                                             u32 pattern_length);
-ALWAYS_INLINE bool        bus_search_memory_found(physical_memory_address_t r) { return r != 0xFFFFFFFFu; }
+ALWAYS_INLINE bool        bus_search_memory_found(physical_memory_address_t r) {
+  return r != 0xFFFFFFFFu;
+}
 
 /* TTY ($1F802023, $1F802080, $1FA00000) capture: characters are buffered
  * into one log line per CR/LF. */

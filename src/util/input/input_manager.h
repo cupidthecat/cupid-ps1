@@ -27,11 +27,11 @@ typedef enum {
 } input_source_type_t;
 
 typedef enum {
-  INPUT_SUBCLASS_NONE             = 0,
+  INPUT_SUBCLASS_NONE = 0,
 
   /* Pointer */
-  INPUT_SUBCLASS_POINTER_BUTTON   = 0,
-  INPUT_SUBCLASS_POINTER_AXIS     = 1,
+  INPUT_SUBCLASS_POINTER_BUTTON = 0,
+  INPUT_SUBCLASS_POINTER_AXIS   = 1,
 
   /* Controller (overlap with pointer is intentional; source_type tells them
    * apart). */
@@ -46,8 +46,8 @@ typedef enum {
 
 typedef enum {
   INPUT_MODIFIER_NONE      = 0,
-  INPUT_MODIFIER_NEGATE    = 1,  /* axis * -1 */
-  INPUT_MODIFIER_FULL_AXIS = 2,  /* axis * 0.5 + 0.5 */
+  INPUT_MODIFIER_NEGATE    = 1, /* axis * -1 */
+  INPUT_MODIFIER_FULL_AXIS = 2, /* axis * 0.5 + 0.5 */
 } input_modifier_t;
 
 /* input_binding_type_t and generic_input_binding_t are defined canonically
@@ -70,26 +70,24 @@ typedef union {
    * packed metadata. The whole thing fits in a u64 for fast unordered_map-
    * style key compare. */
   struct {
-    u32 source_type    : 4;
-    u32 source_index   : 8;
+    u32 source_type : 4;
+    u32 source_index : 8;
     u32 source_subtype : 3;
-    u32 modifier       : 2;
-    u32 invert         : 1;
-    u32 unused         : 14;
+    u32 modifier : 2;
+    u32 invert : 1;
+    u32 unused : 14;
     u32 data;
   } bits_;
 } input_binding_key_t;
 
 /* Returns key with modifier and invert cleared, used for hash-map lookup. */
-ALWAYS_INLINE input_binding_key_t input_binding_key_mask_direction(input_binding_key_t k)
-{
+ALWAYS_INLINE input_binding_key_t input_binding_key_mask_direction(input_binding_key_t k) {
   k.bits_.modifier = INPUT_MODIFIER_NONE;
   k.bits_.invert   = 0;
   return k;
 }
 
-ALWAYS_INLINE bool input_binding_key_equals(input_binding_key_t a, input_binding_key_t b)
-{
+ALWAYS_INLINE bool input_binding_key_equals(input_binding_key_t a, input_binding_key_t b) {
   return a.bits == b.bits;
 }
 
@@ -101,25 +99,24 @@ typedef struct {
   const char* name;
   const char* category;
   const char* display_name;
-  void      (*handler)(s32 pressed);
+  void (*handler)(s32 pressed);
 } hotkey_info_t;
 
 enum {
-  INPUT_MAX_KEYS_PER_BINDING        = 4,
-  INPUT_MAX_MOTORS_PER_PAD          = 2,
-  INPUT_MAX_POINTER_DEVICES         = 8,
-  INPUT_NUM_MACRO_BUTTONS_PER_PAD   = 8,
+  INPUT_MAX_KEYS_PER_BINDING      = 4,
+  INPUT_MAX_MOTORS_PER_PAD        = 2,
+  INPUT_MAX_POINTER_DEVICES       = 8,
+  INPUT_NUM_MACRO_BUTTONS_PER_PAD = 8,
 };
 
-void host_on_input_device_connected(input_binding_key_t key, const char* identifier,
-                                    const char* device_name);
+void host_on_input_device_connected(input_binding_key_t key, const char* identifier, const char* device_name);
 void host_on_input_device_disconnected(input_binding_key_t key, const char* identifier);
 void host_set_relative_mouse_mode(bool relative, bool hide_cursor);
 
-const char*         input_manager_source_to_string(input_source_type_t t);
-bool                input_manager_parse_source_string(const char* str, input_source_type_t* out);
-bool                input_manager_get_source_default_enabled(input_source_type_t t);
-input_source_t*     input_manager_get_source(input_source_type_t t);
+const char*     input_manager_source_to_string(input_source_type_t t);
+bool            input_manager_parse_source_string(const char* str, input_source_type_t* out);
+bool            input_manager_get_source_default_enabled(input_source_type_t t);
+input_source_t* input_manager_get_source(input_source_type_t t);
 
 input_binding_key_t input_manager_make_keyboard_key(u32 code);
 
@@ -129,21 +126,20 @@ const char* input_manager_keyboard_code_to_string(u32 code);
 
 input_binding_key_t input_manager_make_pointer_button_key(u32 index, u32 button_index);
 
- /* Parses a single binding string ("Keyboard/X" / "SDL-0/Cross" / ...).
+/* Parses a single binding string ("Keyboard/X" / "SDL-0/Cross" / ...).
  * Returns true and fills *out_key on success. */
 bool input_manager_parse_binding_key(const char* binding, input_binding_key_t* out_key);
 
 /* Like above but also returns the source that owned the parse (NULL for
  * Keyboard / Pointer). */
-bool input_manager_parse_binding_and_get_source(const char* binding,
-                                                input_binding_key_t* out_key,
+bool input_manager_parse_binding_and_get_source(const char* binding, input_binding_key_t* out_key,
                                                 input_source_t** out_source);
 
 /* Writes a human key string into *out (e.g. "Keyboard/X"). */
-void input_manager_convert_key_to_string(input_binding_type_t binding_type,
-                                         input_binding_key_t key, small_string_t* out);
+void input_manager_convert_key_to_string(input_binding_type_t binding_type, input_binding_key_t key,
+                                         small_string_t* out);
 
-void input_manager_add_axis_binding  (const char* binding, input_axis_handler_t   handler, void* user);
+void input_manager_add_axis_binding(const char* binding, input_axis_handler_t handler, void* user);
 void input_manager_add_button_binding(const char* binding, input_button_handler_t handler, void* user);
 
 /* Returns true when the supplied key maps to at least one bound action. */
@@ -173,9 +169,9 @@ void input_manager_poll_sources(void);
 void input_manager_close_sources(void);
 
 /* Returns a heap-allocated array of devices across all sources. */
-typedef struct input_device_list  input_device_list_t;
-typedef struct input_effect_list  input_effect_list_t;
-void input_manager_enumerate_devices(struct input_device_list* out);
+typedef struct input_device_list input_device_list_t;
+typedef struct input_effect_list input_effect_list_t;
+void                             input_manager_enumerate_devices(struct input_device_list* out);
 
 void input_manager_set_pad_vibration_intensity(u32 pad_index, u32 bind_index, float intensity);
 

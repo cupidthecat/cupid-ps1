@@ -16,11 +16,11 @@ extern "C" {
 #endif
 
 #if defined(__x86_64__)
-#  define FASTJMP_BUF_SIZE 64u
+#define FASTJMP_BUF_SIZE 64u
 #elif defined(__aarch64__)
-#  define FASTJMP_BUF_SIZE 168u
+#define FASTJMP_BUF_SIZE 168u
 #else
-#  error "fastjmp: unsupported architecture (Linux x86_64 / AArch64 only)"
+#error "fastjmp: unsupported architecture (Linux x86_64 / AArch64 only)"
 #endif
 
 typedef struct {

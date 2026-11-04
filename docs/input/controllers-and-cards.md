@@ -41,8 +41,27 @@ emulation.
 
 ## Memory cards
 
-- 128 KB image: 16 frames × 64 sectors × 128 bytes = 131 072 bytes.
+- 128 KB image: 16 blocks × 64 sectors × 128 bytes = 131 072 bytes.
 - File extension `.mcd`. Default path for slot 1: `./memcards/card1.mcd`.
-- Lazy write-back: dirtied cards are flushed asynchronously via a timing event (`src/core/input/memory_cards/memory_card.c`).
-- Types: `NONE`, `SHARED`, `PER_GAME`, `PER_GAME_TITLE`, `PER_GAME_FILE_TITLE`, `NON_PERSISTENT`. Default for slot 1: `PER_GAME_TITLE`.
+- Card types include `NONE`, `SHARED`, `PER_GAME`, `PER_GAME_TITLE`, `PER_GAME_FILE_TITLE` and `NON_PERSISTENT`. The SDL frontend uses a shared card in slot 1.
 - Up to 8 slots total via multitap on each port.
+
+Sector writes are staged until their checksum and address are accepted. Bad
+checksums return `4E`, invalid sectors return `FF`, and incomplete transactions
+leave the committed sector unchanged. Invalid read addresses return a confirmed
+address of `FFFF` and end the transaction. Read, write and ID replies finish
+without another ACK request. See the [memory-card protocol](https://psx-spx.consoledev.net/controllersandmemorycards/#memory-card-readwrite-commands).
+
+Changed data is saved after five seconds of emulated time. Reset and shutdown
+also flush pending changes. A complete sibling temporary file is synchronized,
+closed and renamed over the backing file; a failed write or replacement leaves
+the old file intact. Failed saves retain dirty data and schedule another attempt
+while the card remains open. This protects
+against incomplete file writes; it is not a guarantee against power loss or
+filesystem failure during publication.
+
+Version 91 save states include the pending sector. Generated firmware tests
+exercise SIO0 replies, final IRQ behavior, rejected/aborted writes and a second
+emulator process reopening the saved card across interpreter, cached and native
+slow/LUT/mapped execution. These tests cover protocol and host persistence;
+physical-card electrical timing and real-controller behavior remain unqualified.

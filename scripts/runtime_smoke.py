@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -36,7 +37,8 @@ def run_smoke(binary, bios, media, mode, output, timeout, revision=None, hash_in
     binary, bios, media = paths[:3]
     output = Path(output).resolve()
     output.mkdir(parents=True, exist_ok=False)
-    (output / "data").symlink_to(ROOT / "data", target_is_directory=True)
+    if os.name == "nt": shutil.copytree(ROOT / "data", output / "data")
+    else: (output / "data").symlink_to(ROOT / "data", target_is_directory=True)
     state = output / "roundtrip.sav"
     command = [str(binary), "--cpu-mode", mode, "--fastmem", "off",
                "--gpu-renderer", "software", "--pgxp", "off",
@@ -57,19 +59,21 @@ def run_smoke(binary, bios, media, mode, output, timeout, revision=None, hash_in
     started = time.monotonic()
     with (output / "boot.log").open("wb") as log:
         child = subprocess.Popen(command, cwd=output, env=env, stdout=log,
-                                 stderr=subprocess.STDOUT, start_new_session=True)
+                                 stderr=subprocess.STDOUT, start_new_session=(os.name == "posix"))
         try:
             child.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
             result["timed_out"] = True
             try:
-                os.killpg(child.pid, signal.SIGTERM)
+                if os.name == "posix": os.killpg(child.pid, signal.SIGTERM)
+                else: child.terminate()
             except ProcessLookupError:
                 pass
             try:
                 child.wait(timeout=3)
             except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
+                if os.name == "posix": os.killpg(child.pid, signal.SIGKILL)
+                else: child.kill()
                 child.wait()
     result["elapsed_seconds"] = time.monotonic() - started
     result["exit_code"] = child.returncode
@@ -110,8 +114,6 @@ def main():
     parser.add_argument("--hash-input", type=Path, action="append", default=[],
                         help="also hash a referenced BIN, playlist entry or other input")
     args = parser.parse_args()
-    if os.name != "posix":
-        parser.error("run this script in the supported Linux build environment")
     output = args.output or ROOT / ".local-research" / (
         "runtime-" + args.mode + "-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"))
     try:

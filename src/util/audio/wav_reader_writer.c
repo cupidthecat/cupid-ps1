@@ -11,9 +11,9 @@ LOG_CHANNEL(WAV);
 
 #pragma pack(push, 1)
 typedef struct {
-  u32 chunk_id;        /* RIFF */
+  u32 chunk_id; /* RIFF */
   u32 chunk_size;
-  u32 format;          /* WAVE */
+  u32 format; /* WAVE */
 } wav_file_header_t;
 
 typedef struct {
@@ -22,9 +22,9 @@ typedef struct {
 } wav_chunk_header_t;
 
 typedef struct {
-  u32 chunk_id;        /* "fmt " */
+  u32 chunk_id; /* "fmt " */
   u32 chunk_size;
-  u16 audio_format;    /* 1 = PCM, 3 = float */
+  u16 audio_format; /* 1 = PCM, 3 = float */
   u16 num_channels;
   u32 sample_rate;
   u32 byte_rate;
@@ -33,9 +33,9 @@ typedef struct {
 } wav_fmt_chunk_t;
 
 typedef struct {
-  u32 chunk_id;        /* RIFF */
+  u32 chunk_id; /* RIFF */
   u32 chunk_size;
-  u32 format;          /* WAVE */
+  u32 format; /* WAVE */
   /* fmt */
   u32 fmt_chunk_id;
   u32 fmt_chunk_size;
@@ -58,19 +58,16 @@ enum {
   WAVE_VALUE = 0x45564157u, /* 'WAVE' */
 };
 
-void wav_reader_init(wav_reader_t* r)
-{
+void wav_reader_init(wav_reader_t* r) {
   memset(r, 0, sizeof(*r));
   r->format = WAV_FORMAT_INVALID;
 }
 
-bool wav_reader_is_open(const wav_reader_t* r)
-{
+bool wav_reader_is_open(const wav_reader_t* r) {
   return (r->file != NULL);
 }
 
-void wav_reader_close(wav_reader_t* r)
-{
+void wav_reader_close(wav_reader_t* r) {
   if (r->file) fclose(r->file);
   wav_reader_init(r);
 }
@@ -78,9 +75,8 @@ void wav_reader_close(wav_reader_t* r)
 /* Walk the RIFF stream until we find a chunk with the requested tag.  When
  * out_chunk_size_extra > 0, after copying `chunk_size_in_struct` bytes we
  * skip the remainder of the chunk if `skip_extra_bytes` is set. */
-static bool find_chunk_file(FILE* fp, void* chunk, size_t chunk_size_in_struct,
-                            u32 tag, bool skip_extra_bytes, Error* error)
-{
+static bool find_chunk_file(FILE* fp, void* chunk, size_t chunk_size_in_struct, u32 tag, bool skip_extra_bytes,
+                            Error* error) {
   for (;;) {
     wav_chunk_header_t header;
     if (fread(&header, sizeof(header), 1, fp) != 1) {
@@ -89,14 +85,13 @@ static bool find_chunk_file(FILE* fp, void* chunk, size_t chunk_size_in_struct,
     }
 
     if (header.chunk_id != tag) {
-      if (!fs_fseek64_e(fp, header.chunk_size, SEEK_CUR, error))
-        return false;
+      if (!fs_fseek64_e(fp, header.chunk_size, SEEK_CUR, error)) return false;
       continue;
     }
 
     if (header.chunk_size < (chunk_size_in_struct - sizeof(header))) {
-      Error_set_string_fmt(error, "Chunk too small (required %zu got %u)",
-                           chunk_size_in_struct - sizeof(header), header.chunk_size);
+      Error_set_string_fmt(error, "Chunk too small (required %zu got %u)", chunk_size_in_struct - sizeof(header),
+                           header.chunk_size);
       return false;
     }
 
@@ -110,42 +105,36 @@ static bool find_chunk_file(FILE* fp, void* chunk, size_t chunk_size_in_struct,
     }
 
     const u32 extra = header.chunk_size - (u32)(chunk_size_in_struct - sizeof(header));
-    if (skip_extra_bytes && extra && !fs_fseek64_e(fp, extra, SEEK_CUR, error))
-      return false;
+    if (skip_extra_bytes && extra && !fs_fseek64_e(fp, extra, SEEK_CUR, error)) return false;
 
     return true;
   }
 }
 
-static bool validate_format(const wav_fmt_chunk_t* fmt, Error* error)
-{
+static bool validate_format(const wav_fmt_chunk_t* fmt, Error* error) {
   if (fmt->audio_format != WAV_FORMAT_PCM && fmt->audio_format != WAV_FORMAT_FLOAT) {
     Error_set_string_fmt(error, "Unsupported audio format %u", fmt->audio_format);
     return false;
   }
   if (fmt->sample_rate == 0 || fmt->num_channels == 0 || fmt->num_channels > 8 ||
-      (fmt->audio_format == WAV_FORMAT_PCM &&
-       fmt->bits_per_sample != 8 && fmt->bits_per_sample != 16 &&
-       fmt->bits_per_sample != 24 && fmt->bits_per_sample != 32) || 
+      (fmt->audio_format == WAV_FORMAT_PCM && fmt->bits_per_sample != 8 && fmt->bits_per_sample != 16 &&
+       fmt->bits_per_sample != 24 && fmt->bits_per_sample != 32) ||
       (fmt->audio_format == WAV_FORMAT_FLOAT && fmt->bits_per_sample != 32)) {
-    Error_set_string_fmt(error,
-        "Unsupported file format format=%u samplerate=%u channels=%u bits=%u",
-        fmt->audio_format, fmt->sample_rate, fmt->num_channels, fmt->bits_per_sample);
+    Error_set_string_fmt(error, "Unsupported file format format=%u samplerate=%u channels=%u bits=%u",
+                         fmt->audio_format, fmt->sample_rate, fmt->num_channels, fmt->bits_per_sample);
     return false;
   }
   return true;
 }
 
-bool wav_reader_open(wav_reader_t* r, const char* path, Error* error)
-{
+bool wav_reader_open(wav_reader_t* r, const char* path, Error* error) {
   wav_reader_init(r);
 
   FILE* fp = fs_open_file(path, "rb", error);
   if (!fp) return false;
 
   wav_file_header_t fh;
-  if (fread(&fh, sizeof(fh), 1, fp) != 1 ||
-      fh.chunk_id != RIFF_VALUE || fh.format != WAVE_VALUE) {
+  if (fread(&fh, sizeof(fh), 1, fp) != 1 || fh.chunk_id != RIFF_VALUE || fh.format != WAVE_VALUE) {
     Error_set_string(error, "Invalid file header, must be RIFF/WAVE");
     fclose(fp);
     return false;
@@ -190,27 +179,22 @@ bool wav_reader_open(wav_reader_t* r, const char* path, Error* error)
   return true;
 }
 
-u32 wav_reader_get_remaining_frames(const wav_reader_t* r)
-{
+u32 wav_reader_get_remaining_frames(const wav_reader_t* r) {
   return r->num_frames - r->current_frame;
 }
 
-bool wav_reader_seek_to_frame(wav_reader_t* r, u32 frame, Error* error)
-{
+bool wav_reader_seek_to_frame(wav_reader_t* r, u32 frame, Error* error) {
   if (frame > r->num_frames) {
     Error_set_string_fmt(error, "Frame %u out of range (max %u)", frame, r->num_frames);
     return false;
   }
   const s64 offset = r->frames_start + (s64)frame * r->bytes_per_frame;
-  if (!fs_fseek64_e(r->file, offset, SEEK_SET, error))
-    return false;
+  if (!fs_fseek64_e(r->file, offset, SEEK_SET, error)) return false;
   r->current_frame = frame;
   return true;
 }
 
-bool wav_reader_read_frames(wav_reader_t* r, void* samples, u32 num_frames,
-                            u32* out_read, Error* error)
-{
+bool wav_reader_read_frames(wav_reader_t* r, void* samples, u32 num_frames, u32* out_read, Error* error) {
   const u32 remaining = r->num_frames - r->current_frame;
   if (remaining == 0) {
     *out_read = 0;
@@ -229,10 +213,8 @@ bool wav_reader_read_frames(wav_reader_t* r, void* samples, u32 num_frames,
 }
 
 /* Memory parser: walk a span looking for tag, copy chunk in. */
-static bool find_chunk_mem(const u8* base, size_t size, void* chunk,
-                           size_t chunk_size_in_struct, u32 tag,
-                           const u8** out_data, u32* out_data_len, Error* error)
-{
+static bool find_chunk_mem(const u8* base, size_t size, void* chunk, size_t chunk_size_in_struct, u32 tag,
+                           const u8** out_data, u32* out_data_len, Error* error) {
   size_t off = 0;
   for (;;) {
     if (off + sizeof(wav_chunk_header_t) > size) {
@@ -247,8 +229,8 @@ static bool find_chunk_mem(const u8* base, size_t size, void* chunk,
       continue;
     }
     if (hdr.chunk_size < (chunk_size_in_struct - sizeof(hdr))) {
-      Error_set_string_fmt(error, "Chunk too small (required %zu got %u)",
-                           chunk_size_in_struct - sizeof(hdr), hdr.chunk_size);
+      Error_set_string_fmt(error, "Chunk too small (required %zu got %u)", chunk_size_in_struct - sizeof(hdr),
+                           hdr.chunk_size);
       return false;
     }
     if (hdr.chunk_size > (size - off - sizeof(hdr))) {
@@ -267,9 +249,7 @@ static bool find_chunk_mem(const u8* base, size_t size, void* chunk,
   }
 }
 
-bool wav_reader_parse_memory(const void* data, size_t size,
-                             wav_memory_parse_t* out, Error* error)
-{
+bool wav_reader_parse_memory(const void* data, size_t size, wav_memory_parse_t* out, Error* error) {
   wav_file_header_t fh;
   if (size < sizeof(fh)) {
     Error_set_string(error, "Data too small to be a valid WAV file");
@@ -281,25 +261,25 @@ bool wav_reader_parse_memory(const void* data, size_t size,
     return false;
   }
 
-  const u8* whole = (const u8*)data + sizeof(fh);
+  const u8*    whole    = (const u8*)data + sizeof(fh);
   const size_t wholelen = size - sizeof(fh);
 
   wav_fmt_chunk_t fmt;
-  const u8* fmt_data = NULL;  u32 fmt_data_len = 0;
-  if (!find_chunk_mem(whole, wholelen, &fmt, sizeof(fmt), FMT_VALUE,
-                      &fmt_data, &fmt_data_len, error)) {
+  const u8*       fmt_data     = NULL;
+  u32             fmt_data_len = 0;
+  if (!find_chunk_mem(whole, wholelen, &fmt, sizeof(fmt), FMT_VALUE, &fmt_data, &fmt_data_len, error)) {
     Error_add_prefix(error, "Failed to get FMT chunk: ");
     return false;
   }
-  (void)fmt_data; (void)fmt_data_len;
+  (void)fmt_data;
+  (void)fmt_data_len;
 
-  if (!validate_format(&fmt, error))
-    return false;
+  if (!validate_format(&fmt, error)) return false;
 
   wav_chunk_header_t dchunk;
-  const u8* sample_data = NULL;  u32 sample_data_len = 0;
-  if (!find_chunk_mem(whole, wholelen, &dchunk, sizeof(dchunk), DATA_VALUE,
-                      &sample_data, &sample_data_len, error)) {
+  const u8*          sample_data     = NULL;
+  u32                sample_data_len = 0;
+  if (!find_chunk_mem(whole, wholelen, &dchunk, sizeof(dchunk), DATA_VALUE, &sample_data, &sample_data_len, error)) {
     Error_add_prefix(error, "Failed to get DATA chunk: ");
     return false;
   }
@@ -321,18 +301,15 @@ bool wav_reader_parse_memory(const void* data, size_t size,
   return true;
 }
 
-void wav_writer_init(wav_writer_t* w)
-{
+void wav_writer_init(wav_writer_t* w) {
   memset(w, 0, sizeof(*w));
 }
 
-bool wav_writer_is_open(const wav_writer_t* w)
-{
+bool wav_writer_is_open(const wav_writer_t* w) {
   return (w->file != NULL);
 }
 
-static bool wav_writer_emit_header(wav_writer_t* w, Error* error)
-{
+static bool wav_writer_emit_header(wav_writer_t* w, Error* error) {
   const u32 data_size = (u32)sizeof(s16) * w->num_channels * w->num_frames;
 
   wav_full_header_t h;
@@ -341,8 +318,8 @@ static bool wav_writer_emit_header(wav_writer_t* w, Error* error)
   h.chunk_size      = (u32)sizeof(h) - 8u + data_size;
   h.format          = WAVE_VALUE;
   h.fmt_chunk_id    = FMT_VALUE;
-  h.fmt_chunk_size  = 16u;            /* fmt body size: 16 bytes for PCM */
-  h.audio_format    = 1u;             /* PCM */
+  h.fmt_chunk_size  = 16u; /* fmt body size: 16 bytes for PCM */
+  h.audio_format    = 1u;  /* PCM */
   h.num_channels    = (u16)w->num_channels;
   h.sample_rate     = w->sample_rate;
   h.byte_rate       = w->sample_rate * w->num_channels * (u32)sizeof(s16);
@@ -358,11 +335,8 @@ static bool wav_writer_emit_header(wav_writer_t* w, Error* error)
   return true;
 }
 
-bool wav_writer_open(wav_writer_t* w, const char* path,
-                     u32 sample_rate, u32 num_channels, Error* error)
-{
-  if (wav_writer_is_open(w))
-    wav_writer_close(w, NULL);
+bool wav_writer_open(wav_writer_t* w, const char* path, u32 sample_rate, u32 num_channels, Error* error) {
+  if (wav_writer_is_open(w)) wav_writer_close(w, NULL);
 
   w->file = fs_open_file(path, "wb", error);
   if (!w->file) return false;
@@ -379,10 +353,8 @@ bool wav_writer_open(wav_writer_t* w, const char* path,
   return true;
 }
 
-bool wav_writer_close(wav_writer_t* w, Error* error)
-{
-  if (!wav_writer_is_open(w))
-    return true;
+bool wav_writer_close(wav_writer_t* w, Error* error) {
+  if (!wav_writer_is_open(w)) return true;
 
   bool ok = (w->num_frames != UINT32_MAX);
   if (ok) {
@@ -398,9 +370,7 @@ bool wav_writer_close(wav_writer_t* w, Error* error)
   return ok;
 }
 
-bool wav_writer_write_frames(wav_writer_t* w, const s16* samples,
-                             u32 num_frames, Error* error)
-{
+bool wav_writer_write_frames(wav_writer_t* w, const s16* samples, u32 num_frames, Error* error) {
   if (w->num_frames == UINT32_MAX) {
     Error_set_string(error, "Previous write failed.");
     return false;

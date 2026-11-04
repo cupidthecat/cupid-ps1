@@ -19,13 +19,11 @@ typedef struct {
   cpu_execution_stats_t          execution;
 } execution_result_t;
 
-static u32 imm(u32 op, u32 rs, u32 rt, s32 value)
-{
+static u32 imm(u32 op, u32 rs, u32 rt, s32 value) {
   return (op << 26) | (rs << 21) | (rt << 16) | ((u32)value & 0xFFFFu);
 }
 
-static void stop_execution(void* user, tick_count_t ticks, tick_count_t late)
-{
+static void stop_execution(void* user, tick_count_t ticks, tick_count_t late) {
   (void)user;
   (void)ticks;
   (void)late;
@@ -33,8 +31,8 @@ static void stop_execution(void* user, tick_count_t ticks, tick_count_t late)
   cpu_exit_execution();
 }
 
-static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, const u32* words, size_t count, bool split)
-{
+static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, const u32* words, size_t count,
+                                       bool split) {
   execution_result_t* result = calloc(1, sizeof(*result));
   EXPECT_NOT_NULL(result);
   memset(&g_cpu_state, 0, sizeof(g_cpu_state));
@@ -64,6 +62,8 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
 
   cpu_initialize();
   cpu_reset();
+  /* Generated RAM programs start with the BIOS's enabled cache setup. */
+  g_cpu_state.cache_control.bits = 0x1E988;
   EXPECT_TRUE(cpu_code_cache_process_startup(&error));
   cpu_code_cache_reset();
   cpu_set_pc(start);
@@ -103,14 +103,12 @@ static execution_result_t* run_program(cpu_execution_mode_t mode, u32 start, con
   return result;
 }
 
-static void release_result(execution_result_t* result)
-{
+static void release_result(execution_result_t* result) {
   free(result->ram);
   free(result);
 }
 
-static execution_result_t* compare_program(u32 start, const u32* words, size_t count, bool split)
-{
+static execution_result_t* compare_program(u32 start, const u32* words, size_t count, bool split) {
   execution_result_t* interpreter = run_program(CPU_EXECUTION_MODE_INTERPRETER, start, words, count, split);
   execution_result_t* cached      = run_program(CPU_EXECUTION_MODE_CACHED_INTERPRETER, start, words, count, split);
   EXPECT_EQ(interpreter->stats.blocks_executed, 0);
@@ -132,8 +130,7 @@ static execution_result_t* compare_program(u32 start, const u32* words, size_t c
   return cached;
 }
 
-TEST(CachedInterpreter, loops_reuse_blocks_and_keep_native_ticks)
-{
+TEST(CachedInterpreter, loops_reuse_blocks_and_keep_native_ticks) {
   const u32 words[] = {
       imm(9, 8, 8, 1), imm(10, 8, 9, 4), imm(5, 9, 0, -3), imm(9, 10, 10, 1), imm(9, 0, 11, 0x1234), 0x1000FFFFu, 0,
   };
@@ -144,8 +141,7 @@ TEST(CachedInterpreter, loops_reuse_blocks_and_keep_native_ticks)
   release_result(result);
 }
 
-TEST(CachedInterpreter, event_slices_preserve_partially_executed_blocks)
-{
+TEST(CachedInterpreter, event_slices_preserve_partially_executed_blocks) {
   const u32 words[] = {
       imm(9, 0, 8, 1), imm(9, 8, 9, 2), imm(9, 9, 10, 3), imm(9, 10, 11, 4), imm(9, 11, 12, 5), 0x1000FFFFu, 0,
   };
@@ -154,8 +150,7 @@ TEST(CachedInterpreter, event_slices_preserve_partially_executed_blocks)
   release_result(result);
 }
 
-TEST(CachedInterpreter, load_delay_and_destination_overwrite)
-{
+TEST(CachedInterpreter, load_delay_and_destination_overwrite) {
   const u32 words[] = {
       imm(15, 0, 8, 0xA003), imm(9, 0, 9, 0x1234), imm(43, 8, 9, 0),
       imm(35, 8, 10, 0),     imm(9, 10, 11, 1),    imm(9, 10, 12, 1),
@@ -169,8 +164,7 @@ TEST(CachedInterpreter, load_delay_and_destination_overwrite)
   release_result(result);
 }
 
-TEST(CachedInterpreter, load_in_branch_delay_crosses_block_boundary)
-{
+TEST(CachedInterpreter, load_in_branch_delay_crosses_block_boundary) {
   const u32 words[] = {
       imm(15, 0, 8, 0xA003), imm(9, 0, 9, 42),  imm(43, 8, 9, 0),  imm(4, 0, 0, 2), imm(35, 8, 10, 0),
       imm(9, 0, 11, 99),     imm(9, 10, 12, 1), imm(9, 10, 13, 1), 0x1000FFFFu,     0,
@@ -182,8 +176,7 @@ TEST(CachedInterpreter, load_in_branch_delay_crosses_block_boundary)
   release_result(result);
 }
 
-TEST(CachedInterpreter, overflow_in_branch_delay_reports_bd_and_epc)
-{
+TEST(CachedInterpreter, overflow_in_branch_delay_reports_bd_and_epc) {
   const u32 words[] = {
       imm(15, 0, 8, 0x7FFF), imm(13, 8, 8, 0xFFFF), imm(4, 0, 0, 2), imm(8, 8, 9, 1), 0, 0x1000FFFFu, 0,
   };
@@ -193,8 +186,7 @@ TEST(CachedInterpreter, overflow_in_branch_delay_reports_bd_and_epc)
   release_result(result);
 }
 
-TEST(CachedInterpreter, misaligned_load_reports_bad_address)
-{
+TEST(CachedInterpreter, misaligned_load_reports_bad_address) {
   const u32           words[] = {imm(15, 0, 8, 0xA003), imm(35, 8, 9, 1), 0x1000FFFFu, 0};
   execution_result_t* result  = compare_program(0x80010000u, words, sizeof(words) / sizeof(*words), false);
   EXPECT_EQ(result->checkpoints[0].cop0_regs.BadVaddr, 0xA0030001u);
@@ -203,8 +195,7 @@ TEST(CachedInterpreter, misaligned_load_reports_bad_address)
   release_result(result);
 }
 
-static void check_modified_code(u32 start, u32 expected_second_value)
-{
+static void check_modified_code(u32 start, u32 expected_second_value) {
   u32 words[19] = {
       imm(15, 0, 16, (s32)(start >> 16)),
       imm(13, 16, 16, 0x40),
@@ -232,44 +223,38 @@ static void check_modified_code(u32 start, u32 expected_second_value)
   release_result(result);
 }
 
-TEST(CachedInterpreter, uncached_self_modifying_code_invalidates_blocks)
-{
+TEST(CachedInterpreter, uncached_self_modifying_code_invalidates_blocks) {
   check_modified_code(0xA0010000u, 9);
 }
 
-TEST(CachedInterpreter, instruction_cache_keeps_old_code_until_refetched)
-{
+TEST(CachedInterpreter, instruction_cache_keeps_old_code_until_refetched) {
   check_modified_code(0x80010000u, 1);
 }
 
-TEST(CachedInterpreter, branch_delay_wraps_at_end_of_physical_ram)
-{
+TEST(CachedInterpreter, branch_delay_wraps_at_end_of_physical_ram) {
   const u32           words[] = {0x1000FFFFu, 0};
   execution_result_t* result  = compare_program(0xA01FFFFCu, words, 2, false);
   EXPECT_EQ(result->checkpoints[0].cop0_regs.cause.bits, 0);
   release_result(result);
 }
 
-TEST(CachedInterpreter, reserved_instruction_fallback_raises_exception)
-{
+TEST(CachedInterpreter, reserved_instruction_raises_exception_from_cached_block) {
   const u32           words[] = {0xFC000000u, 0x1000FFFFu, 0};
   execution_result_t* result  = compare_program(0xA0010000u, words, 3, false);
   EXPECT_EQ(result->checkpoints[0].regs.r[26] & 0x7Cu, 0x28u);
   EXPECT_EQ(result->checkpoints[0].regs.r[27], 0xA0010000u);
-  EXPECT_TRUE(result->stats.fallback_instructions > 0);
+  EXPECT_EQ(result->stats.fallback_instructions, 0);
   release_result(result);
 }
 
-TEST(CachedInterpreter, failed_prefetch_preserves_event_and_exception_boundary)
-{
+TEST(CachedInterpreter, failed_prefetch_preserves_event_and_exception_boundary) {
   const u32           words[] = {imm(9, 0, 8, 0x1234)};
   execution_result_t* result  = compare_program(0xBFC7FFFCu, words, 1, true);
   EXPECT_EQ(result->checkpoints[3].cop0_regs.cause.bits & 0x7Cu, 0x18u);
   release_result(result);
 }
 
-TEST(ExecutionProgress, native_linked_blocks_and_scheduler_execute)
-{
+TEST(ExecutionProgress, native_linked_blocks_and_scheduler_execute) {
   const u32           words[] = {imm(9, 0, 8, 0x1234), imm(9, 0, 9, 0x5678), 0x1000FFFFu, 0};
   execution_result_t* result =
       run_program(CPU_EXECUTION_MODE_RECOMPILER, 0xA0010000u, words, sizeof(words) / sizeof(*words), false);

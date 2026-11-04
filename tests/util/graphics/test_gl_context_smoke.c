@@ -26,8 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static int run(void)
-{
+static int run(void) {
   if (SDL_Init(SDL_INIT_VIDEO) != 0) {
     fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
     return 1;
@@ -108,8 +107,7 @@ static int run(void)
   return result;
 }
 
-int main(int argc, char** argv)
-{
+int main(int argc, char** argv) {
   (void)argc;
   (void)argv;
   return run();

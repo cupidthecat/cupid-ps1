@@ -1,6 +1,7 @@
 #include "cpu_diff_runner.h"
 
 #include "cpu_core.h"
+#include "common/file_system.h"
 #include "core/config/settings.h"
 #include "core/system/system.h"
 #include "core/scheduler/timing_event.h"
@@ -15,8 +16,7 @@ static u64   s_count;
 static bool  s_failed;
 static bool  s_completed;
 
-bool cpu_diff_initialize(void)
-{
+bool cpu_diff_initialize(void) {
   s_count          = 0;
   s_limit          = 0;
   s_failed         = false;
@@ -37,7 +37,7 @@ bool cpu_diff_initialize(void)
     }
     s_limit = s_limit * 10u + (u32)(*p - '0');
   }
-  if (!s_limit || !(s_file = fopen(path, "wx"))) {
+  if (!s_limit || !(s_file = fs_open_file(path, "wbx", NULL))) {
     fprintf(stderr, "[cpu-trace] cannot create trace or invalid zero count (errno=%d)\n", errno);
     s_failed = true;
     return false;
@@ -48,18 +48,15 @@ bool cpu_diff_initialize(void)
   return true;
 }
 
-bool cpu_diff_is_enabled(void)
-{
+bool cpu_diff_is_enabled(void) {
   return s_file != NULL;
 }
 
-static void word(u32 value)
-{
+static void word(u32 value) {
   fprintf(s_file, " %08x", value);
 }
 
-void cpu_diff_record_instruction(u32 pc, u32 instruction)
-{
+void cpu_diff_record_instruction(u32 pc, u32 instruction) {
   if (!s_file || s_completed || s_failed) return;
   fprintf(s_file, "%llu", (unsigned long long)++s_count);
   word(pc);
@@ -82,8 +79,7 @@ void cpu_diff_record_instruction(u32 pc, u32 instruction)
   s_failed = ferror(s_file) != 0;
 }
 
-bool cpu_diff_after_instruction(void)
-{
+bool cpu_diff_after_instruction(void) {
   if (!s_file) return false;
   if (s_count == s_limit || s_failed) {
     s_completed = !s_failed;
@@ -93,8 +89,7 @@ bool cpu_diff_after_instruction(void)
   return false;
 }
 
-bool cpu_diff_shutdown(void)
-{
+bool cpu_diff_shutdown(void) {
   if (s_file) {
     if (s_completed && !s_failed) fprintf(s_file, "# completed %llu\n", (unsigned long long)s_count);
     s_failed |= !s_completed || ferror(s_file) != 0;

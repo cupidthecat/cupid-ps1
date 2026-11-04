@@ -10,10 +10,10 @@ UseTab: Never
 ColumnLimit: 120
 LineEnding: LF
 
-# Function bodies start on a new line; control statements and types attach.
+# Function, control-statement and type braces attach.
 BreakBeforeBraces: Custom
 BraceWrapping:
-  AfterFunction: true
+  AfterFunction: false
   AfterControlStatement: Never
   AfterEnum: false
   AfterStruct: false
@@ -40,6 +40,7 @@ SpaceBeforeParens: ControlStatements
 SortIncludes: Never
 IncludeBlocks: Preserve
 ReflowComments: false
+StatementMacros: [BSR_RW_PRIM, BSW_W_PRIM, BFR_R_PRIM, BFW_W_PRIM]
 AlignConsecutiveAssignments: Consecutive
 AlignConsecutiveDeclarations: Consecutive
 AlignConsecutiveMacros: Consecutive

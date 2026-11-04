@@ -28,15 +28,15 @@ typedef struct bump_string_pool {
   size_t cap;
 } bump_string_pool_t;
 
-void        bump_string_pool_init    (bump_string_pool_t* p);
-void        bump_string_pool_destroy (bump_string_pool_t* p);
-size_t      bump_string_pool_add     (bump_string_pool_t* p, const char* data, size_t len);
-const char* bump_string_pool_get     (const bump_string_pool_t* p, size_t offset, size_t* out_len);
-const char* bump_string_pool_get_n   (const bump_string_pool_t* p, size_t offset, size_t length);
-void        bump_string_pool_clear   (bump_string_pool_t* p);
-size_t      bump_string_pool_size    (const bump_string_pool_t* p);
-bool        bump_string_pool_empty   (const bump_string_pool_t* p);
-void        bump_string_pool_reserve (bump_string_pool_t* p, size_t bytes);
+void        bump_string_pool_init(bump_string_pool_t* p);
+void        bump_string_pool_destroy(bump_string_pool_t* p);
+size_t      bump_string_pool_add(bump_string_pool_t* p, const char* data, size_t len);
+const char* bump_string_pool_get(const bump_string_pool_t* p, size_t offset, size_t* out_len);
+const char* bump_string_pool_get_n(const bump_string_pool_t* p, size_t offset, size_t length);
+void        bump_string_pool_clear(bump_string_pool_t* p);
+size_t      bump_string_pool_size(const bump_string_pool_t* p);
+bool        bump_string_pool_empty(const bump_string_pool_t* p);
+void        bump_string_pool_reserve(bump_string_pool_t* p, size_t bytes);
 
 typedef struct bump_unique_string_ref {
   size_t offset;
@@ -52,21 +52,21 @@ typedef struct bump_unique_string_pool {
   size_t                    refs_cap;
 } bump_unique_string_pool_t;
 
-void        bump_unique_string_pool_init    (bump_unique_string_pool_t* p);
-void        bump_unique_string_pool_destroy (bump_unique_string_pool_t* p);
-size_t      bump_unique_string_pool_add     (bump_unique_string_pool_t* p, const char* data, size_t len);
-const char* bump_unique_string_pool_get     (const bump_unique_string_pool_t* p, size_t offset, size_t* out_len);
-const char* bump_unique_string_pool_get_n   (const bump_unique_string_pool_t* p, size_t offset, size_t length);
-void        bump_unique_string_pool_clear   (bump_unique_string_pool_t* p);
-size_t      bump_unique_string_pool_size    (const bump_unique_string_pool_t* p);
-bool        bump_unique_string_pool_empty   (const bump_unique_string_pool_t* p);
-size_t      bump_unique_string_pool_count   (const bump_unique_string_pool_t* p);
-void        bump_unique_string_pool_reserve (bump_unique_string_pool_t* p, size_t num_strings, size_t storage_size);
+void        bump_unique_string_pool_init(bump_unique_string_pool_t* p);
+void        bump_unique_string_pool_destroy(bump_unique_string_pool_t* p);
+size_t      bump_unique_string_pool_add(bump_unique_string_pool_t* p, const char* data, size_t len);
+const char* bump_unique_string_pool_get(const bump_unique_string_pool_t* p, size_t offset, size_t* out_len);
+const char* bump_unique_string_pool_get_n(const bump_unique_string_pool_t* p, size_t offset, size_t length);
+void        bump_unique_string_pool_clear(bump_unique_string_pool_t* p);
+size_t      bump_unique_string_pool_size(const bump_unique_string_pool_t* p);
+bool        bump_unique_string_pool_empty(const bump_unique_string_pool_t* p);
+size_t      bump_unique_string_pool_count(const bump_unique_string_pool_t* p);
+void        bump_unique_string_pool_reserve(bump_unique_string_pool_t* p, size_t num_strings, size_t storage_size);
 
 typedef struct string_pool_bucket {
-  size_t offset;   /* offset into buf */
-  size_t length;   /* string length (no null) */
-  u64    hash;     /* FNV-1a 64-bit cached */
+  size_t offset; /* offset into buf */
+  size_t length; /* string length (no null) */
+  u64    hash;   /* FNV-1a 64-bit cached */
   bool   used;
 } string_pool_bucket_t;
 
@@ -75,19 +75,19 @@ typedef struct string_pool {
   size_t                size;
   size_t                cap;
   string_pool_bucket_t* table;
-  size_t                table_cap;   /* power of 2 */
+  size_t                table_cap; /* power of 2 */
   size_t                table_count;
 } string_pool_t;
 
-void        string_pool_init    (string_pool_t* p);
-void        string_pool_destroy (string_pool_t* p);
-size_t      string_pool_add     (string_pool_t* p, const char* data, size_t len);
-const char* string_pool_get     (const string_pool_t* p, size_t offset, size_t* out_len);
-const char* string_pool_get_n   (const string_pool_t* p, size_t offset, size_t length);
-void        string_pool_clear   (string_pool_t* p);
-size_t      string_pool_size    (const string_pool_t* p);
-bool        string_pool_empty   (const string_pool_t* p);
-size_t      string_pool_count   (const string_pool_t* p);
-void        string_pool_reserve (string_pool_t* p, size_t bytes);
+void        string_pool_init(string_pool_t* p);
+void        string_pool_destroy(string_pool_t* p);
+size_t      string_pool_add(string_pool_t* p, const char* data, size_t len);
+const char* string_pool_get(const string_pool_t* p, size_t offset, size_t* out_len);
+const char* string_pool_get_n(const string_pool_t* p, size_t offset, size_t length);
+void        string_pool_clear(string_pool_t* p);
+size_t      string_pool_size(const string_pool_t* p);
+bool        string_pool_empty(const string_pool_t* p);
+size_t      string_pool_count(const string_pool_t* p);
+void        string_pool_reserve(string_pool_t* p, size_t bytes);
 
 #endif /* CUPID_COMMON_STRING_POOL_H */

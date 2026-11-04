@@ -25,11 +25,7 @@ typedef struct Error Error;
 /* Sample type used by every backend. */
 typedef s16 audio_stream_sample_t;
 
-typedef enum {
-  AUDIO_BACKEND_NULL = 0,
-  AUDIO_BACKEND_SDL  = 1,
-  AUDIO_BACKEND_COUNT
-} audio_backend_t;
+typedef enum { AUDIO_BACKEND_NULL = 0, AUDIO_BACKEND_SDL = 1, AUDIO_BACKEND_COUNT } audio_backend_t;
 
 #define AUDIO_BACKEND_DEFAULT AUDIO_BACKEND_SDL
 
@@ -49,8 +45,8 @@ typedef struct {
 } audio_stream_source_t;
 
 typedef struct {
-  char* name;          /* malloc'd, NUL-terminated */
-  char* display_name;  /* malloc'd, NUL-terminated */
+  char* name;         /* malloc'd, NUL-terminated */
+  char* display_name; /* malloc'd, NUL-terminated */
   u32   minimum_latency_frames;
 } audio_stream_device_info_t;
 
@@ -62,7 +58,7 @@ struct audio_stream_vtable {
 
   /* Resume / pause data requests from the source. */
   bool (*start)(audio_stream_t* self, Error* error);
-  bool (*stop) (audio_stream_t* self, Error* error);
+  bool (*stop)(audio_stream_t* self, Error* error);
 };
 
 struct audio_stream {
@@ -72,34 +68,30 @@ struct audio_stream {
   u32                          channels;
 };
 
-const char*     audio_stream_get_backend_name        (audio_backend_t backend);
-const char*     audio_stream_get_backend_display_name(audio_backend_t backend);
+const char* audio_stream_get_backend_name(audio_backend_t backend);
+const char* audio_stream_get_backend_display_name(audio_backend_t backend);
 
 /* Returns true on success and writes the matched backend to *out.  Returns
  * false (out untouched) when the name is unknown. */
-bool            audio_stream_parse_backend_name(const char* str, audio_backend_t* out);
+bool audio_stream_parse_backend_name(const char* str, audio_backend_t* out);
 
-const char*     audio_stream_get_stretch_mode_name        (audio_stretch_mode_t mode);
-const char*     audio_stream_get_stretch_mode_display_name(audio_stretch_mode_t mode);
-bool            audio_stream_parse_stretch_mode_name(const char* str, audio_stretch_mode_t* out);
+const char* audio_stream_get_stretch_mode_name(audio_stretch_mode_t mode);
+const char* audio_stream_get_stretch_mode_display_name(audio_stretch_mode_t mode);
+bool        audio_stream_parse_stretch_mode_name(const char* str, audio_stretch_mode_t* out);
 
-ALWAYS_INLINE u32 audio_stream_frames_to_ms(u32 sample_rate, u32 frames)
-{
+ALWAYS_INLINE u32 audio_stream_frames_to_ms(u32 sample_rate, u32 frames) {
   return (frames * 1000u) / sample_rate;
 }
 
 /* Returns parallel (names, display_names) heap arrays.  Each slot is
  * malloc()'d; free with audio_stream_free_string_list on each array. */
-void audio_stream_get_driver_names(audio_backend_t backend,
-                                   char*** out_names, char*** out_display_names,
+void audio_stream_get_driver_names(audio_backend_t backend, char*** out_names, char*** out_display_names,
                                    size_t* out_count);
 
- /* Returns a heap array of audio_stream_device_info_t (malloc'd, length
+/* Returns a heap array of audio_stream_device_info_t (malloc'd, length
  * out_count).  Free with audio_stream_free_device_list. */
-void audio_stream_get_output_devices(audio_backend_t backend, const char* driver,
-                                     u32 sample_rate,
-                                     audio_stream_device_info_t** out_devices,
-                                     size_t* out_count);
+void audio_stream_get_output_devices(audio_backend_t backend, const char* driver, u32 sample_rate,
+                                     audio_stream_device_info_t** out_devices, size_t* out_count);
 
 void audio_stream_free_string_list(char** array, size_t count);
 void audio_stream_free_device_list(audio_stream_device_info_t* devices, size_t count);
@@ -107,29 +99,23 @@ void audio_stream_free_device_list(audio_stream_device_info_t* devices, size_t c
 /* Factory: backend-dispatched constructor.  Returns NULL on failure (with
  * *error populated when error != NULL).  Always release with
  * audio_stream_destroy. */
-audio_stream_t* audio_stream_create(audio_backend_t backend, u32 sample_rate, u32 channels,
-                                    u32 output_latency_frames, bool output_latency_minimal,
-                                    const char* driver_name, const char* device_name,
-                                    audio_stream_source_t source, bool auto_start,
-                                    Error* error);
+audio_stream_t* audio_stream_create(audio_backend_t backend, u32 sample_rate, u32 channels, u32 output_latency_frames,
+                                    bool output_latency_minimal, const char* driver_name, const char* device_name,
+                                    audio_stream_source_t source, bool auto_start, Error* error);
 
 /* SDL-specific constructor (called by the factory; exposed for tests). */
-audio_stream_t* audio_stream_create_sdl(u32 sample_rate, u32 channels,
-                                        u32 output_latency_frames, bool output_latency_minimal,
-                                        const char* device_name,
-                                        audio_stream_source_t source, bool auto_start,
-                                        Error* error);
+audio_stream_t* audio_stream_create_sdl(u32 sample_rate, u32 channels, u32 output_latency_frames,
+                                        bool output_latency_minimal, const char* device_name,
+                                        audio_stream_source_t source, bool auto_start, Error* error);
 
 /* Calls vtbl->close, then frees the containing struct.  NULL-safe. */
 void audio_stream_destroy(audio_stream_t* self);
 
-ALWAYS_INLINE bool audio_stream_start(audio_stream_t* s, Error* e)
-{
+ALWAYS_INLINE bool audio_stream_start(audio_stream_t* s, Error* e) {
   return s->vtbl->start(s, e);
 }
 
-ALWAYS_INLINE bool audio_stream_stop(audio_stream_t* s, Error* e)
-{
+ALWAYS_INLINE bool audio_stream_stop(audio_stream_t* s, Error* e) {
   return s->vtbl->stop(s, e);
 }
 

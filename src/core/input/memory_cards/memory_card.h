@@ -1,11 +1,10 @@
 /*
  * MemoryCard is the SIO0-bus device that implements the standard PS1 1Mbit
- * memory card protocol.  In C++ this is a concrete class (no virtuals); we
- * lower it to a plain memory_card_t struct + memory_card_* flat funcs.
+ * memory card protocol, including a staged sector for checked writes.
  *
  * The 128KB image lives inline in the struct (data[]); there is no shared
  * buffer.  The save event (timing_event_t) drives lazy write-back to the
- * backing path; m_changed is sticky until SaveIfChanged clears it.
+ * backing path; changed stays set until a successful host save.
  */
 
 #ifndef CUPID_CORE_MEMORY_CARD_H
@@ -18,7 +17,7 @@
 typedef struct state_wrapper state_wrapper_t;
 typedef struct Error         Error;
 
- /*
+/*
  * exactly so the FIXED_REPLY_STATE / ADDRESS_STATE_MSB tables stay readable
  * against the original.  Each card has its own copy. */
 typedef enum {
@@ -82,26 +81,35 @@ typedef struct memory_card {
   u8                  flag;          /* FLAG byte; bit semantics above */
   u16                 address;       /* current sector during read/write */
   u8                  sector_offset; /* byte index within the 128B frame */
-  u8                  checksum;      /* running XOR over (addr_hi, addr_lo, data...) */
+  u8                  checksum;      /* address/data XOR, then write-checksum residual */
   u8                  last_byte;     /* previous data_in; echoed in some replies */
   bool                changed;       /* dirty, needs flushing to disk */
+
+  u8 write_buffer[MEMORY_CARD_IMAGE_FRAME_SIZE];
 
   u8 data[MEMORY_CARD_IMAGE_DATA_SIZE];
 } memory_card_t;
 
 enum {
-  MEMORY_CARD_STATE_SIZE = 1 + 1 + 2 + 1 + 1 + 1 + MEMORY_CARD_IMAGE_DATA_SIZE + 1,
+  MEMORY_CARD_LEGACY_STATE_SIZE = 1 + 1 + 2 + 1 + 1 + 1 + MEMORY_CARD_IMAGE_DATA_SIZE + 1,
+  MEMORY_CARD_STATE_SIZE        = MEMORY_CARD_LEGACY_STATE_SIZE + MEMORY_CARD_IMAGE_FRAME_SIZE,
 };
 
 memory_card_t* memory_card_create(u32 index);
-memory_card_t* memory_card_open  (u32 index, const char* path);
+memory_card_t* memory_card_open(u32 index, const char* path);
 
 /* Flushes any pending write back to disk and frees the card. */
 void memory_card_destroy(memory_card_t* mc);
 
-static inline u8*         memory_card_get_data      (memory_card_t* mc)       { return mc->data; }
-static inline const u8*   memory_card_get_data_const(const memory_card_t* mc) { return mc->data; }
-static inline const char* memory_card_get_path      (const memory_card_t* mc) { return mc->path ? mc->path : ""; }
+static inline u8* memory_card_get_data(memory_card_t* mc) {
+  return mc->data;
+}
+static inline const u8* memory_card_get_data_const(const memory_card_t* mc) {
+  return mc->data;
+}
+static inline const char* memory_card_get_path(const memory_card_t* mc) {
+  return mc->path ? mc->path : "";
+}
 
 void memory_card_reset(memory_card_t* mc);
 bool memory_card_do_state(memory_card_t* mc, state_wrapper_t* sw);

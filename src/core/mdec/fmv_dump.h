@@ -11,8 +11,7 @@ void fmv_dump_inc_frame(void);
 #define FMV_DUMP_INC_FRAME()         fmv_dump_inc_frame()
 #define FMV_DUMP_FRAME()             fmv_dump_frame()
 #else
-#define FMV_DUMP(stage, buf, n, tag) \
-  ((void)(stage), (void)(buf), (void)(n), (void)(tag))
+#define FMV_DUMP(stage, buf, n, tag) ((void)(stage), (void)(buf), (void)(n), (void)(tag))
 #define FMV_DUMP_INC_FRAME()         ((void)0)
 #define FMV_DUMP_FRAME()             (0u)
 #endif

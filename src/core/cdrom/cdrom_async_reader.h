@@ -20,7 +20,7 @@
 #include <pthread.h>
 #include <stdatomic.h>
 
-typedef struct Error Error;
+typedef struct Error             Error;
 typedef struct progress_callback progress_callback_t;
 
 typedef u8 cdrom_async_sector_buffer_t[CD_IMAGE_RAW_SECTOR_SIZE];
@@ -113,8 +113,7 @@ void cdrom_async_reader_wait_for_idle(cdrom_async_reader_t* r);
 
 /* One-off uncached read.  Used by the CDC for SubQ updates that don't move
  * the readahead position. */
-bool cdrom_async_reader_read_sector_uncached(cdrom_async_reader_t* r, cd_image_lba_t lba,
-                                             cd_image_subq_t* subq,
+bool cdrom_async_reader_read_sector_uncached(cdrom_async_reader_t* r, cd_image_lba_t lba, cd_image_subq_t* subq,
                                              cdrom_async_sector_buffer_t* data);
 
 #endif /* CUPID_CORE_CDROM_ASYNC_READER_H */

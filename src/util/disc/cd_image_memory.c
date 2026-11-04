@@ -24,9 +24,8 @@ typedef struct {
   u32        memory_sectors;
 } cd_image_memory_t;
 
-static bool memory_read_sector_from_index(cd_image_t* self, void* buffer,
-                                          const cd_image_index_t* index, cd_image_lba_t lba_in_index)
-{
+static bool memory_read_sector_from_index(cd_image_t* self, void* buffer, const cd_image_index_t* index,
+                                          cd_image_lba_t lba_in_index) {
   cd_image_memory_t* m = (cd_image_memory_t*)self;
   DebugAssert(index->file_index == 0);
   const u64 sector_number = index->file_offset + lba_in_index;
@@ -36,10 +35,12 @@ static bool memory_read_sector_from_index(cd_image_t* self, void* buffer,
   return true;
 }
 
-static bool memory_is_precached(const cd_image_t* self) { (void)self; return true; }
+static bool memory_is_precached(const cd_image_t* self) {
+  (void)self;
+  return true;
+}
 
-static void memory_destroy(cd_image_t* self)
-{
+static void memory_destroy(cd_image_t* self) {
   cd_image_memory_t* m = (cd_image_memory_t*)self;
   free(m->memory);
   m->memory         = NULL;
@@ -47,24 +48,23 @@ static void memory_destroy(cd_image_t* self)
 }
 
 static const cd_image_vtable_t s_memory_vtable = {
-  memory_read_sector_from_index,
-  NULL,
-  NULL,                /* has_subchannel_data */
-  NULL,                /* precache */
-  memory_is_precached,
-  NULL,                /* get_size_on_disk */
-  memory_destroy,
-  NULL,                /* has_sub_images */
-  NULL,                /* get_sub_image_count */
-  NULL,                /* get_current_sub_image */
-  NULL,                /* get_sub_image_title */
-  NULL,                /* switch_sub_image */
+    memory_read_sector_from_index,
+    NULL,
+    NULL, /* has_subchannel_data */
+    NULL, /* precache */
+    memory_is_precached,
+    NULL, /* get_size_on_disk */
+    memory_destroy,
+    NULL, /* has_sub_images */
+    NULL, /* get_sub_image_count */
+    NULL, /* get_current_sub_image */
+    NULL, /* get_sub_image_title */
+    NULL, /* switch_sub_image */
 };
 
-static cd_image_position_t s_zero_pos = { 0, 0, 0 };
+static cd_image_position_t s_zero_pos = {0, 0, 0};
 
-cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* pc, Error* err)
-{
+cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* pc, Error* err) {
   cd_image_memory_t* m = (cd_image_memory_t*)calloc(1, sizeof(*m));
   if (!m) {
     Error_set_string(err, "out of memory");
@@ -76,11 +76,9 @@ cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* p
   u32 total_sectors = 0;
   for (u32 i = 0; i < cd_image_get_index_count(src); i++) {
     const cd_image_index_t* idx = cd_image_get_index(src, i);
-    if (idx->file_sector_size > 0)
-      total_sectors += idx->length;
+    if (idx->file_sector_size > 0) total_sectors += idx->length;
   }
-  if (total_sectors == 0 ||
-      (u64)CD_IMAGE_RAW_SECTOR_SIZE * (u64)total_sectors >= (u64)SIZE_MAX) {
+  if (total_sectors == 0 || (u64)CD_IMAGE_RAW_SECTOR_SIZE * (u64)total_sectors >= (u64)SIZE_MAX) {
     Error_set_string(err, "Insufficient address space");
     free(m);
     return NULL;
@@ -100,7 +98,7 @@ cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* p
   progress_callback_set_progress_range(pc, total_sectors);
   progress_callback_set_progress_value(pc, 0);
 
-  u8* mp = m->memory;
+  u8* mp   = m->memory;
   u32 read = 0;
   for (u32 i = 0; i < cd_image_get_index_count(src); i++) {
     const cd_image_index_t* idx = cd_image_get_index(src, i);
@@ -121,19 +119,19 @@ cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* p
   /* Copy track + index tables into the new image. */
   for (u32 i = 1; i <= cd_image_get_track_count(src); i++) {
     const cd_image_track_t* src_t = cd_image_get_track(src, i);
-    cd_image_track_t* dst_t = cd_image_push_track(&m->base);
-    *dst_t = *src_t;
+    cd_image_track_t*       dst_t = cd_image_push_track(&m->base);
+    *dst_t                        = *src_t;
   }
 
   u32 cur_off = 0;
   for (u32 i = 0; i < cd_image_get_index_count(src); i++) {
     const cd_image_index_t* src_i = cd_image_get_index(src, i);
-    cd_image_index_t* dst_i = cd_image_push_index(&m->base);
-    *dst_i = *src_i;
-    dst_i->file_index = 0;
+    cd_image_index_t*       dst_i = cd_image_push_index(&m->base);
+    *dst_i                        = *src_i;
+    dst_i->file_index             = 0;
     if (dst_i->file_sector_size > 0) {
       dst_i->file_offset = cur_off;
-      cur_off           += dst_i->length;
+      cur_off += dst_i->length;
     }
   }
   Assert(cur_off == m->memory_sectors);
@@ -141,11 +139,13 @@ cd_image_t* cd_image_create_memory_image(cd_image_t* src, progress_callback_t* p
   /* Inherit path + total length. */
   const char* src_path = cd_image_get_path(src);
   if (src_path && *src_path) {
-    size_t n = strlen(src_path);
+    size_t n         = strlen(src_path);
     m->base.filename = (char*)malloc(n + 1);
     if (m->base.filename) memcpy(m->base.filename, src_path, n + 1);
   }
-  m->base.lba_count = cd_image_get_lba_count(src);
+  m->base.lba_count         = cd_image_get_lba_count(src);
+  m->base.toc_disc_type     = src->toc_disc_type;
+  m->base.has_toc_disc_type = src->has_toc_disc_type;
 
   if (!cd_image_seek_track_msf(&m->base, 1, s_zero_pos)) {
     Error_set_string(err, "Initial seek failed");

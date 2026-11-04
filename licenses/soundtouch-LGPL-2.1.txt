@@ -10,3 +10,14 @@ repo is available from the upstream project at the link above. SoundTouch
 upstream is the canonical source.
 
 Full license text: see LGPL-2.1.txt in this folder.
+
+Source-build recipe added for SoundTouch 2.3.3:
+https://codeberg.org/soundtouch/soundtouch
+Pinned commit: e83424d5928ab8513d2d082779c275765dee31b9
+Archive SHA-256: 06c00f37d28e5984944951c20d0845c7931e691c59820922230915d205131a47
+Build instructions: docs/development/dependencies/soundtouch.md
+
+This recipe builds a new C wrapper library from the pinned source. It has
+not been shown to reproduce the existing prebuilt ELF binary. The local
+wrapper header retains its original notices and has C11 compatibility
+changes for declarations on Linux and Windows.

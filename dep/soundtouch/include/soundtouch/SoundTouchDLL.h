@@ -35,14 +35,17 @@
 
 #if defined(_WIN32) || defined(WIN32)
     // Windows
-    #ifndef __cplusplus
-        #error "Expected g++"
+    /* cupid-ps1: expose the DLL interface to both C11 and C++ callers. */
+    #ifdef __cplusplus
+        #define SOUNDTOUCHDLL_EXTERN extern "C"
+    #else
+        #define SOUNDTOUCHDLL_EXTERN extern
     #endif
 
     #ifdef DLL_EXPORTS
-        #define SOUNDTOUCHDLL_API extern "C" __declspec(dllexport)
+        #define SOUNDTOUCHDLL_API SOUNDTOUCHDLL_EXTERN __declspec(dllexport)
     #else
-        #define SOUNDTOUCHDLL_API extern "C" __declspec(dllimport)
+        #define SOUNDTOUCHDLL_API SOUNDTOUCHDLL_EXTERN __declspec(dllimport)
     #endif
 
 #else

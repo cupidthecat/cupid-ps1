@@ -4,14 +4,18 @@ Run the automated suite from the repository root:
 
 ```sh
 make test
+make test TEST_JOBS=2
 bash scripts/run_tests.sh YamlParser
 bash scripts/run_tests.sh GameDatabase CC=clang BUILD=build/clang
 ```
 
-Each C test runs in a child process. A failed assertion or signal fails the
-suite. A filter that selects no tests also fails. The ISO9660 database
-lookup tests generate their own metadata-only discs in temporary
-directories. The suite requires no commercial disc or BIOS file.
+Each C test runs in a child process. `TEST_JOBS` sets how many cases can
+run concurrently; the default is one. Parallel workers use separate working
+directories and share the input resources under `data/`. Reports arrive as
+cases finish, with each case's output kept together. A failed assertion or
+signal fails the suite, and a filter that selects no tests also fails.
+The ISO9660 database lookup tests generate their own metadata-only discs in
+temporary directories. The suite requires no commercial disc or BIOS file.
 
 The suite covers utility code, image parsing, database loading and caching,
 software rasterizer operations, scalar/SIMD comparisons, and x86 emitter
@@ -19,11 +23,178 @@ checks. It does not establish complete CPU, GPU, audio, timing or gameplay
 accuracy. Database compatibility ratings describe the bundled data and
 are not test results for this emulator.
 
-Hosted CI builds the emulator, standalone headers and OpenGL smoke binary,
+The `BiosPageBoundary` filter checks load delays, taken/untaken branches and
+delay-slot faults across cached and uncached ROM translation pages in all CPU
+configurations. See [CPU translation pages](../cpu/translation-pages.md).
+
+Hosted CI builds the emulator, standalone headers and OpenGL check binaries,
 then runs the suite using GCC, Clang, and Clang with address and undefined
-behavior sanitizers. It checks test selection failures and the filtered
-runner. It does not boot private inputs, run an OpenGL context, or upload
-runtime files.
+behavior sanitizers. Each toolchain uses four C-test workers. CI treats project
+compiler warnings as errors and checks empty selections, the filtered runner,
+concurrent execution, cache isolation,
+output capture and failure reporting. Separate runtime jobs use the executable
+produced by each compiler job, checking its revision and hashes before running
+the complete Python suite. Separate graphics jobs run the context smoke and hardware
+renderer checks under Xvfb with software Mesa, including a forced OpenGL 3.3
+context. The renderer matrix runs native and true-color selections with buffer
+and integer-texture uploads. Every job keeps the 20-minute limit. The short lived artifact
+contains the emulator and GL check executables, revision/hash receipts and
+license notices; the runtime library comes from the matching checkout. CI uses
+generated inputs. BIOS, discs, saved checkpoints and runtime logs are not uploaded.
+
+Build the separate renderer check with `make gpu-gl-tests`. It reads the actual
+OpenGL texture and fails if an X11 context cannot be created. See
+[mask history and restored VRAM](../gpu/mask-history.md) for coverage and commands,
+and [palette cache](../gpu/palette-cache.md) and
+[decoded texture pages](../gpu/texture-pages.md) for the cache matrices.
+See [rendered texture coordinates](../gpu/texture-coordinates.md) for rectangle,
+flat-quad, flip, texture-window and clipping checks.
+See [native color](../gpu/native-color.md) for integer blending, dithering,
+mask and primitive-ordering checks and their qualification limits.
+
+The `CacheBiu` C-test filter checks isolated cache metadata, code access widths,
+partial refills and state restoration. Its guest program changes BIU modes
+under ordinary, cached and native execution, including mmap and unlinked native
+configurations. These generated cases complement the locally run published
+cache program. See [CPU execution](../cpu/execution.md#instruction-cache-tag-accesses-and-refills)
+for the behavior covered and the remaining limits.
+
+The `ReservedInstruction` filter checks reserved encodings, stale cached words,
+branch exception context and saved prefetch restoration. The Python suite also
+boots generated firmware that rewrites RAM beneath a cached reserved word and
+checks the saved exception results in interpreter, cached and native configurations.
+The generated inputs require no commercial BIOS or disc.
+
+The `FastmemMapping` filter checks RAM aliases, code-page protection and remapping
+through Linux mapping permissions. It also checks configured 8 MB offsets and
+unmapped holes. See [memory mapping](../memory/mapping.md) for the access paths
+and qualification limits.
+
+The `DeviceBus` filter checks transfer strobes, BIOS fetches, SPU registers and
+CD-ROM response and parameter FIFOs. Its guest programs change device controls
+under every CPU execution mode and continue after component-state restoration.
+See [device bus accesses](../memory/device-bus.md) for the implemented behavior
+and the configurations and timing that remain unqualified.
+
+The `ExpansionTiming` filter checks EXP2 read delays, control changes,
+address aliases, bus widths, reset and reconstruction of derived delays
+from saved controls. Its generated guest programs cover every CPU mode,
+native memory path and linking setting, with component restoration.
+See [expansion read delays](../memory/device-bus.md#expansion-read-delays)
+for the timing model and the hardware observations that still differ.
+
+The `DmaOtc` filter checks ordering-table control bits, transfer gating, counts,
+RAM mirrors, IRQs and restored requests. Its generated guest covers all CPU
+execution modes and native memory paths, including reset before restoration.
+See [ordering-table DMA](../dma/ordering-tables.md) for the model and its limits.
+The `DmaBusError` filter and generated DMA guest check physical-window prefixes,
+device side effects, IRQ flags and exact restoration of faulted transfers.
+See [DMA bus errors](../dma/bus-errors.md) for coverage and remaining limits.
+`DmaChopping` and the generated chopping guest check burst progress, separate
+channel pauses and exact continuation across saved frame boundaries. See
+[chopped DMA](../dma/chopping.md) for the model and its timing limits.
+`DmaPriority` and the generated priority guest check both GPU/OTC priority
+matrices, completion IRQs and exact restoration of armed channels. Component
+cases also check shared-halt and coincident GPU/SPU chopped resumes. See
+[DMA priority](../dma/priority.md) for dispatch boundaries and remaining limits.
+`DmaForced` and the generated force-start guest check manual trigger/pause
+behavior, start-cause persistence and reset-before-restore with no DREQ. See
+[forced manual transfers](../dma/forced-transfers.md) for state compatibility
+and the remaining modes and timing limits.
+
+The `SpuTransferBudget` filter checks tick consumption, read/write data,
+split/batched state equality, fractional save/load continuation, legacy and
+invalid state records, IRQ addresses and DMA refill. See
+[SPU transfer accounting](../spu/transfer-budget.md) for the scheduling model
+and its remaining hardware timing limits.
+
+`SpuTransferEvents` checks guest DMA-register polling without SPU status
+reads, plus complete component-state restoration during the transfer.
+`SpuTransferTimeline` checks sample/RAM ordering, address changes, reset,
+legacy deadlines and IRQ delivery without status polling.
+
+The `CpuPartial` filter checks shifted stores to internal word latches and
+16-bit SPU registers. It checks neighboring registers, address stepping,
+component-state continuation and the absence of extra device reads. Timer
+cases cover all three counters, target values and read-to-clear flags, with
+component-state restoration. See
+[partial stores](../memory/partial-stores.md) for the remaining access paths.
+
+The `TimerCounter` filter checks 16-bit wrapping, target readback, reset holds,
+interrupt requests, clock selection, GPU gates and state restoration. It also
+compares complete counter and interrupt records after batched and individual
+ticks. See [root counters](../timers/root-counters.md) for the modeled behavior
+and the published timer-program result that still fails.
+
+The `GpuTimer` filter drives the GPU and counter event queue together. It
+checks IRQ deadlines, one-shot completion, Hblank gates and state continuation
+across display modes and counter clocks. The cases use generated state and
+need no private BIOS or disc.
+
+The `GpuReset` filter checks GPU reset, display origins, interrupt
+acknowledgement and FIFO clearing. It verifies display-update parameters and
+interrupt retriggering through device calls and generated guest programs, with
+component-state restoration and every CPU execution mode.
+See [GPU reset and interrupts](../gpu/reset-and-irqs.md) for the covered sequence
+and the reset behavior that remains unqualified.
+
+The `GpuInformation` filter checks the four-bit information index, GP1 command
+mirrors and read-latch ownership. A generated guest checks the same 512 query
+combinations across all CPU modes, including a reset before state restoration.
+See [GPU information queries](../gpu/information-queries.md) for exact readback
+coverage and the remaining hardware qualification limits.
+
+The `MdecInput` filter checks complete input words, capacity boundaries and
+queued data through both DMA and manual register writes. Guest programs
+configure DMA channel 0 or write the command port across CPU modes and memory
+paths. See [MDEC input words](../mdec/input-words.md) for the generated cases
+and the timing, capacity and decoder behavior that remain unqualified.
+
+The `MdecSigned` filter checks signed coefficient scaling, boundary values
+and component-state restoration through generated command streams. See
+[MDEC coefficient arithmetic](../mdec/coefficient-arithmetic.md) for the
+C11 arithmetic checks and their limits.
+
+The `MdecColorPacking` filter checks every output byte in generated 15- and
+24-bit color blocks, including signed components, manual and DMA interfaces,
+and restored copy-out deadlines. See [MDEC color packing](../mdec/color-packing.md).
+
+Colored output checks distinguish CPU tile order from DMA raster placement,
+including partial-transfer restoration and generated native Windows boots.
+See [MDEC output order](../mdec/output-order.md).
+
+The `SpuDmaRead` filter checks every output halfword, FIFO bounds and DMA
+completion for exact and oversized reads, including restored components.
+Generated guest programs configure channel 4 across CPU execution modes and
+memory paths. See [SPU DMA reads](../spu/dma-reads.md) for coverage and limits.
+
+The `TimingEventEmpty` filter checks empty scheduler states, interrupt
+priority and callbacks that remove the last event. It includes current and
+legacy restoration and generated RAM programs. See
+[empty event lists](../scheduler/empty-events.md) for lifecycle behavior and limits.
+
+The `NativeLut` filter executes byte, halfword and word accesses through all RAM
+aliases, unaligned merges and coprocessor transfers. It checks direct-access
+counts, recovery through bus handlers, code writes, isolation changes and
+configured 8 MB backing. The `_lut` filter also selects LUT variants of the
+exception, permission, branch, cache-control and retained-fetch regressions.
+Generated firmware compares linked and unlinked LUT runs across save/restore.
+These checks cover the generated programs; they do not establish complete CPU
+accuracy or qualify physical 8 MB hardware.
+
+The `CdStateRecord`, `CdLegacyRecord`, `CdXaContinuation` and
+`CdCommandContinuation` filters check bounded CD records, rejected-load
+preservation, historical layouts, queued XA continuation and event activity
+during overlapping commands and sector interrupts. See
+[CD saved-state records](../cdrom/state-records.md) for the generated-sector
+coverage and its limits.
+
+`StateLoadRecovery` and `StateRecoveryActive` check whole-machine recovery
+after rejected loads, including media ownership, pending CPU loads and active
+device continuation. The generated `test_state_recovery_live.py` guest checks
+the frontend path on Linux and native Windows. See
+[failed-load recovery](../state/load-recovery.md) for the compared records and
+external-state limits.
 
 For a bounded save/load smoke check with authorized local inputs, run:
 

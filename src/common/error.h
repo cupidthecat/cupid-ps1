@@ -1,6 +1,7 @@
 /*
  * Error values for errno, socket and application messages. Formatted messages
- * use printf-style arguments. Native Windows error conversion is not implemented.
+ * use printf-style arguments. Windows backends attach numeric system codes
+ * to application messages through their platform helper.
  *
  * All Error_* setters accept NULL and discard the message.
  *
@@ -23,11 +24,11 @@ typedef enum {
 
 typedef struct Error {
   ErrorType type;
-  char*     desc;   /* heap, NUL-terminated; NULL when type == NONE */
-  size_t    len;    /* byte length excluding NUL */
+  char*     desc; /* heap, NUL-terminated; NULL when type == NONE */
+  size_t    len;  /* byte length excluding NUL */
 } Error;
 
-#define ERROR_INIT ((Error){ ERROR_TYPE_NONE, NULL, 0 })
+#define ERROR_INIT ((Error){ERROR_TYPE_NONE, NULL, 0})
 
 void Error_init(Error* e);
 void Error_destroy(Error* e);

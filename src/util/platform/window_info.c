@@ -3,11 +3,10 @@
 #include <math.h>
 
 #ifndef M_PI
-#  define M_PI 3.14159265358979323846
+#define M_PI 3.14159265358979323846
 #endif
 
-void window_info_init(window_info_t* wi)
-{
+void window_info_init(window_info_t* wi) {
   wi->type                 = WINDOW_INFO_TYPE_SURFACELESS;
   wi->surface_format       = GPU_TEXTURE_FORMAT_UNKNOWN;
   wi->surface_prerotation  = WINDOW_INFO_PREROTATION_IDENTITY;
@@ -19,13 +18,12 @@ void window_info_init(window_info_t* wi)
   wi->window_handle        = NULL;
 }
 
-float window_info_z_rotation_for_prerotation(window_info_prerotation_t p)
-{
+float window_info_z_rotation_for_prerotation(window_info_prerotation_t p) {
   static const float radians[4] = {
-    0.0f,                  /* Identity */
-    (float)(M_PI * 1.5),   /* Rotate90Clockwise */
-    (float)(M_PI),         /* Rotate180Clockwise */
-    (float)(M_PI / 2.0),   /* Rotate270Clockwise */
+      0.0f,                /* Identity */
+      (float)(M_PI * 1.5), /* Rotate90Clockwise */
+      (float)(M_PI),       /* Rotate180Clockwise */
+      (float)(M_PI / 2.0), /* Rotate270Clockwise */
   };
   if ((unsigned)p > 3) return 0.0f;
   return radians[p];

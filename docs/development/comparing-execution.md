@@ -35,15 +35,36 @@ python3 scripts/compare_execution.py --kind state --right recomp \
   --interval 60 --checkpoints 5 --revision COMMIT_SHA /path/to/game.cue
 ```
 
-This saves independent files at frames 60, 120, 180, 240 and 300. Neither run
-loads a state or replays instructions on live devices. The tool compares every
+This saves independent files at frames 60, 120, 180, 240 and 300. By default,
+both runs continue without loading a state. The tool compares every
 byte of each uncompressed save-state file, plus the frame and global tick
 observations. It checks headers, sizes, checkpoint order and completion.
 A differing byte fails the comparison and records its first file offset.
 It does not omit timing fields, pipeline/cache contents or the execution-mode
 flag to make different runs match.
 
-The file comparison accepts save-state versions 84 and 85 and compares the
+Frame checkpoints are serviced at the next CPU event-service boundary after
+the frame completes. The current instruction and callbacks finish first,
+including when an MMIO timer write synchronizes the GPU. Pending CPU ticks
+are committed before saving. The runner still compares every serialized
+byte and the observed frame/tick pair; it does not normalize event overshoot.
+
+To check save-state continuation within one execution mode:
+
+```sh
+python3 scripts/compare_execution.py --kind state --left recomp --right recomp \
+  --restore-at 2 --interval 60 --checkpoints 5 --bios /path/to/bios.bin \
+  --hash-input /path/to/game.bin --revision COMMIT_SHA /path/to/game.cue
+```
+
+The right process reloads its second checkpoint at frame 120. The left process
+continues uninterrupted. The runner requires one successful reload at the
+expected frame and tick, followed by all remaining checkpoints. It compares
+every saved byte, including the later continuation files. `--restore-at` must
+precede the final checkpoint and both modes must match. A successful load or
+continued frame count alone does not establish equivalent continuation.
+
+The file comparison accepts save-state versions 84 through 93 and compares the
 complete files, including
 CPU, GTE, RAM, VRAM, device state, controller/card data and event records.
 It excludes host mappings and dispatch flags, generated code, CPU PGXP shadow
@@ -54,10 +75,13 @@ progress beyond an event boundary; inspect it before attributing it to a
 hardware defect. Matching frame/global ticks alone is insufficient.
 
 `--fastmem off|lut|mmap` and `--no-linking` select the native configuration.
-Every result checks the reported execution configuration. The current x86-64
-backend reports slow-path execution for a LUT request, so a LUT qualification
-fails until [native LUT accesses](https://github.com/cupidthecat/cupid-ps1/issues/15)
-are implemented. Cached mode requires
+Every result checks the reported execution configuration and requires
+instruction-cache emulation to be enabled. A reported `icache=off` fails
+qualification. The native cache model is enabled by default. LUT qualification
+also requires a positive successful-access count from emitted native memory
+sites. A LUT configuration report alone cannot qualify a run. Fault recovery
+through bus helpers does not increment these counters. Missing or repeated
+counter reports fail validation. Cached mode requires
 positive block creation, reuse and execution counts. Native mode requires
 positive native entry and completion counts. `--minimum-blocks` sets the
 required block count (default 100). These are path/progress observations,
@@ -91,7 +115,8 @@ side effects live, and its linked/fastmem snapshots were not reliably paired.
 The independent runner removes that restoration/pairing requirement.
 
 CI exercises generated firmware loops and loader inputs, ordinary/cached
-comparisons, native repeatability with linking and mmap fastmem, rejection of
+comparisons, uninterrupted/restored continuation in all three modes, native
+repeatability with linking and mmap fastmem, rejection of
 an unimplemented LUT request, and native-versus-interpreter checkpoint
 mismatches. These checks cover those
 programs and configurations. They do not establish native/interpreter equality

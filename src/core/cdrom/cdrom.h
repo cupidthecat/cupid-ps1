@@ -18,8 +18,8 @@
 #include "core/shared/types.h"
 #include "util/disc/cd_image.h"
 
-typedef struct Error            Error;
-typedef struct state_wrapper    state_wrapper_t;
+typedef struct Error         Error;
+typedef struct state_wrapper state_wrapper_t;
 
 void cdrom_initialize(void);
 void cdrom_shutdown(void);
@@ -39,10 +39,8 @@ bool              cdrom_does_media_region_match_console(void);
  * success; on failure the caller still owns it.  serial / title / save_title
  * can be empty (NULL or len==0); they're used only to look up sidecar SBI/LSD
  * subchannel files. */
-bool cdrom_insert_media(cd_image_t* media, disc_region_t region,
-                        const char* serial, size_t serial_len,
-                        const char* title, size_t title_len,
-                        const char* save_title, size_t save_title_len,
+bool cdrom_insert_media(cd_image_t* media, disc_region_t region, const char* serial, size_t serial_len,
+                        const char* title, size_t title_len, const char* save_title, size_t save_title_len,
                         Error* error);
 
 /* Removes the disc.  If for_disc_swap is true an extended spin-down delay is

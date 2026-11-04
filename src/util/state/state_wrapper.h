@@ -44,34 +44,42 @@ typedef struct state_wrapper {
 } state_wrapper_t;
 
 /* READ-mode: the data span is borrowed read-only for the wrapper's lifetime. */
-void state_wrapper_init_read (state_wrapper_t* sw, const u8* data, size_t len, u32 version);
+void state_wrapper_init_read(state_wrapper_t* sw, const u8* data, size_t len, u32 version);
 /* WRITE-mode: caller owns the writable span; bytes are pushed into it. */
-void state_wrapper_init_write(state_wrapper_t* sw,       u8* data, size_t len, u32 version);
+void state_wrapper_init_write(state_wrapper_t* sw, u8* data, size_t len, u32 version);
 
-ALWAYS_INLINE bool state_wrapper_has_error  (const state_wrapper_t* sw) { return sw->error; }
-ALWAYS_INLINE bool state_wrapper_is_reading (const state_wrapper_t* sw) { return sw->mode == STATE_WRAPPER_READ; }
-ALWAYS_INLINE bool state_wrapper_is_writing (const state_wrapper_t* sw) { return sw->mode == STATE_WRAPPER_WRITE; }
-ALWAYS_INLINE u32  state_wrapper_get_version(const state_wrapper_t* sw) { return sw->version; }
+ALWAYS_INLINE bool state_wrapper_has_error(const state_wrapper_t* sw) {
+  return sw->error;
+}
+ALWAYS_INLINE bool state_wrapper_is_reading(const state_wrapper_t* sw) {
+  return sw->mode == STATE_WRAPPER_READ;
+}
+ALWAYS_INLINE bool state_wrapper_is_writing(const state_wrapper_t* sw) {
+  return sw->mode == STATE_WRAPPER_WRITE;
+}
+ALWAYS_INLINE u32 state_wrapper_get_version(const state_wrapper_t* sw) {
+  return sw->version;
+}
 
 size_t state_wrapper_get_position(const state_wrapper_t* sw);
 void   state_wrapper_set_position(state_wrapper_t* sw, size_t pos);
-size_t state_wrapper_get_size    (const state_wrapper_t* sw);
+size_t state_wrapper_get_size(const state_wrapper_t* sw);
 
 /* Skip `count` bytes during READ.  Asserts in WRITE mode. */
 void state_wrapper_skip_bytes(state_wrapper_t* sw, size_t count);
 
-void state_wrapper_do_u8    (state_wrapper_t* sw, u8*     v);
-void state_wrapper_do_u16   (state_wrapper_t* sw, u16*    v);
-void state_wrapper_do_u32   (state_wrapper_t* sw, u32*    v);
-void state_wrapper_do_u64   (state_wrapper_t* sw, u64*    v);
-void state_wrapper_do_s8    (state_wrapper_t* sw, s8*     v);
-void state_wrapper_do_s16   (state_wrapper_t* sw, s16*    v);
-void state_wrapper_do_s32   (state_wrapper_t* sw, s32*    v);
-void state_wrapper_do_s64   (state_wrapper_t* sw, s64*    v);
-void state_wrapper_do_float (state_wrapper_t* sw, float*  v);
+void state_wrapper_do_u8(state_wrapper_t* sw, u8* v);
+void state_wrapper_do_u16(state_wrapper_t* sw, u16* v);
+void state_wrapper_do_u32(state_wrapper_t* sw, u32* v);
+void state_wrapper_do_u64(state_wrapper_t* sw, u64* v);
+void state_wrapper_do_s8(state_wrapper_t* sw, s8* v);
+void state_wrapper_do_s16(state_wrapper_t* sw, s16* v);
+void state_wrapper_do_s32(state_wrapper_t* sw, s32* v);
+void state_wrapper_do_s64(state_wrapper_t* sw, s64* v);
+void state_wrapper_do_float(state_wrapper_t* sw, float* v);
 void state_wrapper_do_double(state_wrapper_t* sw, double* v);
 
-void state_wrapper_do_bool  (state_wrapper_t* sw, bool*   v);
+void state_wrapper_do_bool(state_wrapper_t* sw, bool* v);
 
 /* Bytewise array.  Stand-in for templated DoArray<T>(T*, size_t); no
  * per-element endian handling, the bytes round-trip as written.  Caller
@@ -84,7 +92,7 @@ void state_wrapper_do_bytes(state_wrapper_t* sw, void* data, size_t length);
 /* Length-prefixed string into/out of a small_string_t.  Length is u32. */
 void state_wrapper_do_string(state_wrapper_t* sw, small_string_t* str);
 
- /* DoMarker port: writes / reads a length-prefixed marker string and verifies
+/* DoMarker port: writes / reads a length-prefixed marker string and verifies
  * it matches `marker` on READ.  Returns false on mismatch or sticky error. */
 bool state_wrapper_do_marker(state_wrapper_t* sw, const char* marker);
 

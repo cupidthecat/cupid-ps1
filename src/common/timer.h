@@ -1,6 +1,6 @@
 /*
- * On Linux all values are direct nanoseconds (frequency = 1.0), so most
- * conversions are casts.
+ * Host monotonic timestamps in nanoseconds (frequency = 1.0). Linux reads
+ * CLOCK_MONOTONIC; Windows converts its performance counter to these units.
  */
 
 #ifndef CUPID_COMMON_TIMER_H
@@ -12,17 +12,17 @@ typedef u64 timer_value_t;
 
 typedef struct {
   timer_value_t start;
-} timer_t_;          /* underscore: <time.h> already typedefs `timer_t` */
+} timer_t_; /* underscore: <time.h> already typedefs `timer_t` */
 
 double        timer_get_frequency(void);
 timer_value_t timer_get_current_value(void);
 
-double        timer_value_to_seconds     (timer_value_t v);
+double        timer_value_to_seconds(timer_value_t v);
 double        timer_value_to_milliseconds(timer_value_t v);
-double        timer_value_to_nanoseconds (timer_value_t v);
-timer_value_t timer_seconds_to_value     (double s);
+double        timer_value_to_nanoseconds(timer_value_t v);
+timer_value_t timer_seconds_to_value(double s);
 timer_value_t timer_milliseconds_to_value(double ms);
-timer_value_t timer_nanoseconds_to_value (double ns);
+timer_value_t timer_nanoseconds_to_value(double ns);
 
 void timer_busy_wait(u64 ns);
 void timer_hybrid_sleep(u64 ns, u64 min_sleep_time_ns);

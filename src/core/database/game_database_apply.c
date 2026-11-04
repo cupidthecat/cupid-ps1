@@ -16,73 +16,59 @@
 
 LOG_CHANNEL(GameDatabase);
 
-static inline bool gda_is_using_true_color(const settings_t* s)
-{
+static inline bool gda_is_using_true_color(const settings_t* s) {
   return s->gpu_dithering_mode == GPU_DITHERING_MODE_TRUE_COLOR ||
          s->gpu_dithering_mode == GPU_DITHERING_MODE_TRUE_COLOR_FULL;
 }
-static inline bool gda_is_using_dithering(const settings_t* s)
-{
+static inline bool gda_is_using_dithering(const settings_t* s) {
   /* Any non-disabled, non-true-color mode counts as dithering for the */
-     /* purposes of the trait switch (matches Settings::IsUsingDithering on the */
+  /* purposes of the trait switch (matches Settings::IsUsingDithering on the */
   return s->gpu_dithering_mode != GPU_DITHERING_MODE_TRUE_COLOR &&
          s->gpu_dithering_mode != GPU_DITHERING_MODE_TRUE_COLOR_FULL;
 }
-static inline bool gda_is_using_shader_blending(const settings_t* s)
-{
+static inline bool gda_is_using_shader_blending(const settings_t* s) {
   return s->gpu_dithering_mode == GPU_DITHERING_MODE_SCALED_SHADER_BLEND ||
          s->gpu_dithering_mode == GPU_DITHERING_MODE_UNSCALED_SHADER_BLEND;
 }
-static inline bool gda_using_pgxp_cpu_mode(const settings_t* s)
-{
+static inline bool gda_using_pgxp_cpu_mode(const settings_t* s) {
   return s->gpu_pgxp_enable && s->gpu_pgxp_cpu;
 }
 
-static inline u16 gda_bit_for(controller_type_t t)
-{
+static inline u16 gda_bit_for(controller_type_t t) {
   return (u16)(1u << (u32)t);
 }
 
-void game_database_entry_apply_settings(const game_database_entry_t* e,
-                                        settings_t* settings,
-                                        bool display_osd_messages)
-{
+void game_database_entry_apply_settings(const game_database_entry_t* e, settings_t* settings,
+                                        bool display_osd_messages) {
 
   if (e->has_display_active_start_offset) {
     settings->display_active_start_offset = e->display_active_start_offset;
     if (display_osd_messages)
-      INFO_LOG("GameDB: Display active start offset set to %d.",
-               (int)settings->display_active_start_offset);
+      INFO_LOG("GameDB: Display active start offset set to %d.", (int)settings->display_active_start_offset);
   }
   if (e->has_display_active_end_offset) {
     settings->display_active_end_offset = e->display_active_end_offset;
     if (display_osd_messages)
-      INFO_LOG("GameDB: Display active end offset set to %d.",
-               (int)settings->display_active_end_offset);
+      INFO_LOG("GameDB: Display active end offset set to %d.", (int)settings->display_active_end_offset);
   }
   if (e->has_display_line_start_offset) {
     settings->display_line_start_offset = e->display_line_start_offset;
     if (display_osd_messages)
-      INFO_LOG("GameDB: Display line start offset set to %d.",
-               (int)settings->display_line_start_offset);
+      INFO_LOG("GameDB: Display line start offset set to %d.", (int)settings->display_line_start_offset);
   }
   if (e->has_display_line_end_offset) {
     settings->display_line_end_offset = e->display_line_end_offset;
     if (display_osd_messages)
-      INFO_LOG("GameDB: Display line end offset set to %d.",
-               (int)settings->display_line_end_offset);
+      INFO_LOG("GameDB: Display line end offset set to %d.", (int)settings->display_line_end_offset);
   }
   if (e->has_dma_max_slice_ticks) {
     settings->dma_max_slice_ticks = (tick_count_t)e->dma_max_slice_ticks;
     if (display_osd_messages)
-      INFO_LOG("GameDB: DMA max slice ticks set to %u.",
-               (unsigned)settings->dma_max_slice_ticks);
+      INFO_LOG("GameDB: DMA max slice ticks set to %u.", (unsigned)settings->dma_max_slice_ticks);
   }
   if (e->has_dma_halt_ticks) {
     settings->dma_halt_ticks = (tick_count_t)e->dma_halt_ticks;
-    if (display_osd_messages)
-      INFO_LOG("GameDB: DMA halt ticks set to %u.",
-               (unsigned)settings->dma_halt_ticks);
+    if (display_osd_messages) INFO_LOG("GameDB: DMA halt ticks set to %u.", (unsigned)settings->dma_halt_ticks);
   }
   if (e->has_cdrom_max_seek_speedup_cycles && g_settings.cdrom_seek_speedup == 0) {
     settings->cdrom_max_seek_speedup_cycles = e->cdrom_max_seek_speedup_cycles;
@@ -98,21 +84,15 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
   }
   if (e->has_gpu_fifo_size) {
     settings->gpu_fifo_size = e->gpu_fifo_size;
-    if (display_osd_messages)
-      INFO_LOG("GameDB: GPU FIFO size set to %u.",
-               (unsigned)settings->gpu_fifo_size);
+    if (display_osd_messages) INFO_LOG("GameDB: GPU FIFO size set to %u.", (unsigned)settings->gpu_fifo_size);
   }
   if (e->has_gpu_max_run_ahead) {
     settings->gpu_max_run_ahead = (tick_count_t)e->gpu_max_run_ahead;
-    if (display_osd_messages)
-      INFO_LOG("GameDB: GPU max runahead set to %u.",
-               (unsigned)settings->gpu_max_run_ahead);
+    if (display_osd_messages) INFO_LOG("GameDB: GPU max runahead set to %u.", (unsigned)settings->gpu_max_run_ahead);
   }
   if (e->has_gpu_pgxp_tolerance) {
     settings->gpu_pgxp_tolerance = e->gpu_pgxp_tolerance;
-    if (display_osd_messages)
-      INFO_LOG("GameDB: PGXP tolerance set to %f.",
-               (double)settings->gpu_pgxp_tolerance);
+    if (display_osd_messages) INFO_LOG("GameDB: PGXP tolerance set to %f.", (double)settings->gpu_pgxp_tolerance);
   }
   if (e->has_gpu_pgxp_depth_threshold) {
     settings_set_pgxp_depth_clear_threshold(settings, e->gpu_pgxp_depth_threshold);
@@ -127,13 +107,11 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
                settings_get_line_detect_mode_name(settings->gpu_line_detect_mode));
     }
   }
-  if (e->has_cpu_overclock &&
-      (!settings->cpu_overclock_enable || settings->disable_all_enhancements)) {
+  if (e->has_cpu_overclock && (!settings->cpu_overclock_enable || settings->disable_all_enhancements)) {
     settings_set_cpu_overclock_percent(settings, e->cpu_overclock);
     settings->cpu_overclock_enable = true;
     settings->cpu_overclock_active = true;
-    if (display_osd_messages)
-      INFO_LOG("GameDB: CPU overclock set to %u.", (unsigned)e->cpu_overclock);
+    if (display_osd_messages) INFO_LOG("GameDB: CPU overclock set to %u.", (unsigned)e->cpu_overclock);
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_INTERPRETER)) {
@@ -143,8 +121,7 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_FULL_BOOT)) {
-    if (display_osd_messages && settings->bios_patch_fast_boot)
-      INFO_LOG("GameDB OSD: Fast boot disabled.");
+    if (display_osd_messages && settings->bios_patch_fast_boot) INFO_LOG("GameDB OSD: Fast boot disabled.");
     settings->bios_patch_fast_boot = false;
   }
 
@@ -156,20 +133,17 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_FAST_FORWARD_MEMORY_CARD_ACCESS) &&
       g_settings.memory_card_fast_forward_access) {
-    if (display_osd_messages)
-      INFO_LOG("GameDB OSD: Fast forward memory card access disabled.");
+    if (display_osd_messages) INFO_LOG("GameDB OSD: Fast forward memory card access disabled.");
     settings->memory_card_fast_forward_access = false;
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_CDROM_READ_SPEEDUP)) {
-    if (settings->cdrom_read_speedup != 1)
-      INFO_LOG("GameDB OSD: CD-ROM read speedup disabled.");
+    if (settings->cdrom_read_speedup != 1) INFO_LOG("GameDB OSD: CD-ROM read speedup disabled.");
     settings->cdrom_read_speedup = 1;
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_CDROM_SEEK_SPEEDUP)) {
-    if (settings->cdrom_seek_speedup != 1)
-      INFO_LOG("GameDB OSD: CD-ROM seek speedup disabled.");
+    if (settings->cdrom_seek_speedup != 1) INFO_LOG("GameDB OSD: CD-ROM seek speedup disabled.");
     settings->cdrom_seek_speedup = 1;
   }
 
@@ -192,8 +166,7 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
              settings->display_crop_mode <= DISPLAY_CROP_MODE_BORDERS_UNCORRECTED) {
     const display_crop_mode_t new_mode = DISPLAY_CROP_MODE_OVERSCAN;
     if (display_osd_messages) {
-      INFO_LOG("GameDB OSD: Display cropping set to %s.",
-               settings_get_display_crop_mode_display_name(new_mode));
+      INFO_LOG("GameDB OSD: Display cropping set to %s.", settings_get_display_crop_mode_display_name(new_mode));
     }
     settings->display_crop_mode = new_mode;
   }
@@ -228,15 +201,13 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
       new_mode = SETTINGS_DEFAULT_DISPLAY_DEINTERLACING_MODE;
     }
     if (display_osd_messages && settings->display_deinterlacing_mode != new_mode) {
-      INFO_LOG("GameDB OSD: Deinterlacing set to %s.",
-               settings_get_display_deinterlacing_mode_display_name(new_mode));
+      INFO_LOG("GameDB OSD: Deinterlacing set to %s.", settings_get_display_deinterlacing_mode_display_name(new_mode));
     }
     settings->display_deinterlacing_mode = new_mode;
   } else if (e->has_display_deinterlacing_mode) {
     /* Preserve "Progressive" if the user picked it. */
     if (settings->display_deinterlacing_mode != DISPLAY_DEINTERLACING_MODE_PROGRESSIVE) {
-      if (display_osd_messages &&
-          settings->display_deinterlacing_mode != e->display_deinterlacing_mode) {
+      if (display_osd_messages && settings->display_deinterlacing_mode != e->display_deinterlacing_mode) {
         INFO_LOG("GameDB OSD: Deinterlacing set to %s.",
                  settings_get_display_deinterlacing_mode_display_name(e->display_deinterlacing_mode));
       }
@@ -252,21 +223,19 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
       game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_FULL_TRUE_COLOR)) {
     const gpu_dithering_mode_t old_mode = settings->gpu_dithering_mode;
 
-    if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_TRUE_COLOR) &&
-        gda_is_using_true_color(settings)) {
+    if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_TRUE_COLOR) && gda_is_using_true_color(settings)) {
       settings->gpu_dithering_mode = GPU_DITHERING_MODE_SCALED;
     }
     if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_SCALED_DITHERING) &&
         gda_is_using_dithering(settings)) {
-       settings->gpu_dithering_mode = gda_is_using_shader_blending(settings)
-                                       ? GPU_DITHERING_MODE_UNSCALED_SHADER_BLEND 
-                                       : GPU_DITHERING_MODE_UNSCALED;
+      settings->gpu_dithering_mode = gda_is_using_shader_blending(settings) ? GPU_DITHERING_MODE_UNSCALED_SHADER_BLEND
+                                                                            : GPU_DITHERING_MODE_UNSCALED;
     }
     if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_SHADER_BLENDING) &&
         gda_is_using_dithering(settings) && !gda_is_using_shader_blending(settings)) {
-       settings->gpu_dithering_mode = (settings->gpu_dithering_mode == GPU_DITHERING_MODE_SCALED)
-                                       ? GPU_DITHERING_MODE_SCALED_SHADER_BLEND 
-                                       : GPU_DITHERING_MODE_UNSCALED_SHADER_BLEND;
+      settings->gpu_dithering_mode = (settings->gpu_dithering_mode == GPU_DITHERING_MODE_SCALED)
+                                         ? GPU_DITHERING_MODE_SCALED_SHADER_BLEND
+                                         : GPU_DITHERING_MODE_UNSCALED_SHADER_BLEND;
     }
     if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_FORCE_FULL_TRUE_COLOR) &&
         settings->gpu_dithering_mode == GPU_DITHERING_MODE_TRUE_COLOR) {
@@ -285,29 +254,25 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_UPSCALING)) {
     if (display_osd_messages) {
-      if (settings->gpu_resolution_scale != 1)
-        INFO_LOG("GameDB OSD: Upscaling disabled.");
-      if (settings->gpu_multisamples != 1)
-        INFO_LOG("GameDB OSD: MSAA disabled.");
+      if (settings->gpu_resolution_scale != 1) INFO_LOG("GameDB OSD: Upscaling disabled.");
+      if (settings->gpu_multisamples != 1) INFO_LOG("GameDB OSD: MSAA disabled.");
     }
-    settings->gpu_resolution_scale = 1;
+    settings->gpu_resolution_scale           = 1;
     settings->gpu_automatic_resolution_scale = false;
-    settings->gpu_multisamples = 1;
+    settings->gpu_multisamples               = 1;
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_TEXTURE_FILTERING)) {
-    if (display_osd_messages &&
-        (settings->gpu_texture_filter != GPU_TEXTURE_FILTER_NEAREST ||
-         g_settings.gpu_sprite_texture_filter != GPU_TEXTURE_FILTER_NEAREST)) {
+    if (display_osd_messages && (settings->gpu_texture_filter != GPU_TEXTURE_FILTER_NEAREST ||
+                                 g_settings.gpu_sprite_texture_filter != GPU_TEXTURE_FILTER_NEAREST)) {
       INFO_LOG("GameDB OSD: Texture filtering disabled.");
     }
-    settings->gpu_texture_filter = GPU_TEXTURE_FILTER_NEAREST;
+    settings->gpu_texture_filter        = GPU_TEXTURE_FILTER_NEAREST;
     settings->gpu_sprite_texture_filter = GPU_TEXTURE_FILTER_NEAREST;
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_SPRITE_TEXTURE_FILTERING)) {
-    if (display_osd_messages &&
-        g_settings.gpu_sprite_texture_filter != GPU_TEXTURE_FILTER_NEAREST) {
+    if (display_osd_messages && g_settings.gpu_sprite_texture_filter != GPU_TEXTURE_FILTER_NEAREST) {
       INFO_LOG("GameDB OSD: Sprite texture filtering disabled.");
     }
     settings->gpu_sprite_texture_filter = GPU_TEXTURE_FILTER_NEAREST;
@@ -325,12 +290,11 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
     if (display_osd_messages && settings->gpu_widescreen_rendering)
       INFO_LOG("GameDB OSD: Widescreen rendering disabled.");
     settings->gpu_widescreen_rendering = false;
-    settings->gpu_widescreen_hack = false;
+    settings->gpu_widescreen_hack      = false;
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_PGXP)) {
-    if (display_osd_messages && settings->gpu_pgxp_enable)
-      INFO_LOG("GameDB OSD: PGXP geometry correction disabled.");
+    if (display_osd_messages && settings->gpu_pgxp_enable) INFO_LOG("GameDB OSD: PGXP geometry correction disabled.");
     settings->gpu_pgxp_enable = false;
   }
 
@@ -347,8 +311,8 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
   }
 
   if (game_database_entry_has_trait(e, GAME_DATABASE_TRAIT_DISABLE_PGXP_COLOR_CORRECTION)) {
-    if (display_osd_messages && settings->gpu_pgxp_enable &&
-        settings->gpu_pgxp_texture_correction && settings->gpu_pgxp_color_correction) {
+    if (display_osd_messages && settings->gpu_pgxp_enable && settings->gpu_pgxp_texture_correction &&
+        settings->gpu_pgxp_color_correction) {
       INFO_LOG("GameDB OSD: PGXP perspective correct colors disabled.");
     }
     settings->gpu_pgxp_color_correction = false;
@@ -388,11 +352,9 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
 
   if (e->has_gpu_pgxp_preserve_proj_fp) {
     if (display_osd_messages) {
-      INFO_LOG("GameDB: GPU preserve projection precision set to %s.",
-               e->gpu_pgxp_preserve_proj_fp ? "true" : "false");
+      INFO_LOG("GameDB: GPU preserve projection precision set to %s.", e->gpu_pgxp_preserve_proj_fp ? "true" : "false");
 
-      if (settings->gpu_pgxp_enable && settings->gpu_pgxp_preserve_proj_fp &&
-          !e->gpu_pgxp_preserve_proj_fp) {
+      if (settings->gpu_pgxp_enable && settings->gpu_pgxp_preserve_proj_fp && !e->gpu_pgxp_preserve_proj_fp) {
         INFO_LOG("GameDB OSD: PGXP preserve projection precision disabled.");
       }
     }
@@ -412,11 +374,9 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
   if (e->supported_controllers != 0 && e->supported_controllers != (u16)0xFFFFu) {
     for (u32 i = 0; i < NUM_CONTROLLER_AND_CARD_PORTS; i++) {
       const controller_type_t ctype = settings->controller_types[i];
-      if (ctype == CONTROLLER_TYPE_NONE)
-        continue;
+      if (ctype == CONTROLLER_TYPE_NONE) continue;
 
-      if (e->supported_controllers & gda_bit_for(ctype))
-        continue;
+      if (e->supported_controllers & gda_bit_for(ctype)) continue;
 
       /* Special case: AnalogController is permitted when not supported as
          long as DigitalController is supported (the dualshock falls back to
@@ -428,18 +388,15 @@ void game_database_entry_apply_settings(const game_database_entry_t* e,
 
       if (display_osd_messages) {
         const controller_info_t* current_info = controller_get_info_for_type(ctype);
-        WARNING_LOG("Controller in Port %u (%s) is not supported for this game.",
-                    (unsigned)(i + 1u),
+        WARNING_LOG("Controller in Port %u (%s) is not supported for this game.", (unsigned)(i + 1u),
                     current_info ? current_info->display_name : "unknown");
 
         WARNING_LOG("Please configure a supported controller from the following list:");
         for (u32 j = 0; j < (u32)CONTROLLER_TYPE_COUNT; j++) {
           const controller_type_t supported_ctype = (controller_type_t)j;
-          if ((e->supported_controllers & gda_bit_for(supported_ctype)) == 0)
-            continue;
+          if ((e->supported_controllers & gda_bit_for(supported_ctype)) == 0) continue;
           const controller_info_t* info = controller_get_info_for_type(supported_ctype);
-          if (info)
-            WARNING_LOG("  - %s", info->display_name);
+          if (info) WARNING_LOG("  - %s", info->display_name);
         }
       }
     }

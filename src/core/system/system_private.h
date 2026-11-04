@@ -9,8 +9,8 @@
 #include "core/system/system.h"
 
 /* Frame number bumps (called by gpu / frame-done plumbing). */
-void system_increment_frame_number          (void);
-void system_increment_internal_frame_number (void);
+void system_increment_frame_number(void);
+void system_increment_internal_frame_number(void);
 
 /* Called by gpu_backend at the end of a guest vsync. */
 void system_frame_done(void);

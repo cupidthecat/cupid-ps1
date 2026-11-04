@@ -13,11 +13,11 @@
 typedef struct state_wrapper state_wrapper_t;
 
 void sio_initialize(void);
-void sio_shutdown  (void);
-void sio_reset     (void);
-bool sio_do_state  (state_wrapper_t* sw);
+void sio_shutdown(void);
+void sio_reset(void);
+bool sio_do_state(state_wrapper_t* sw);
 
-u32  sio_read_register (u32 offset);
+u32  sio_read_register(u32 offset);
 void sio_write_register(u32 offset, u32 value);
 
 #endif /* CUPID_CORE_SIO_H */

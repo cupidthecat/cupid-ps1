@@ -70,54 +70,51 @@ enum ecm_sector_type {
 
 /* Bytes consumed from the ECM file per emitted sector. */
 static const u32 ecm_sector_file_sizes[4] = {
-  0u,    /* raw - variable, set per-entry */
-  0x803u,
-  0x804u,
-  0x918u,
+    0u, /* raw - variable, set per-entry */
+    0x803u,
+    0x804u,
+    0x918u,
 };
 
 /* Bytes emitted to the chunk buffer per entry (raw is variable). */
 static const u32 ecm_sector_chunk_sizes[4] = {
-  0u,    /* raw - variable, set per-entry */
-  2352u,
-  2336u,
-  2336u,
+    0u, /* raw - variable, set per-entry */
+    2352u,
+    2336u,
+    2336u,
 };
 
 typedef struct ecm_entry {
-  u32 disc_offset;   /* byte offset in the decompressed disc image */
-  u32 file_offset;   /* byte offset in the .ecm file (start of payload) */
-  u32 chunk_size;    /* decompressed size emitted by this entry */
-  u32 type;          /* enum ecm_sector_type */
+  u32 disc_offset; /* byte offset in the decompressed disc image */
+  u32 file_offset; /* byte offset in the .ecm file (start of payload) */
+  u32 chunk_size;  /* decompressed size emitted by this entry */
+  u32 type;        /* enum ecm_sector_type */
 } ecm_entry_t;
 
 typedef struct cd_image_ecm {
-  cd_image_t   base;          /* MUST be first */
+  cd_image_t   base; /* MUST be first */
   FILE*        fp;
   ecm_entry_t* entries;
   u32          entry_count;
   u32          entry_capacity;
 
   /* Decoded read window. */
-  u8*  chunk_buffer;
-  u32  chunk_buffer_size;
-  u32  chunk_buffer_capacity;
-  u32  chunk_start;           /* disc-offset that chunk_buffer[0] corresponds to */
+  u8* chunk_buffer;
+  u32 chunk_buffer_size;
+  u32 chunk_buffer_capacity;
+  u32 chunk_start; /* disc-offset that chunk_buffer[0] corresponds to */
 } cd_image_ecm_t;
 
-static void ecm_grow_entries(cd_image_ecm_t* img)
-{
+static void ecm_grow_entries(cd_image_ecm_t* img) {
   if (img->entry_count == img->entry_capacity) {
-    u32 new_cap = img->entry_capacity ? img->entry_capacity * 2u : 256u;
+    u32 new_cap  = img->entry_capacity ? img->entry_capacity * 2u : 256u;
     img->entries = (ecm_entry_t*)realloc(img->entries, (size_t)new_cap * sizeof(ecm_entry_t));
     if (!img->entries) Panic("Memory allocation failed.");
     img->entry_capacity = new_cap;
   }
 }
 
-static void ecm_push_entry(cd_image_ecm_t* img, u32 disc_offset, u32 file_offset,
-                           u32 chunk_size, u32 type)
-{
+static void ecm_push_entry(cd_image_ecm_t* img, u32 disc_offset, u32 file_offset, u32 chunk_size, u32 type) {
   ecm_grow_entries(img);
   ecm_entry_t* e = &img->entries[img->entry_count++];
   e->disc_offset = disc_offset;
@@ -128,8 +125,7 @@ static void ecm_push_entry(cd_image_ecm_t* img, u32 disc_offset, u32 file_offset
 
 /* Returns the largest index i such that entries[i].disc_offset <= disc_offset.
  * Caller guarantees entry_count > 0 and entries[0].disc_offset == 0. */
-static u32 ecm_find_entry_le(const cd_image_ecm_t* img, u32 disc_offset)
-{
+static u32 ecm_find_entry_le(const cd_image_ecm_t* img, u32 disc_offset) {
   u32 lo = 0, hi = img->entry_count;
   while (lo + 1u < hi) {
     u32 mid = lo + (hi - lo) / 2u;
@@ -141,11 +137,11 @@ static u32 ecm_find_entry_le(const cd_image_ecm_t* img, u32 disc_offset)
   return lo;
 }
 
-static void ecm_chunk_reserve(cd_image_ecm_t* img, u32 needed)
-{
+static void ecm_chunk_reserve(cd_image_ecm_t* img, u32 needed) {
   if (needed <= img->chunk_buffer_capacity) return;
   u32 new_cap = img->chunk_buffer_capacity ? img->chunk_buffer_capacity : 4096u;
-  while (new_cap < needed) new_cap *= 2u;
+  while (new_cap < needed)
+    new_cap *= 2u;
   img->chunk_buffer = (u8*)realloc(img->chunk_buffer, new_cap);
   if (!img->chunk_buffer) Panic("Memory allocation failed.");
   img->chunk_buffer_capacity = new_cap;
@@ -153,15 +149,12 @@ static void ecm_chunk_reserve(cd_image_ecm_t* img, u32 needed)
 
 /* Decode one entry from the file at its file_offset into dst (chunk_size bytes).
  * Reconstructs sync/header/EDC/ECC for the structured types. */
-static bool ecm_decode_entry(cd_image_ecm_t* img, const ecm_entry_t* e, u8* dst)
-{
-  if (fseek(img->fp, (long)e->file_offset, SEEK_SET) != 0)
-    return false;
+static bool ecm_decode_entry(cd_image_ecm_t* img, const ecm_entry_t* e, u8* dst) {
+  if (fseek(img->fp, (long)e->file_offset, SEEK_SET) != 0) return false;
 
   switch (e->type) {
     case ECM_TYPE_RAW: {
-      if (fread(dst, e->chunk_size, 1u, img->fp) != 1u)
-        return false;
+      if (fread(dst, e->chunk_size, 1u, img->fp) != 1u) return false;
       return true;
     }
 
@@ -169,8 +162,8 @@ static bool ecm_decode_entry(cd_image_ecm_t* img, const ecm_entry_t* e, u8* dst)
       /* Sync 12 + header 4 + data 2048 + EDC 4 + zero pad 8 + ECC 276 = 2352. */
       u8 sector[2352];
       memset(sector, 0, sizeof(sector));
-      memset(sector + 1, 0xFF, 10);  /* sync = 00 FF*10 00 */
-      sector[0x0F] = 0x01;           /* mode 1 */
+      memset(sector + 1, 0xFF, 10); /* sync = 00 FF*10 00 */
+      sector[0x0F] = 0x01;          /* mode 1 */
       /* 3 bytes M:S:F header (without mode byte) */
       if (fread(sector + 0x00C, 0x003u, 1u, img->fp) != 1u) return false;
       /* 2048 bytes of user data */
@@ -234,50 +227,42 @@ static bool ecm_decode_entry(cd_image_ecm_t* img, const ecm_entry_t* e, u8* dst)
 
 /* Fill chunk_buffer for [disc_offset, disc_offset + size). Binary-search the
  * starting entry, then decode entries until the buffer covers the window. */
-static bool ecm_fill_window(cd_image_ecm_t* img, u32 disc_offset, u32 size)
-{
+static bool ecm_fill_window(cd_image_ecm_t* img, u32 disc_offset, u32 size) {
   if (img->entry_count == 0) return false;
 
   /* Pick the entry that covers disc_offset. */
-  u32 idx = ecm_find_entry_le(img, disc_offset);
-  img->chunk_start = img->entries[idx].disc_offset;
+  u32 idx                = ecm_find_entry_le(img, disc_offset);
+  img->chunk_start       = img->entries[idx].disc_offset;
   img->chunk_buffer_size = 0;
 
   /* If the entry starts before disc_offset we still need to materialise
    * the leading bytes - just enlarge the request. */
-  if (img->chunk_start < disc_offset)
-    size += (disc_offset - img->chunk_start);
+  if (img->chunk_start < disc_offset) size += (disc_offset - img->chunk_start);
 
   u32 produced = 0;
   while (produced < size && idx < img->entry_count) {
     const ecm_entry_t* e = &img->entries[idx];
     ecm_chunk_reserve(img, produced + e->chunk_size);
-    if (!ecm_decode_entry(img, e, img->chunk_buffer + produced))
-      return false;
+    if (!ecm_decode_entry(img, e, img->chunk_buffer + produced)) return false;
     produced += e->chunk_size;
     idx++;
   }
 
-  if (produced < size)
-    return false;
+  if (produced < size) return false;
 
   img->chunk_buffer_size = produced;
   return true;
 }
 
-static bool cdimage_ecm_read_sector_from_index(cd_image_t* self, void* buffer,
-                                               const cd_image_index_t* index,
-                                               cd_image_lba_t lba_in_index)
-{
+static bool cdimage_ecm_read_sector_from_index(cd_image_t* self, void* buffer, const cd_image_index_t* index,
+                                               cd_image_lba_t lba_in_index) {
   cd_image_ecm_t* img = (cd_image_ecm_t*)self;
 
   const u32 file_start = (u32)index->file_offset + lba_in_index * index->file_sector_size;
   const u32 file_end   = file_start + (u32)CD_IMAGE_RAW_SECTOR_SIZE;
 
-  if (file_start < img->chunk_start
-      || file_end > (img->chunk_start + img->chunk_buffer_size)) {
-    if (!ecm_fill_window(img, file_start, (u32)CD_IMAGE_RAW_SECTOR_SIZE))
-      return false;
+  if (file_start < img->chunk_start || file_end > (img->chunk_start + img->chunk_buffer_size)) {
+    if (!ecm_fill_window(img, file_start, (u32)CD_IMAGE_RAW_SECTOR_SIZE)) return false;
   }
 
   const u32 offset_in_chunk = file_start - img->chunk_start;
@@ -285,54 +270,55 @@ static bool cdimage_ecm_read_sector_from_index(cd_image_t* self, void* buffer,
   return true;
 }
 
-static s64 cdimage_ecm_get_size_on_disk(const cd_image_t* self)
-{
+static s64 cdimage_ecm_get_size_on_disk(const cd_image_t* self) {
   cd_image_ecm_t* img = (cd_image_ecm_t*)self;
   return fs_fsize64(img->fp, NULL);
 }
 
-static void cdimage_ecm_destroy(cd_image_t* self)
-{
+static void cdimage_ecm_destroy(cd_image_t* self) {
   cd_image_ecm_t* img = (cd_image_ecm_t*)self;
-  if (img->fp) { fclose(img->fp); img->fp = NULL; }
-  free(img->entries);       img->entries = NULL;
-  free(img->chunk_buffer);  img->chunk_buffer = NULL;
+  if (img->fp) {
+    fclose(img->fp);
+    img->fp = NULL;
+  }
+  free(img->entries);
+  img->entries = NULL;
+  free(img->chunk_buffer);
+  img->chunk_buffer = NULL;
 }
 
 static const cd_image_vtable_t s_ecm_vtable = {
-   .read_sector_from_index = cdimage_ecm_read_sector_from_index,
-  .get_size_on_disk       = cdimage_ecm_get_size_on_disk,
-  .destroy                = cdimage_ecm_destroy,
+    .read_sector_from_index = cdimage_ecm_read_sector_from_index,
+    .get_size_on_disk       = cdimage_ecm_get_size_on_disk,
+    .destroy                = cdimage_ecm_destroy,
 };
 
-static cd_image_ecm_t* alloc_ecm_image(void)
-{
+static cd_image_ecm_t* alloc_ecm_image(void) {
   cd_image_ecm_t* img = (cd_image_ecm_t*)malloc(sizeof(*img));
   if (!img) Panic("Memory allocation failed.");
   cd_image_init(&img->base, &s_ecm_vtable);
-  img->fp = NULL;
-  img->entries = NULL;
-  img->entry_count = 0;
-  img->entry_capacity = 0;
-  img->chunk_buffer = NULL;
-  img->chunk_buffer_size = 0;
+  img->fp                    = NULL;
+  img->entries               = NULL;
+  img->entry_count           = 0;
+  img->entry_capacity        = 0;
+  img->chunk_buffer          = NULL;
+  img->chunk_buffer_size     = 0;
   img->chunk_buffer_capacity = 0;
-  img->chunk_start = 0;
+  img->chunk_start           = 0;
   return img;
 }
 
 /* Read one variable-length type/count header. Return false on EOF or malformed
  * input. Outputs are the type (0..3), encoded count and bytes consumed (1..5).
  * A count of 0xFFFFFFFF is the terminator; callers must not add one to it. */
-static bool ecm_read_block_header(FILE* fp, u32* out_type, u32* out_count, u32* out_bytes)
-{
+static bool ecm_read_block_header(FILE* fp, u32* out_type, u32* out_count, u32* out_bytes) {
   int b = fgetc(fp);
   if (b == EOF) return false;
 
-  u32 bytes = 1;
+  u32       bytes = 1;
   const u32 type  = (u32)b & 0x03u;
-  u32 count = ((u32)b >> 2) & 0x1Fu;
-  u32 shift = 5;
+  u32       count = ((u32)b >> 2) & 0x1Fu;
+  u32       shift = 5;
   while (b & 0x80) {
     b = fgetc(fp);
     if (b == EOF) return false;
@@ -347,8 +333,7 @@ static bool ecm_read_block_header(FILE* fp, u32* out_type, u32* out_count, u32* 
   return true;
 }
 
-static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error* error)
-{
+static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error* error) {
   img->base.filename = (char*)malloc(strlen(filename) + 1u);
   if (!img->base.filename) Panic("Memory allocation failed.");
   strcpy(img->base.filename, filename);
@@ -373,8 +358,8 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
 
   /* Magic. */
   char header[4];
-  if (fread(header, sizeof(header), 1, img->fp) != 1
-      || header[0] != 'E' || header[1] != 'C' || header[2] != 'M' || header[3] != 0) {
+  if (fread(header, sizeof(header), 1, img->fp) != 1 || header[0] != 'E' || header[1] != 'C' || header[2] != 'M' ||
+      header[3] != 0) {
     ERROR_LOG("Failed to read/invalid ecm header in '%s'", filename);
     Error_set_string_fmt(error, "Failed to read/invalid ecm header in '%s'", filename);
     return false;
@@ -392,8 +377,7 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
     }
     file_offset += hdr_bytes;
 
-    if (count == 0xFFFFFFFFu)
-      break;  /* terminator */
+    if (count == 0xFFFFFFFFu) break; /* terminator */
 
     /* count is 0-based; +1 = actual block count. */
     count++;
@@ -409,7 +393,7 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
         ecm_push_entry(img, disc_offset, file_offset, size, type);
         disc_offset += size;
         file_offset += size;
-        count       -= size;
+        count -= size;
         if ((s64)file_offset > file_size) {
           ERROR_LOG("Out of file bounds after %u chunks in '%s'", img->entry_count, filename);
           Error_set_string_fmt(error, "Out of file bounds after %u chunks", img->entry_count);
@@ -432,8 +416,7 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
     }
 
     if (fseek(img->fp, (long)file_offset, SEEK_SET) != 0) {
-      ERROR_LOG("Failed to seek to offset %u after %u chunks in '%s'",
-                file_offset, img->entry_count, filename);
+      ERROR_LOG("Failed to seek to offset %u after %u chunks in '%s'", file_offset, img->entry_count, filename);
       Error_set_string_fmt(error, "Failed to seek to offset %u in '%s'", file_offset, filename);
       return false;
     }
@@ -450,8 +433,7 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
    * no per-track metadata to recover. */
   const u32 lba_count = disc_offset / (u32)CD_IMAGE_RAW_SECTOR_SIZE;
   if ((disc_offset % (u32)CD_IMAGE_RAW_SECTOR_SIZE) != 0) {
-    WARNING_LOG("ECM image '%s' is misaligned (disc_offset=%u not a multiple of 2352)",
-                filename, disc_offset);
+    WARNING_LOG("ECM image '%s' is misaligned (disc_offset=%u not a multiple of 2352)", filename, disc_offset);
   }
   if (lba_count == 0) {
     Error_set_string_fmt(error, "ecm image '%s' contains zero sectors", filename);
@@ -459,13 +441,13 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
   }
   img->base.lba_count = lba_count;
 
-  const cd_image_track_mode_t mode = CD_IMAGE_TRACK_MODE_MODE2_RAW;
-  cd_image_subq_control_t control = { 0 };
+  const cd_image_track_mode_t mode    = CD_IMAGE_TRACK_MODE_MODE2_RAW;
+  cd_image_subq_control_t     control = {0};
   cd_image_subq_control_set_data(&control, mode != CD_IMAGE_TRACK_MODE_AUDIO);
 
   const u32 pregap_frames = 2u * (u32)CD_IMAGE_FRAMES_PER_SECOND;
 
-  cd_image_index_t* pregap = cd_image_push_index(&img->base);
+  cd_image_index_t* pregap   = cd_image_push_index(&img->base);
   pregap->file_index         = 0;
   pregap->file_offset        = 0;
   pregap->file_sector_size   = (u32)CD_IMAGE_RAW_SECTOR_SIZE;
@@ -479,7 +461,7 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
   pregap->control            = control;
   pregap->is_pregap          = true;
 
-  cd_image_index_t* data = cd_image_push_index(&img->base);
+  cd_image_index_t* data   = cd_image_push_index(&img->base);
   data->file_index         = 0;
   data->file_offset        = 0;
   data->file_sector_size   = (u32)CD_IMAGE_RAW_SECTOR_SIZE;
@@ -494,13 +476,13 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
   data->is_pregap          = false;
 
   cd_image_track_t* tr = cd_image_push_track(&img->base);
-  tr->track_number = 1;
-  tr->start_lba    = pregap_frames;
-  tr->first_index  = 0;
-  tr->length       = lba_count + pregap_frames;
-  tr->mode         = mode;
-  tr->submode      = CD_IMAGE_SUBCHANNEL_MODE_NONE;
-  tr->control      = control;
+  tr->track_number     = 1;
+  tr->start_lba        = pregap_frames;
+  tr->first_index      = 0;
+  tr->length           = lba_count + pregap_frames;
+  tr->mode             = mode;
+  tr->submode          = CD_IMAGE_SUBCHANNEL_MODE_NONE;
+  tr->control          = control;
 
   cd_image_add_lead_out_index(&img->base);
 
@@ -508,11 +490,10 @@ static bool open_and_parse_ecm(cd_image_ecm_t* img, const char* filename, Error*
    * keep sequential reads off the file once we're streaming. */
   ecm_chunk_reserve(img, (u32)CD_IMAGE_RAW_SECTOR_SIZE * 2u);
 
-  return cd_image_seek_track_msf(&img->base, 1u, (cd_image_position_t){ 0, 0, 0 });
+  return cd_image_seek_track_msf(&img->base, 1u, (cd_image_position_t){0, 0, 0});
 }
 
-cd_image_t* cd_image_open_ecm(const char* path, Error* error)
-{
+cd_image_t* cd_image_open_ecm(const char* path, Error* error) {
   cd_image_ecm_t* img = alloc_ecm_image();
   if (!open_and_parse_ecm(img, path, error)) {
     cd_image_destroy(&img->base);

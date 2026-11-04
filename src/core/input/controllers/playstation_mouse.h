@@ -11,12 +11,12 @@
 #include "common/types.h"
 
 typedef enum : u8 {
-  PSMOUSE_BIND_LEFT     = 0,
-  PSMOUSE_BIND_RIGHT    = 1,
+  PSMOUSE_BIND_LEFT         = 0,
+  PSMOUSE_BIND_RIGHT        = 1,
   PSMOUSE_BIND_BUTTON_COUNT = 2,
-  PSMOUSE_BIND_POINTER_X = 2,
-  PSMOUSE_BIND_POINTER_Y = 3,
-  PSMOUSE_BIND_COUNT     = 4,
+  PSMOUSE_BIND_POINTER_X    = 2,
+  PSMOUSE_BIND_POINTER_Y    = 3,
+  PSMOUSE_BIND_COUNT        = 4,
 } playstation_mouse_binding_t;
 
 controller_t* playstation_mouse_create(u32 index);

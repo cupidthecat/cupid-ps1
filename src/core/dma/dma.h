@@ -27,20 +27,20 @@ typedef enum {
 } dma_channel_t;
 
 void dma_initialize(void);
-void dma_shutdown  (void);
-void dma_reset     (void);
-bool dma_do_state  (state_wrapper_t* sw);
+void dma_shutdown(void);
+void dma_reset(void);
+bool dma_do_state(state_wrapper_t* sw);
 
-u32  dma_read_register (u32 offset);
+u32  dma_read_register(u32 offset);
 void dma_write_register(u32 offset, u32 value);
 
 void dma_set_request(dma_channel_t channel, bool request);
 
 const u32* dma_dbg_transfer_counts(void);
-u32 dma_dbg_base_address(u32 channel);
-u32 dma_dbg_block_control(u32 channel);
-u32 dma_dbg_channel_control(u32 channel);
-u32 dma_dbg_request(u32 channel);
-u32 dma_dbg_dicr(void);
+u32        dma_dbg_base_address(u32 channel);
+u32        dma_dbg_block_control(u32 channel);
+u32        dma_dbg_channel_control(u32 channel);
+u32        dma_dbg_request(u32 channel);
+u32        dma_dbg_dicr(void);
 
 #endif /* CUPID_CORE_DMA_H */

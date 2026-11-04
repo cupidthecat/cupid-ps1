@@ -70,76 +70,76 @@ const char* cpu_get_reg_name(cpu_reg_t reg);
 
 typedef enum : u8 {
   CPU_OP_FUNCT = 0,
-  CPU_OP_B = 1, /* i.rt: 0 bltz, 1 bgez, 16 bltzal, 17 bgezal */
-  CPU_OP_J = 2,
-  CPU_OP_JAL = 3,
-  CPU_OP_BEQ = 4,
-  CPU_OP_BNE = 5,
-  CPU_OP_BLEZ = 6,
-  CPU_OP_BGTZ = 7,
-  CPU_OP_ADDI = 8,
+  CPU_OP_B     = 1, /* i.rt: 0 bltz, 1 bgez, 16 bltzal, 17 bgezal */
+  CPU_OP_J     = 2,
+  CPU_OP_JAL   = 3,
+  CPU_OP_BEQ   = 4,
+  CPU_OP_BNE   = 5,
+  CPU_OP_BLEZ  = 6,
+  CPU_OP_BGTZ  = 7,
+  CPU_OP_ADDI  = 8,
   CPU_OP_ADDIU = 9,
-  CPU_OP_SLTI = 10,
+  CPU_OP_SLTI  = 10,
   CPU_OP_SLTIU = 11,
-  CPU_OP_ANDI = 12,
-  CPU_OP_ORI = 13,
-  CPU_OP_XORI = 14,
-  CPU_OP_LUI = 15,
-  CPU_OP_COP0 = 16,
-  CPU_OP_COP1 = 17,
-  CPU_OP_COP2 = 18,
-  CPU_OP_COP3 = 19,
-  CPU_OP_LB = 32,
-  CPU_OP_LH = 33,
-  CPU_OP_LWL = 34,
-  CPU_OP_LW = 35,
-  CPU_OP_LBU = 36,
-  CPU_OP_LHU = 37,
-  CPU_OP_LWR = 38,
-  CPU_OP_SB = 40,
-  CPU_OP_SH = 41,
-  CPU_OP_SWL = 42,
-  CPU_OP_SW = 43,
-  CPU_OP_SWR = 46,
-  CPU_OP_LWC0 = 48,
-  CPU_OP_LWC1 = 49,
-  CPU_OP_LWC2 = 50,
-  CPU_OP_LWC3 = 51,
-  CPU_OP_SWC0 = 56,
-  CPU_OP_SWC1 = 57,
-  CPU_OP_SWC2 = 58,
-  CPU_OP_SWC3 = 59,
+  CPU_OP_ANDI  = 12,
+  CPU_OP_ORI   = 13,
+  CPU_OP_XORI  = 14,
+  CPU_OP_LUI   = 15,
+  CPU_OP_COP0  = 16,
+  CPU_OP_COP1  = 17,
+  CPU_OP_COP2  = 18,
+  CPU_OP_COP3  = 19,
+  CPU_OP_LB    = 32,
+  CPU_OP_LH    = 33,
+  CPU_OP_LWL   = 34,
+  CPU_OP_LW    = 35,
+  CPU_OP_LBU   = 36,
+  CPU_OP_LHU   = 37,
+  CPU_OP_LWR   = 38,
+  CPU_OP_SB    = 40,
+  CPU_OP_SH    = 41,
+  CPU_OP_SWL   = 42,
+  CPU_OP_SW    = 43,
+  CPU_OP_SWR   = 46,
+  CPU_OP_LWC0  = 48,
+  CPU_OP_LWC1  = 49,
+  CPU_OP_LWC2  = 50,
+  CPU_OP_LWC3  = 51,
+  CPU_OP_SWC0  = 56,
+  CPU_OP_SWC1  = 57,
+  CPU_OP_SWC2  = 58,
+  CPU_OP_SWC3  = 59,
 } cpu_instruction_op_t;
 
 typedef enum : u8 {
-  CPU_FUNCT_SLL = 0,
-  CPU_FUNCT_SRL = 2,
-  CPU_FUNCT_SRA = 3,
-  CPU_FUNCT_SLLV = 4,
-  CPU_FUNCT_SRLV = 6,
-  CPU_FUNCT_SRAV = 7,
-  CPU_FUNCT_JR = 8,
-  CPU_FUNCT_JALR = 9,
+  CPU_FUNCT_SLL     = 0,
+  CPU_FUNCT_SRL     = 2,
+  CPU_FUNCT_SRA     = 3,
+  CPU_FUNCT_SLLV    = 4,
+  CPU_FUNCT_SRLV    = 6,
+  CPU_FUNCT_SRAV    = 7,
+  CPU_FUNCT_JR      = 8,
+  CPU_FUNCT_JALR    = 9,
   CPU_FUNCT_SYSCALL = 12,
-  CPU_FUNCT_BREAK = 13,
-  CPU_FUNCT_MFHI = 16,
-  CPU_FUNCT_MTHI = 17,
-  CPU_FUNCT_MFLO = 18,
-  CPU_FUNCT_MTLO = 19,
-  CPU_FUNCT_MULT = 24,
-  CPU_FUNCT_MULTU = 25,
-  CPU_FUNCT_DIV = 26,
-  CPU_FUNCT_DIVU = 27,
-  CPU_FUNCT_ADD = 32,
-  CPU_FUNCT_ADDU = 33,
-  CPU_FUNCT_SUB = 34,
-  CPU_FUNCT_SUBU = 35,
-  CPU_FUNCT_AND = 36,
-  CPU_FUNCT_OR = 37,
-  CPU_FUNCT_XOR = 38,
-  CPU_FUNCT_NOR = 39,
-  CPU_FUNCT_SLT = 42,
-  CPU_FUNCT_SLTU = 43,
+  CPU_FUNCT_BREAK   = 13,
+  CPU_FUNCT_MFHI    = 16,
+  CPU_FUNCT_MTHI    = 17,
+  CPU_FUNCT_MFLO    = 18,
+  CPU_FUNCT_MTLO    = 19,
+  CPU_FUNCT_MULT    = 24,
+  CPU_FUNCT_MULTU   = 25,
+  CPU_FUNCT_DIV     = 26,
+  CPU_FUNCT_DIVU    = 27,
+  CPU_FUNCT_ADD     = 32,
+  CPU_FUNCT_ADDU    = 33,
+  CPU_FUNCT_SUB     = 34,
+  CPU_FUNCT_SUBU    = 35,
+  CPU_FUNCT_AND     = 36,
+  CPU_FUNCT_OR      = 37,
+  CPU_FUNCT_XOR     = 38,
+  CPU_FUNCT_NOR     = 39,
+  CPU_FUNCT_SLT     = 42,
+  CPU_FUNCT_SLTU    = 43,
 } cpu_instruction_funct_t;
 
 typedef enum : u8 {
@@ -150,11 +150,11 @@ typedef enum : u8 {
 } cpu_cop_common_instruction_t;
 
 typedef enum : u8 {
-  CPU_COP0_TLBR = 0x01,
+  CPU_COP0_TLBR  = 0x01,
   CPU_COP0_TLBWI = 0x02,
   CPU_COP0_TLBWR = 0x04,
-  CPU_COP0_TLBP = 0x08,
-  CPU_COP0_RFE = 0x10,
+  CPU_COP0_TLBP  = 0x08,
+  CPU_COP0_RFE   = 0x10,
 } cpu_cop0_instruction_t;
 
 typedef union {
@@ -202,49 +202,49 @@ typedef union {
 _Static_assert(sizeof(cpu_instruction_t) == 4, "cpu_instruction_t must be 32 bits");
 
 /* I-type immediate accessors (sign / zero extension helpers). */
-ALWAYS_INLINE s16 cpu_instr_imm_s16(cpu_instruction_t inst) { return (s16)(u16)inst.i.imm; }
-ALWAYS_INLINE u16 cpu_instr_imm_u16(cpu_instruction_t inst) { return (u16)inst.i.imm; }
-ALWAYS_INLINE u32 cpu_instr_imm_sext32(cpu_instruction_t inst)
-{
+ALWAYS_INLINE s16 cpu_instr_imm_s16(cpu_instruction_t inst) {
+  return (s16)(u16)inst.i.imm;
+}
+ALWAYS_INLINE u16 cpu_instr_imm_u16(cpu_instruction_t inst) {
+  return (u16)inst.i.imm;
+}
+ALWAYS_INLINE u32 cpu_instr_imm_sext32(cpu_instruction_t inst) {
   return (u32)(s32)cpu_instr_imm_s16(inst);
 }
-ALWAYS_INLINE u32 cpu_instr_imm_zext32(cpu_instruction_t inst)
-{
+ALWAYS_INLINE u32 cpu_instr_imm_zext32(cpu_instruction_t inst) {
   return (u32)cpu_instr_imm_u16(inst);
 }
 
 /* COP encoding helpers. */
-ALWAYS_INLINE bool cpu_cop_is_common_instruction(cpu_instruction_t inst)
-{
+ALWAYS_INLINE bool cpu_cop_is_common_instruction(cpu_instruction_t inst) {
   return (inst.bits & (UINT32_C(1) << 25)) == 0u;
 }
-ALWAYS_INLINE cpu_cop_common_instruction_t cpu_cop_common_op(cpu_instruction_t inst)
-{
+ALWAYS_INLINE cpu_cop_common_instruction_t cpu_cop_common_op(cpu_instruction_t inst) {
   return (cpu_cop_common_instruction_t)((inst.bits >> 21) & 0xFu);
 }
-ALWAYS_INLINE cpu_cop0_instruction_t cpu_cop0_op(cpu_instruction_t inst)
-{
+ALWAYS_INLINE bool cpu_is_coprocessor_branch_instruction(cpu_instruction_t inst) {
+  return inst.any.op >= CPU_OP_COP0 && inst.any.op <= CPU_OP_COP3 && inst.i.rs == 8u;
+}
+ALWAYS_INLINE cpu_cop0_instruction_t cpu_cop0_op(cpu_instruction_t inst) {
   return (cpu_cop0_instruction_t)(inst.bits & 0x3Fu);
 }
-ALWAYS_INLINE u32 cpu_cop2_index(cpu_instruction_t inst)
-{
+ALWAYS_INLINE u32 cpu_cop2_index(cpu_instruction_t inst) {
   return ((inst.bits >> 11) & 0x1Fu) | ((inst.bits >> 17) & 0x20u);
 }
 
 /* Instruction classification helpers. */
-bool cpu_is_nop_instruction(cpu_instruction_t inst);
-bool cpu_is_branch_instruction(cpu_instruction_t inst);
-bool cpu_is_unconditional_branch_instruction(cpu_instruction_t inst);
-bool cpu_is_direct_branch_instruction(cpu_instruction_t inst);
-virtual_memory_address_t cpu_get_direct_branch_target(cpu_instruction_t inst,
-                                                      virtual_memory_address_t instruction_pc);
-bool cpu_is_call_instruction(cpu_instruction_t inst);
-bool cpu_is_return_instruction(cpu_instruction_t inst);
-bool cpu_is_memory_load_instruction(cpu_instruction_t inst);
-bool cpu_is_memory_store_instruction(cpu_instruction_t inst);
-bool cpu_instruction_has_load_delay(cpu_instruction_t inst);
-bool cpu_is_exit_block_instruction(cpu_instruction_t inst);
-bool cpu_is_valid_instruction(cpu_instruction_t inst);
+bool                     cpu_is_nop_instruction(cpu_instruction_t inst);
+bool                     cpu_is_branch_instruction(cpu_instruction_t inst);
+bool                     cpu_is_unconditional_branch_instruction(cpu_instruction_t inst);
+bool                     cpu_is_direct_branch_instruction(cpu_instruction_t inst);
+virtual_memory_address_t cpu_get_direct_branch_target(cpu_instruction_t inst, virtual_memory_address_t instruction_pc);
+bool                     cpu_is_call_instruction(cpu_instruction_t inst);
+bool                     cpu_is_return_instruction(cpu_instruction_t inst);
+bool                     cpu_is_memory_load_instruction(cpu_instruction_t inst);
+bool                     cpu_is_memory_store_instruction(cpu_instruction_t inst);
+bool                     cpu_instruction_has_load_delay(cpu_instruction_t inst);
+bool                     cpu_is_exit_block_instruction(cpu_instruction_t inst);
+bool                     cpu_is_valid_instruction(cpu_instruction_t inst);
 
 typedef struct {
   union {
@@ -295,60 +295,60 @@ bool cpu_get_load_store_effective_address(cpu_instruction_t inst, const cpu_regi
                                           virtual_memory_address_t* out_addr);
 
 typedef enum : u8 {
-  CPU_COP0_REG_BPC = 3,
-  CPU_COP0_REG_BDA = 5,
-  CPU_COP0_REG_JUMPDEST = 6,
-  CPU_COP0_REG_DCIC = 7,
+  CPU_COP0_REG_BPC       = 3,
+  CPU_COP0_REG_BDA       = 5,
+  CPU_COP0_REG_JUMPDEST  = 6,
+  CPU_COP0_REG_DCIC      = 7,
   CPU_COP0_REG_BAD_VADDR = 8,
-  CPU_COP0_REG_BDAM = 9,
-  CPU_COP0_REG_BPCM = 11,
-  CPU_COP0_REG_SR = 12,
-  CPU_COP0_REG_CAUSE = 13,
-  CPU_COP0_REG_EPC = 14,
-  CPU_COP0_REG_PRID = 15,
+  CPU_COP0_REG_BDAM      = 9,
+  CPU_COP0_REG_BPCM      = 11,
+  CPU_COP0_REG_SR        = 12,
+  CPU_COP0_REG_CAUSE     = 13,
+  CPU_COP0_REG_EPC       = 14,
+  CPU_COP0_REG_PRID      = 15,
 } cpu_cop0_reg_t;
 
 typedef enum : u8 {
-  CPU_EXCEPTION_INT = 0x00,     /* interrupt */
-  CPU_EXCEPTION_MOD = 0x01,     /* TLB modification */
-  CPU_EXCEPTION_TLBL = 0x02,    /* TLB load */
-  CPU_EXCEPTION_TLBS = 0x03,    /* TLB store */
-  CPU_EXCEPTION_ADEL = 0x04,    /* address error, data load/instruction fetch */
-  CPU_EXCEPTION_ADES = 0x05,    /* address error, data store */
-  CPU_EXCEPTION_IBE = 0x06,     /* bus error on instruction fetch */
-  CPU_EXCEPTION_DBE = 0x07,     /* bus error on data load/store */
+  CPU_EXCEPTION_INT     = 0x00, /* interrupt */
+  CPU_EXCEPTION_MOD     = 0x01, /* TLB modification */
+  CPU_EXCEPTION_TLBL    = 0x02, /* TLB load */
+  CPU_EXCEPTION_TLBS    = 0x03, /* TLB store */
+  CPU_EXCEPTION_ADEL    = 0x04, /* address error, data load/instruction fetch */
+  CPU_EXCEPTION_ADES    = 0x05, /* address error, data store */
+  CPU_EXCEPTION_IBE     = 0x06, /* bus error on instruction fetch */
+  CPU_EXCEPTION_DBE     = 0x07, /* bus error on data load/store */
   CPU_EXCEPTION_SYSCALL = 0x08, /* syscall instruction */
-  CPU_EXCEPTION_BP = 0x09,      /* break instruction */
-  CPU_EXCEPTION_RI = 0x0A,      /* reserved instruction */
-  CPU_EXCEPTION_CPU = 0x0B,     /* coprocessor unusable */
-  CPU_EXCEPTION_OV = 0x0C,      /* arithmetic overflow */
+  CPU_EXCEPTION_BP      = 0x09, /* break instruction */
+  CPU_EXCEPTION_RI      = 0x0A, /* reserved instruction */
+  CPU_EXCEPTION_CPU     = 0x0B, /* coprocessor unusable */
+  CPU_EXCEPTION_OV      = 0x0C, /* arithmetic overflow */
 } cpu_exception_t;
 
 typedef union {
   u32 bits;
   struct {
-    unsigned int IEc : 1;  /* current interrupt enable */
-    unsigned int KUc : 1;  /* current kernel/user mode (user = 1) */
-    unsigned int IEp : 1;  /* previous interrupt enable */
-    unsigned int KUp : 1;  /* previous kernel/user mode */
-    unsigned int IEo : 1;  /* old interrupt enable */
-    unsigned int KUo : 1;  /* old kernel/user mode */
+    unsigned int IEc : 1; /* current interrupt enable */
+    unsigned int KUc : 1; /* current kernel/user mode (user = 1) */
+    unsigned int IEp : 1; /* previous interrupt enable */
+    unsigned int KUp : 1; /* previous kernel/user mode */
+    unsigned int IEo : 1; /* old interrupt enable */
+    unsigned int KUo : 1; /* old kernel/user mode */
     unsigned int : 2;
-    unsigned int Im : 8;   /* interrupt mask, 1 = allowed to trigger */
-    unsigned int Isc : 1;  /* isolate cache; writes don't reach memory */
-    unsigned int Swc : 1;  /* swap data and instruction caches */
-    unsigned int PZ : 1;   /* zero cache parity bits */
-    unsigned int CM : 1;   /* last isolated load contains data from memory */
-    unsigned int PE : 1;   /* cache parity error */
-    unsigned int TS : 1;   /* TLB shutdown - matched two entries */
-    unsigned int BEV : 1;  /* boot exception vectors, 0 = KSEG0, 1 = KSEG1 */
+    unsigned int Im : 8;  /* interrupt mask, 1 = allowed to trigger */
+    unsigned int Isc : 1; /* isolate cache; writes don't reach memory */
+    unsigned int Swc : 1; /* swap data and instruction caches */
+    unsigned int PZ : 1;  /* zero cache parity bits */
+    unsigned int CM : 1;  /* last isolated load contains data from memory */
+    unsigned int PE : 1;  /* cache parity error */
+    unsigned int TS : 1;  /* TLB shutdown - matched two entries */
+    unsigned int BEV : 1; /* boot exception vectors, 0 = KSEG0, 1 = KSEG1 */
     unsigned int : 2;
-    unsigned int RE : 1;   /* reverse endianness in user mode */
+    unsigned int RE : 1; /* reverse endianness in user mode */
     unsigned int : 2;
-    unsigned int CU0 : 1;  /* coprocessor 0 enable in user mode */
-    unsigned int CE1 : 1;  /* coprocessor 1 enable */
-    unsigned int CE2 : 1;  /* coprocessor 2 enable */
-    unsigned int CE3 : 1;  /* coprocessor 3 enable */
+    unsigned int CU0 : 1; /* coprocessor 0 enable in user mode */
+    unsigned int CE1 : 1; /* coprocessor 1 enable */
+    unsigned int CE2 : 1; /* coprocessor 2 enable */
+    unsigned int CE3 : 1; /* coprocessor 3 enable */
   };
 } cpu_cop0_sr_t;
 
@@ -363,11 +363,11 @@ typedef union {
     unsigned int : 2;
     unsigned int Excode : 5; /* which exception occurred */
     unsigned int : 1;
-    unsigned int Ip : 8;     /* interrupt pending */
+    unsigned int Ip : 8; /* interrupt pending */
     unsigned int : 12;
-    unsigned int CE : 2;     /* coprocessor number if caused by a coprocessor */
-    unsigned int BT : 1;     /* exception in branch delay slot, branch taken */
-    unsigned int BD : 1;     /* exception in branch delay slot */
+    unsigned int CE : 2; /* coprocessor number if caused by a coprocessor */
+    unsigned int BT : 1; /* exception in branch delay slot, branch taken */
+    unsigned int BD : 1; /* exception in branch delay slot */
   };
 } cpu_cop0_cause_t;
 
@@ -376,13 +376,12 @@ _Static_assert(sizeof(cpu_cop0_cause_t) == 4, "cpu_cop0_cause_t must be 32 bits"
 #define CPU_COP0_CAUSE_WRITE_MASK           UINT32_C(0x00000300)
 #define CPU_COP0_CAUSE_EXCEPTION_WRITE_MASK UINT32_C(0xF000007C)
 
-ALWAYS_INLINE u32 cpu_cop0_cause_make(cpu_exception_t excode, bool BD, bool BT, u8 CE)
-{
+ALWAYS_INLINE u32 cpu_cop0_cause_make(cpu_exception_t excode, bool BD, bool BT, u8 CE) {
   cpu_cop0_cause_t c = {.bits = 0};
-  c.Excode = (unsigned int)excode;
-  c.BD = BD ? 1u : 0u;
-  c.BT = BT ? 1u : 0u;
-  c.CE = (unsigned int)CE;
+  c.Excode           = (unsigned int)excode;
+  c.BD               = BD ? 1u : 0u;
+  c.BT               = BT ? 1u : 0u;
+  c.CE               = (unsigned int)CE;
   return c.bits;
 }
 
@@ -417,34 +416,31 @@ _Static_assert(sizeof(cpu_cop0_dcic_t) == 4, "cpu_cop0_dcic_t must be 32 bits");
 #define CPU_COP0_DCIC_ANY_BREAKPOINTS_ENABLED ((1u << 24) | (1u << 26) | (1u << 27) | (1u << 28))
 #define CPU_COP0_DCIC_MASTER_ENABLE_BITS      ((1u << 23) | (1u << 31))
 
-ALWAYS_INLINE bool cpu_cop0_dcic_execution_breakpoints_enabled(cpu_cop0_dcic_t d)
-{
+ALWAYS_INLINE bool cpu_cop0_dcic_execution_breakpoints_enabled(cpu_cop0_dcic_t d) {
   const u32 mask = (1u << 23) | (1u << 24) | (1u << 31);
   return (d.bits & mask) == mask;
 }
-ALWAYS_INLINE bool cpu_cop0_dcic_data_read_breakpoints_enabled(cpu_cop0_dcic_t d)
-{
+ALWAYS_INLINE bool cpu_cop0_dcic_data_read_breakpoints_enabled(cpu_cop0_dcic_t d) {
   const u32 mask = (1u << 23) | (1u << 25) | (1u << 26) | (1u << 31);
   return (d.bits & mask) == mask;
 }
-ALWAYS_INLINE bool cpu_cop0_dcic_data_write_breakpoints_enabled(cpu_cop0_dcic_t d)
-{
+ALWAYS_INLINE bool cpu_cop0_dcic_data_write_breakpoints_enabled(cpu_cop0_dcic_t d) {
   const u32 mask = (1u << 23) | (1u << 25) | (1u << 27) | (1u << 31);
   return (d.bits & mask) == mask;
 }
 
 typedef struct {
-  u32 BPC;       /* breakpoint on execute */
-  u32 BDA;       /* breakpoint on data access */
-  u32 TAR;       /* randomly memorized jump address */
-  u32 BadVaddr;  /* bad virtual address value */
-  u32 BDAM;      /* data breakpoint mask */
-  u32 BPCM;      /* execute breakpoint mask */
-  u32 EPC;       /* return address from trap */
-  u32 PRID;      /* processor ID */
-  cpu_cop0_sr_t sr;
+  u32              BPC;      /* breakpoint on execute */
+  u32              BDA;      /* breakpoint on data access */
+  u32              TAR;      /* randomly memorized jump address */
+  u32              BadVaddr; /* bad virtual address value */
+  u32              BDAM;     /* data breakpoint mask */
+  u32              BPCM;     /* execute breakpoint mask */
+  u32              EPC;      /* return address from trap */
+  u32              PRID;     /* processor ID */
+  cpu_cop0_sr_t    sr;
   cpu_cop0_cause_t cause;
-  cpu_cop0_dcic_t dcic;
+  cpu_cop0_dcic_t  dcic;
 } cpu_cop0_registers_t;
 
 #endif /* CUPID_CORE_CPU_TYPES_H */

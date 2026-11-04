@@ -46,9 +46,9 @@ typedef enum {
 
 typedef struct {
   yaml_event_kind_t kind;
-  const char*       str;  /* points into input buffer; NULL for container events */
+  const char*       str; /* points into input buffer; NULL for container events */
   size_t            len;
-  u32               line; /* 1-based, for diagnostics */
+  u32               line;   /* 1-based, for diagnostics */
   bool              quoted; /* true if scalar/key was originally double-quoted */
 } yaml_event_t;
 
@@ -63,8 +63,7 @@ typedef struct {
 /* Parse `len` bytes of YAML, invoking `cb` per event.  Returns true on
  * success, false on parse error or callback abort.  On failure fills
  * `*out_err` if non-NULL. */
-bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user,
-                yaml_parse_error_t* out_err);
+bool yaml_parse(const char* input, size_t len, yaml_event_cb_t cb, void* user, yaml_parse_error_t* out_err);
 
 /* Decode \" and \\ escapes from a (possibly raw) scalar source range into a
  * caller buffer.  Always NUL-terminates; returns the number of bytes written

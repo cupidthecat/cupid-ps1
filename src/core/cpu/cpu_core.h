@@ -73,7 +73,7 @@ typedef struct {
   u32 gte_completion_tick;
   u32 muldiv_completion_tick;
 
-  cpu_registers_t regs;
+  cpu_registers_t      regs;
   cpu_cop0_registers_t cop0_regs;
 
   u32 pc;  /* execution time: address of the next instruction to execute (already fetched) */
@@ -81,13 +81,13 @@ typedef struct {
 
   /* address of the instruction currently being executed */
   cpu_instruction_t current_instruction;
-  u32 current_instruction_pc;
-  bool current_instruction_in_branch_delay_slot;
-  bool current_instruction_was_branch_taken;
-  bool next_instruction_is_branch_delay_slot;
-  bool branch_was_taken;
-  bool exception_raised;
-  bool bus_error;
+  u32               current_instruction_pc;
+  bool              current_instruction_in_branch_delay_slot;
+  bool              current_instruction_was_branch_taken;
+  bool              next_instruction_is_branch_delay_slot;
+  bool              branch_was_taken;
+  bool              exception_raised;
+  bool              bus_error;
   /* A failed prefetch is delivered when that instruction reaches execution. */
   u8 next_instruction_fetch_exception;
 
@@ -98,10 +98,10 @@ typedef struct {
    * captures any new load issued during the delay slot. */
   cpu_reg_t load_delay_reg;
   cpu_reg_t next_load_delay_reg;
-  u32 load_delay_value;
-  u32 next_load_delay_value;
+  u32       load_delay_value;
+  u32       next_load_delay_value;
 
-  cpu_instruction_t next_instruction;
+  cpu_instruction_t   next_instruction;
   cpu_cache_control_t cache_control;
 
   /* GTE state lives here so dynarecs can fetch it with a single base+offset. */
@@ -110,16 +110,16 @@ typedef struct {
   bool using_interpreter;
   bool using_debug_dispatcher;
 
-  void* fastmem_base;
+  void*  fastmem_base;
   void** memory_handlers;
 
   u32 icache_tags[CPU_ICACHE_LINES];
   u32 icache_data[CPU_ICACHE_LINES * CPU_ICACHE_WORDS_PER_LINE];
   u8  scratchpad[CPU_SCRATCHPAD_SIZE];
 
-  pgxp_value_t pgxp_gpr [PGXP_GPR_COUNT];   /* 32 GPRs + HI + LO */
+  pgxp_value_t pgxp_gpr[PGXP_GPR_COUNT]; /* 32 GPRs + HI + LO */
   pgxp_value_t pgxp_cop0[PGXP_COP0_COUNT];
-  pgxp_value_t pgxp_gte [PGXP_GTE_COUNT];   /* 32 data + 32 ctrl */
+  pgxp_value_t pgxp_gte[PGXP_GTE_COUNT]; /* 32 data + 32 ctrl */
 } cpu_state_t;
 
 extern cpu_state_t g_cpu_state;
@@ -134,8 +134,8 @@ void cpu_clear_icache(void);
 tick_count_t cpu_get_instruction_read_ticks(virtual_memory_address_t address);
 
 cpu_execution_mode_t cpu_get_current_execution_mode(void);
-bool cpu_update_debug_dispatcher_flag(void);
-void cpu_update_memory_pointers(void);
+bool                 cpu_update_debug_dispatcher_flag(void);
+void                 cpu_update_memory_pointers(void);
 
 /* Run the selected instruction engine until execution is interrupted. */
 void cpu_execute(void);
@@ -144,39 +144,33 @@ void cpu_execute(void);
  * (or a callback it triggered). */
 NORETURN void cpu_exit_execution(void);
 
-ALWAYS_INLINE cpu_registers_t* cpu_get_regs(void)
-{
+ALWAYS_INLINE cpu_registers_t* cpu_get_regs(void) {
   return &g_cpu_state.regs;
 }
 
-ALWAYS_INLINE u32 cpu_get_pending_ticks(void)
-{
+ALWAYS_INLINE u32 cpu_get_pending_ticks(void) {
   return g_cpu_state.pending_ticks;
 }
 
-ALWAYS_INLINE void cpu_reset_pending_ticks(void)
-{
-  g_cpu_state.gte_completion_tick = (g_cpu_state.pending_ticks < g_cpu_state.gte_completion_tick) ?
-                                      (g_cpu_state.gte_completion_tick - g_cpu_state.pending_ticks) : 
-                                      0u;
-  g_cpu_state.muldiv_completion_tick = (g_cpu_state.pending_ticks < g_cpu_state.muldiv_completion_tick) ?
-                                         (g_cpu_state.muldiv_completion_tick - g_cpu_state.pending_ticks) : 
-                                         0u;
-  g_cpu_state.pending_ticks = 0u;
+ALWAYS_INLINE void cpu_reset_pending_ticks(void) {
+  g_cpu_state.gte_completion_tick    = (g_cpu_state.pending_ticks < g_cpu_state.gte_completion_tick)
+                                           ? (g_cpu_state.gte_completion_tick - g_cpu_state.pending_ticks)
+                                           : 0u;
+  g_cpu_state.muldiv_completion_tick = (g_cpu_state.pending_ticks < g_cpu_state.muldiv_completion_tick)
+                                           ? (g_cpu_state.muldiv_completion_tick - g_cpu_state.pending_ticks)
+                                           : 0u;
+  g_cpu_state.pending_ticks          = 0u;
 }
 
-ALWAYS_INLINE void cpu_add_pending_ticks(tick_count_t ticks)
-{
+ALWAYS_INLINE void cpu_add_pending_ticks(tick_count_t ticks) {
   g_cpu_state.pending_ticks += (u32)ticks;
 }
 
-ALWAYS_INLINE bool cpu_in_user_mode(void)
-{
+ALWAYS_INLINE bool cpu_in_user_mode(void) {
   return g_cpu_state.cop0_regs.sr.KUc != 0u;
 }
 
-ALWAYS_INLINE bool cpu_in_kernel_mode(void)
-{
+ALWAYS_INLINE bool cpu_in_kernel_mode(void) {
   return g_cpu_state.cop0_regs.sr.KUc == 0u;
 }
 
@@ -202,11 +196,11 @@ void cpu_set_bus_error(bool v);
 /* mdec.c calls this name; identical semantics to cpu_add_pending_ticks. */
 void cpu_core_add_pending_ticks(tick_count_t ticks);
 
-u32  cpu_virtual_to_physical_address(virtual_memory_address_t addr);
+u32 cpu_virtual_to_physical_address(virtual_memory_address_t addr);
 
-u8*  cpu_get_scratchpad_pointer(void);
-u32  cpu_get_scratchpad_size(void);
-u32  cpu_get_scratchpad_address(void);
+u8* cpu_get_scratchpad_pointer(void);
+u32 cpu_get_scratchpad_size(void);
+u32 cpu_get_scratchpad_address(void);
 
 u32  cpu_get_cache_control_bits(void);
 void cpu_set_cache_control_bits(u32 v);
@@ -239,11 +233,15 @@ bool cpu_recompiler_synth_pc_exception_if_invalid(u32 pc);
  * side-effects fire and exceptions raise normally.  Return value: zero on
  * failure (g_cpu_state.exception_raised is set; caller must early-exit
  * the JIT block). */
-u32  cpu_recompiler_thunk_read_memory_byte    (u32 address);
+u32  cpu_recompiler_thunk_read_memory_byte(u32 address);
 u32  cpu_recompiler_thunk_read_memory_halfword(u32 address);
-u32  cpu_recompiler_thunk_read_memory_word    (u32 address);
-void cpu_recompiler_thunk_write_memory_byte    (u32 address, u32 value);
+u32  cpu_recompiler_thunk_read_memory_word(u32 address);
+u32  cpu_recompiler_thunk_read_word_left(u32 address);
+u32  cpu_recompiler_thunk_read_word_right(u32 address);
+void cpu_recompiler_thunk_write_memory_byte(u32 address, u32 value);
 void cpu_recompiler_thunk_write_memory_halfword(u32 address, u32 value);
-void cpu_recompiler_thunk_write_memory_word    (u32 address, u32 value);
+void cpu_recompiler_thunk_write_memory_word(u32 address, u32 value);
+void cpu_recompiler_thunk_store_word_left(u32 address, u32 value);
+void cpu_recompiler_thunk_store_word_right(u32 address, u32 value);
 
 #endif /* CUPID_CORE_CPU_CORE_H */

@@ -41,19 +41,17 @@ typedef struct {
 _Static_assert(sizeof(mds_track_entry_t) == 0x50, "mds_track_entry_t is 0x50 bytes");
 
 typedef struct cd_image_mds {
-  cd_image_t base;        /* MUST be first */
+  cd_image_t base; /* MUST be first */
   FILE*      mdf_file;
   u64        mdf_position;
 } cd_image_mds_t;
 
-static bool cdimage_mds_read_sector_from_index(cd_image_t* self, void* buffer,
-                                               const cd_image_index_t* index, cd_image_lba_t lba_in_index)
-{
-  cd_image_mds_t* img = (cd_image_mds_t*)self;
-  const u64 file_position = index->file_offset + ((u64)lba_in_index * (u64)index->file_sector_size);
+static bool cdimage_mds_read_sector_from_index(cd_image_t* self, void* buffer, const cd_image_index_t* index,
+                                               cd_image_lba_t lba_in_index) {
+  cd_image_mds_t* img           = (cd_image_mds_t*)self;
+  const u64       file_position = index->file_offset + ((u64)lba_in_index * (u64)index->file_sector_size);
   if (img->mdf_position != file_position) {
-    if (fseek(img->mdf_file, (long)file_position, SEEK_SET) != 0)
-      return false;
+    if (fseek(img->mdf_file, (long)file_position, SEEK_SET) != 0) return false;
     img->mdf_position = file_position;
   }
 
@@ -66,14 +64,12 @@ static bool cdimage_mds_read_sector_from_index(cd_image_t* self, void* buffer,
   return true;
 }
 
-static s64 cdimage_mds_get_size_on_disk(const cd_image_t* self)
-{
+static s64 cdimage_mds_get_size_on_disk(const cd_image_t* self) {
   cd_image_mds_t* img = (cd_image_mds_t*)self;
   return fs_fsize64(img->mdf_file, NULL);
 }
 
-static void cdimage_mds_destroy(cd_image_t* self)
-{
+static void cdimage_mds_destroy(cd_image_t* self) {
   cd_image_mds_t* img = (cd_image_mds_t*)self;
   if (img->mdf_file) {
     fclose(img->mdf_file);
@@ -82,30 +78,27 @@ static void cdimage_mds_destroy(cd_image_t* self)
 }
 
 static const cd_image_vtable_t s_mds_vtable = {
-   .read_sector_from_index = cdimage_mds_read_sector_from_index,
-  .get_size_on_disk       = cdimage_mds_get_size_on_disk,
-  .destroy                = cdimage_mds_destroy, 
+    .read_sector_from_index = cdimage_mds_read_sector_from_index,
+    .get_size_on_disk       = cdimage_mds_get_size_on_disk,
+    .destroy                = cdimage_mds_destroy,
 };
 
-static cd_image_mds_t* alloc_mds_image(void)
-{
+static cd_image_mds_t* alloc_mds_image(void) {
   cd_image_mds_t* img = (cd_image_mds_t*)malloc(sizeof(*img));
   if (!img) abort();
   cd_image_init(&img->base, &s_mds_vtable);
-  img->mdf_file = NULL;
+  img->mdf_file     = NULL;
   img->mdf_position = 0;
   return img;
 }
 
-static const char* file_basename(const char* path)
-{
+static const char* file_basename(const char* path) {
   const char* slash = strrchr(path, '/');
   return slash ? slash + 1 : path;
 }
 
-static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error* error)
-{
-  u8*    mds = NULL;
+static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error* error) {
+  u8*    mds      = NULL;
   size_t mds_size = 0;
   if (!fs_read_binary_file_path(filename, &mds, &mds_size, error)) {
     Error_set_string_fmt(error, "Failed to read mds '%s'", file_basename(filename));
@@ -122,8 +115,7 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
   small_string_t mdf_path;
   small_string_init(&mdf_path);
   path_change_extension_cstr(&mdf_path, filename, "mdf");
-  img->mdf_file = fs_open_shared_file(small_string_c_str(&mdf_path), "rb",
-                                      FS_FILE_SHARE_DENY_WRITE, error);
+  img->mdf_file = fs_open_shared_file(small_string_c_str(&mdf_path), "rb", FS_FILE_SHARE_DENY_WRITE, error);
   if (!img->mdf_file) {
     Error_set_string_fmt(error, "Failed to open mdf file '%s'", file_basename(small_string_c_str(&mdf_path)));
     small_string_destroy(&mdf_path);
@@ -155,8 +147,8 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
   memcpy(&track_offset, &mds[session_offset + 20], sizeof(track_offset));
   if (track_count > 99 || track_offset >= mds_size) {
     ERROR_LOG("Invalid track count/block offset %u/%u in '%s'", track_count, track_offset, file_basename(filename));
-    Error_set_string_fmt(error, "Invalid track count/block offset %u/%u in '%s'",
-                         track_count, track_offset, file_basename(filename));
+    Error_set_string_fmt(error, "Invalid track count/block offset %u/%u in '%s'", track_count, track_offset,
+                         file_basename(filename));
     free(mds);
     return false;
   }
@@ -165,8 +157,7 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
   while (track_offset + sizeof(mds_track_entry_t) <= mds_size) {
     mds_track_entry_t track;
     memcpy(&track, &mds[track_offset], sizeof(track));
-    if (track.track_number < 0xA0)
-      break;
+    if (track.track_number < 0xA0) break;
     track_offset += sizeof(mds_track_entry_t);
   }
 
@@ -184,16 +175,15 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
 
     if (PackedBCDToBinary(track.track_number) != track_number) {
       ERROR_LOG("Unexpected track number 0x%02X in track %u", track.track_number, track_number);
-      Error_set_string_fmt(error, "Unexpected track number 0x%02X in track %u",
-                           track.track_number, track_number);
+      Error_set_string_fmt(error, "Unexpected track number 0x%02X in track %u", track.track_number, track_number);
       free(mds);
       return false;
     }
 
-    const bool contains_subchannel = (track.has_subchannel_data != 0);
-    const u32  track_sector_size = contains_subchannel ? 2448u : (u32)CD_IMAGE_RAW_SECTOR_SIZE;
-    const cd_image_track_mode_t mode = (track.track_type == 0xA9)
-        ? CD_IMAGE_TRACK_MODE_AUDIO : CD_IMAGE_TRACK_MODE_MODE2_RAW;
+    const bool                  contains_subchannel = (track.has_subchannel_data != 0);
+    const u32                   track_sector_size   = contains_subchannel ? 2448u : (u32)CD_IMAGE_RAW_SECTOR_SIZE;
+    const cd_image_track_mode_t mode =
+        (track.track_type == 0xA9) ? CD_IMAGE_TRACK_MODE_AUDIO : CD_IMAGE_TRACK_MODE_MODE2_RAW;
 
     if ((u64)track.extra_offset + sizeof(u32) + sizeof(u32) > mds_size) {
       ERROR_LOG("Invalid extra offset %u in track %u", track.extra_offset, track_number);
@@ -207,24 +197,23 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
     u32 track_file_offset = track.track_offset_in_mdf;
 
     u32 track_pregap, track_length;
-    memcpy(&track_pregap, &mds[track.extra_offset],            sizeof(track_pregap));
+    memcpy(&track_pregap, &mds[track.extra_offset], sizeof(track_pregap));
     memcpy(&track_length, &mds[track.extra_offset + sizeof(u32)], sizeof(track_length));
 
     /* Subchannel Q control byte: data flag set for non-audio. */
-    cd_image_subq_control_t control = { 0 };
+    cd_image_subq_control_t control = {0};
     cd_image_subq_control_set_data(&control, mode != CD_IMAGE_TRACK_MODE_AUDIO);
 
     /* Pregap index. */
     if (track_pregap > 0) {
       if (track_pregap > track_start_lba) {
         ERROR_LOG("Track pregap %u is too large for start lba %u", track_pregap, track_start_lba);
-        Error_set_string_fmt(error, "Track pregap %u is too large for start lba %u",
-                             track_pregap, track_start_lba);
+        Error_set_string_fmt(error, "Track pregap %u is too large for start lba %u", track_pregap, track_start_lba);
         free(mds);
         return false;
       }
 
-      cd_image_index_t pregap = { 0 };
+      cd_image_index_t pregap   = {0};
       pregap.start_lba_on_disc  = track_start_lba - track_pregap;
       pregap.start_lba_in_track = (cd_image_lba_t)(-(s32)track_pregap);
       pregap.length             = track_pregap;
@@ -237,8 +226,8 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
 
       const bool pregap_in_file = (track_number > 1);
       if (pregap_in_file) {
-        pregap.file_index = 0;
-        pregap.file_offset = track_file_offset;
+        pregap.file_index       = 0;
+        pregap.file_offset      = track_file_offset;
         pregap.file_sector_size = track_sector_size;
         track_file_offset += track_pregap * track_sector_size;
       }
@@ -247,28 +236,28 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
 
     /* The track itself. */
     cd_image_track_t* tr = cd_image_push_track(&img->base);
-    tr->track_number = track_number;
-    tr->start_lba    = track_start_lba;
-    tr->first_index  = img->base.index_count;
-    tr->length       = track_length;
-    tr->mode         = mode;
-    tr->submode      = CD_IMAGE_SUBCHANNEL_MODE_NONE;
-    tr->control      = control;
+    tr->track_number     = track_number;
+    tr->start_lba        = track_start_lba;
+    tr->first_index      = img->base.index_count;
+    tr->length           = track_length;
+    tr->mode             = mode;
+    tr->submode          = CD_IMAGE_SUBCHANNEL_MODE_NONE;
+    tr->control          = control;
 
     /* Track index 1. */
-    cd_image_index_t idx = { 0 };
-    idx.start_lba_on_disc  = track_start_lba;
-    idx.start_lba_in_track = 0;
-    idx.track_number       = track_number;
-    idx.index_number       = 1;
-    idx.file_index         = 0;
-    idx.file_sector_size   = track_sector_size;
-    idx.file_offset        = track_file_offset;
-    idx.mode               = mode;
-    idx.submode            = CD_IMAGE_SUBCHANNEL_MODE_NONE;
-    idx.control            = control;
-    idx.is_pregap          = false;
-    idx.length             = track_length;
+    cd_image_index_t idx             = {0};
+    idx.start_lba_on_disc            = track_start_lba;
+    idx.start_lba_in_track           = 0;
+    idx.track_number                 = track_number;
+    idx.index_number                 = 1;
+    idx.file_index                   = 0;
+    idx.file_sector_size             = track_sector_size;
+    idx.file_offset                  = track_file_offset;
+    idx.mode                         = mode;
+    idx.submode                      = CD_IMAGE_SUBCHANNEL_MODE_NONE;
+    idx.control                      = control;
+    idx.is_pregap                    = false;
+    idx.length                       = track_length;
     *cd_image_push_index(&img->base) = idx;
   }
 
@@ -281,14 +270,13 @@ static bool open_and_parse_mds(cd_image_mds_t* img, const char* filename, Error*
   }
 
   const cd_image_track_t* last = &img->base.tracks[img->base.track_count - 1];
-  img->base.lba_count = last->start_lba + last->length;
+  img->base.lba_count          = last->start_lba + last->length;
   cd_image_add_lead_out_index(&img->base);
 
-  return cd_image_seek_track_msf(&img->base, 1u, (cd_image_position_t){ 0, 0, 0 });
+  return cd_image_seek_track_msf(&img->base, 1u, (cd_image_position_t){0, 0, 0});
 }
 
-cd_image_t* cd_image_open_mds(const char* path, Error* error)
-{
+cd_image_t* cd_image_open_mds(const char* path, Error* error) {
   cd_image_mds_t* img = alloc_mds_image();
   if (!open_and_parse_mds(img, path, error)) {
     cd_image_destroy(&img->base);

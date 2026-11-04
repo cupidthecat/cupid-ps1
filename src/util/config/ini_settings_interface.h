@@ -37,7 +37,7 @@ typedef struct {
 } ini_kvp_t;
 
 typedef struct {
-  char*      name;     /* heap, NUL-terminated; "" for the implicit pre-header section */
+  char*      name; /* heap, NUL-terminated; "" for the implicit pre-header section */
   ini_kvp_t* entries;
   size_t     entry_count;
   size_t     entry_cap;
@@ -48,11 +48,11 @@ typedef struct {
    * (settings_interface_t*) for vtable dispatch. */
   settings_interface_t base;
 
-  char*           filename;       /* heap, may be NULL/empty */
-  ini_section_t*  sections;
-  size_t          section_count;
-  size_t          section_cap;
-  bool            dirty;
+  char*          filename; /* heap, may be NULL/empty */
+  ini_section_t* sections;
+  size_t         section_count;
+  size_t         section_cap;
+  bool           dirty;
 } ini_settings_interface_t;
 
 bool ini_settings_interface_init(ini_settings_interface_t* self, const char* filename);
@@ -63,14 +63,13 @@ void ini_settings_interface_destroy(ini_settings_interface_t* self);
 void ini_settings_interface_set_filename(ini_settings_interface_t* self, const char* filename);
 
 const char* ini_settings_interface_get_filename(const ini_settings_interface_t* self);
-bool        ini_settings_interface_is_dirty   (const ini_settings_interface_t* self);
+bool        ini_settings_interface_is_dirty(const ini_settings_interface_t* self);
 
 bool ini_settings_interface_load(ini_settings_interface_t* self, Error* error);
 
 /* Parses INI text directly without touching the filesystem.  data does not
  * need to be NUL-terminated; len is the byte length. */
-bool ini_settings_interface_load_from_string(ini_settings_interface_t* self,
-                                             const char* data, size_t len);
+bool ini_settings_interface_load_from_string(ini_settings_interface_t* self, const char* data, size_t len);
 
 /* Writes back to self->filename atomically (write-temp + rename).  Returns
  * false (with *error filled) on any I/O failure. */

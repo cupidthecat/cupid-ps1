@@ -11,7 +11,70 @@ F11/F12 save and load the **active slot, global**. The active slot defaults to `
 
 Programmatic API: `system_save_state(path, error, backup_existing, ignore_memcard_busy)` and `system_load_state(path, error, save_undo, force_update)`.
 
+Frame-triggered frontend actions run after the current CPU instruction and
+device callbacks complete. This includes saves, loads and diagnostic
+checkpoints. A timer write can synchronize the GPU and finish a frame from
+inside the instruction; deferring the load preserves the completed instruction
+and callback state. Pending frame actions request CPU event service
+without adding emulated cycles. This host action flag is not save-state data.
+
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
+
+The whole-machine loader captures the current serialized state and keeps the
+current disc until loading succeeds. A rejected load restores the previous
+state, disc and game metadata. Missing referenced media or an invalid sub-image
+rejects the load. A saved state with no media removes the current disc on
+success. If recovery itself fails, the machine shuts down instead of resuming
+a partially loaded state. This recovery is independent of the `save_undo`
+argument; a retained user undo state is not implemented. See
+[failed-load recovery](load-recovery.md) for coverage and limits.
+
+SPU records are also staged before replacing live sound RAM, voices, histories
+and transfers. Rejected records preserve that component and its event links. See
+[SPU records and validation](../spu/state-records.md) for bounds and legacy behavior.
+
+Version 96 records the start cause of forced manual DMA transfers, including
+paused transfers whose trigger has cleared and whose device request is absent.
+Earlier records default to request-driven continuation. See
+[forced manual DMA](../dma/forced-transfers.md).
+
+Version 95 records each DMA channel's remaining chopped-transfer pause.
+Earlier records retain their saved registers without inventing a missing
+pause phase. See [chopped DMA](../dma/chopping.md) for continuation and limits.
+
+Version 94 records pending polyline vertices and their source addresses.
+Earlier idle GPU records remain readable. Earlier records saved during an
+incomplete polyline are rejected because they never contained those vertices.
+Queue bounds and inconsistent polyline records are rejected before resuming
+commands. The whole-machine loader recovers from a rejected record. See
+[polyline state and submission](../gpu/polylines.md).
+
+Version 93 records colored MDEC DMA placement and its partial-transfer cursor.
+Earlier queued pixels retain their saved order until drained. See
+[MDEC state records](../mdec/state-records.md) for compatibility and checks.
+
+Version 92 records the SPU noise divider and step-counter phase. Earlier
+records retain their saved noise level and restart that missing phase at zero.
+See [shared noise](../spu/noise.md) for rates, continuation and qualification.
+
+Version 91 adds the memory card's pending 128-byte write sector and SIO0's
+selected device and in-flight byte, separately from its queued transmit byte. Interrupted
+or rejected card writes no longer alter committed data. Earlier states retain
+their already-saved card image and seed any remaining write from that sector;
+they cannot recover data that an older emulator already overwrote or a shift
+latch that an older format never stored. Card state
+loads reject invalid protocol states, transfer cursors and read-data addresses.
+
+Version 90 records the independent SPU transfer event. Legacy loads rebuild
+its deadline after restoring the saved clock. Version 89 preserves the SPU's
+fractional transfer tick balance. Earlier
+states load with zero transfer credit. Invalid transfer balances and FIFO
+ring records are rejected. See [SPU transfer accounting](../spu/transfer-budget.md).
+
+Version 88 preserves each root counter's pending reset phase. Earlier states
+load with no pending hold because they contain no phase field. See
+[root-counter state](../timers/root-counters.md#save-states) for the layout
+and continuation checks.
 
 `--test-savestate-roundtrip` requests a save at frame 300, reloads it, runs
 60 more frames, then shuts down. Completion is reported after frontend

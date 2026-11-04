@@ -19,8 +19,181 @@ cases; they do not establish complete CPU accuracy.
 
 Set `CUPID_CPU_STATS=1` before startup to print execution configuration,
 interpreted instruction counts, native block entry/completion counts and
-cached-block creation, reuse, executed-word and fallback counts at shutdown. The runtime smoke runner requires positive
+cached-block creation, reuse, executed-word and fallback counts at shutdown.
+The native dispatcher separately reports pending delay slots completed by the
+shared executor. These slots remain included in the interpreted total, even
+when the selected mode is `recomp`. The runtime smoke runner requires positive
 creation, reuse and execution counts when `--mode cached` is selected.
+
+## Execution state and timing
+
+All three execution modes share instruction prefetch. Switching modes retains
+the fetched word, pending loads, instruction-cache data and partial-line
+validity. Before native dispatch starts, pending branch-delay instructions
+finish through the shared executor unless an event takes an exception first.
+
+Interrupt entry uses the retained instruction to decide whether to issue a GTE
+command, even when RAM now contains a different word. An IRQ before a branch
+slot retains the resolved successor in TAR and the branch address in EPC.
+The dispatcher rechecks the pending slot after running events because exception
+entry clears it. Generated cases cover both command replacements, unchanged
+words, taken and untaken branches, pending loads, cached and uncached addresses,
+and CPU state restoration in each execution path. They check the shared model;
+they are not a new physical hardware capture.
+
+Native instruction-cache emulation is enabled by default. Blocks decode the
+words the CPU cache serves, including stale instructions after a RAM write.
+Before each compiled instruction executes, native code checks its latched word
+and event deadline, then fetches the next instruction through the shared CPU
+path. Changed words invalidate host code without repeating the block prefix.
+A pending branch slot retains its resolved target and branch outcome when
+execution returns to the dispatcher. These exits preserve pending loads and
+busy-unit deadlines.
+
+Generated cases include slow memory, LUT and mmap fastmem, and execution without block
+linking. They check the shared pipeline model; full native fetch and event
+timing still need hardware qualification.
+
+GTE commands arm a completion deadline. Result-register reads wait for that
+deadline, including native reads whose destination is register zero. Outstanding
+GTE and multiply/divide deadlines remain in CPU save states and cross native
+block boundaries. Generated cases compare complete CPU and event serializations
+after uninterrupted and restored continuations. They cover those programs;
+full native timing and instruction-cache behavior remain under qualification.
+
+Native COP2 register transfers and commands check the current status register
+before accessing the GTE. A disabled GTE raises the coprocessor-unusable
+exception, including for reads to register zero. These instructions remain
+after their branch condition when compiled in a delay slot, so the exception
+retains the branch outcome and target.
+
+All three CPU modes check the enable bits for COP1 and COP3 operations and
+coprocessor memory transfers. Native COP0 register operations also check user
+mode permissions. These checks use the current status register, including
+changes made earlier in the same block. Disabled transfers trap before device
+access or a GTE busy wait. Generated cases check pending loads and exceptions
+in both taken and untaken branch slots.
+
+Enabled LWC0/1/3 instructions read a word and discard its value in all three
+modes. Native code preserves device-read effects, checks alignment and
+propagates reported bus failures without interpreting the instruction. Faults
+retain preceding register writes, pending loads and branch context. Generated
+cases cover constant and dynamic addresses, normal and taken/untaken branch
+slots, slow memory, LUT and mmap fastmem, and disabled block linking. The bus-failure
+cases inject an error through a valid device handler; they check propagation,
+not physical address decoding or hardware timing.
+
+Enabled SWC0/1/3 stores still need qualification.
+
+With COP2 enabled, unsupported GTE command encodings are logged and execution
+continues without a CPU exception. Their arithmetic effects and exact timing
+[remain unqualified](https://github.com/cupidthecat/cupid-ps1/issues/18).
+
+## Instruction-cache tag accesses and refills
+
+With cache isolation and BIU tag mode selected, data accesses select the cache
+tag metadata. Word stores set the physical page from the address and the four
+valid bits from the low nibble of the value. They preserve the cached code.
+Reads report those valid bits in bits 0-3 and a page-match flag in bit 4.
+KUSEG and KSEG0 aliases share the same physical tag. Code-mode reads select the
+addressed byte, halfword or word within the cached code.
+
+A four-word refill starts at the requested word and continues to the end of
+the line. Two-word mode fills only words 0-1 on a miss at word 0; misses at
+other offsets still fill through word 3. A matching tag retains validity for
+words outside the refill. A different page invalidates unfetched words while
+retaining their code bytes. See the
+[hardware reference](https://psx-spx.consoledev.net/memorymap/).
+
+Generated tests cover tag writes, physical aliases, partial refills, access
+widths, CPU state restoration and guest mode changes across all three CPU
+execution paths. The published twelve-test cache program adds instruction-stream
+coverage. These checks do not qualify exact refill timing, eight- or sixteen-word
+BIU settings, tag subword stores, INV/LOCK modes or all isolated accesses with
+IS1 disabled. The larger refill settings currently use the four-word model.
+
+## Coprocessor branches
+
+With the corresponding CU bit enabled, `BCnF` branches and `BCnT` falls through
+for all four coprocessors. Both execute their delay slot. The `rt=2/3` encodings
+behave as `rt=0/1`, without branch-likely nullification. A pending GTE command
+or FLAG.31 does not change the condition or make the branch wait for the GTE.
+See the [hardware reference](https://psx-spx.consoledev.net/dev/ps1/cpu/cpuspecifications/#coprocessor-branches).
+
+A disabled coprocessor raises a coprocessor-unusable exception before executing
+the slot. COP0 branches require CU0 even in kernel mode; COP0 register moves
+retain their kernel-mode access rule. Interpreter, cached and native execution
+share the branch classification and target calculation. Native branches compile
+their slot and preserve its exception context and pending loads.
+
+Generated cases check all four `rt` forms, forward and backward targets,
+status-register changes, slot exceptions, GTE busy state and FLAG. They require
+native progress without interpreted instructions in the native configurations.
+The original published branch program provides an additional instruction-stream
+check. These cases cover the documented `rs=8` encoding and do not establish
+complete CPU timing or other raw encoding aliases.
+
+## Reserved instructions and retained fetches
+
+Reserved primary and SPECIAL function encodings raise RI from the instruction
+already fetched. A later RAM write does not replace that word, whether the CPU
+serves it from cache or restores it from a saved prefetch. An explicit new fetch
+can observe the RAM change. See the
+[opcode tables](https://psx-spx.consoledev.net/cpuspecifications/#illegal-opcodes)
+and [cache behavior](https://psx-spx.consoledev.net/memorymap/#isolation-and-self-modifying-code).
+
+The block decoder retains a readable reserved word as a trapping terminator.
+Native execution emits the RI exit, including in taken and untaken branch slots,
+while preserving prior writes and pending loads. Backends without instruction
+fetch and exception hooks keep their existing interpreter fallback.
+Blocks decoded from RAM leave after a write invalidates their code, before
+entering a branch with an outdated slot. That exit retains the current prefetch.
+
+Generated tests cover all 24 reserved primary encodings and 36 reserved SPECIAL
+functions, cached RAM rewrites, cache bypass and restored prefetched words.
+The direct native cases require zero interpreted instructions. A boot with
+generated firmware also checks the exception registers and unchanged canaries
+under each execution configuration. Its interpreted instructions must all be
+reported dispatcher delay slots. These checks cover the documented encoding
+tables; other coprocessor encodings, unused operand bits and exact exception
+timing need separate qualification. No new physical hardware capture ran.
+
+## Data-access exceptions
+
+Native loads and stores save register writes, pending loads, instruction context
+and busy-unit deadlines before accessing memory. A reported bus failure exits
+the block before a load result, GTE register write or following instruction can
+change state. Halfword and word alignment checks also apply to mapped accesses
+when the optional recompiler memory-exception setting is disabled.
+
+Generated tests cover byte, halfword, word, merge and GTE transfers, constant and
+dynamic addresses, register zero, and taken and untaken branch slots. They check
+RAM and device alignment errors, injected device failures, pending loads and
+exception metadata. Native mmap tests require observed backpatches for dynamic
+device accesses. Consecutive-store tests check cache isolation and ordinary RAM
+writes without relying on an accidental mmap fault to select isolated handlers.
+Successful merge cases check both instruction orders at every word offset,
+neighboring store bytes, and a pending load into the address register.
+
+SWC0, SWC1 and SWC3 check coprocessor permission before word alignment in all
+three execution modes. Generated cases cover every unaligned word offset in
+RAM and MMIO, both address forms, branch slots, pending loads and exception
+metadata. Aligned transfer data and bus effects remain unqualified: the
+interpreter writes zero, while native execution performs no data transfer.
+
+Recovered host fault sites are remembered by guest instruction PC, including
+zero. The history grows with the number of sites, so later compilations select
+bus helpers. Cache reset clears it; process shutdown releases its allocation.
+If the history cannot grow, the patched block stays valid and reuses its
+recovery stub. Generated tests observe host LUT and mmap faults in linked and
+unlinked load/store loops at PC zero, plus 5,000 distinct faulting instructions.
+Generated firmware also compares every saved byte across native save/restore
+continuations for these loops.
+
+These cases verify error propagation within the current bus model. Merge
+operations still use aligned word reads and read-modify-write stores; their
+device access widths remain unqualified. GTE transfer timing and physical bus
+error decoding also need separate hardware checks.
 
 ## Instruction fetch
 
@@ -42,6 +215,26 @@ qualification.
 Save-state version 85 stores the pending fetch exception with the pipeline.
 Version 84 has no such field and loads with no pending fetch exception.
 
+The two cached address regions share physical instruction-cache tags. A jump
+between KUSEG and KSEG0 keeps cached words after a RAM write; KSEG1 bypasses
+the cache. Different physical RAM mirrors still have distinct tags. The
+virtual execution address remains intact for branches and exceptions.
+
+Save-state version 86 stores physical cache tags. Loading an older stream
+converts its KSEG0 tags while retaining cached words and per-word validity.
+Cache-control bit 11 selects instruction-cache use in cached address regions.
+When it is clear, instruction reads bypass the cache without filling or
+clearing its words and tags. Re-enabling it exposes retained cache contents.
+The instruction already prefetched stays latched across a guest control write.
+Generated tests check that ordering across execution modes; the exact hardware
+latency of adjacent cache-control writes still needs independent qualification.
+Programmable refill sizes and tag-test mode also remain unqualified.
+
+Save-state version 87 retains the native pipeline's fetched word. Earlier
+native streams rebuild it from the saved execution PC, except when the stream
+already contains a pending branch slot or fetch exception. The CPU serializer
+keeps pending loads and GTE/multiply/divide deadlines during restoration.
+
 ## Recompiler backends
 
 | Backend | Status | Files |
@@ -60,8 +253,19 @@ PGXP (Parallel/Precision Geometry Transformation Pipeline) tracks subpixel-preci
 | Mode | Strategy |
 |------|----------|
 | `off` | Always go through the C helper (slow path). |
-| `lut` | Requested LUT mode (default). The x86-64 backend currently uses the slow C helper path; native LUT execution is unfinished. |
+| `lut` | The x86-64 backend looks up a host address bias for each 4 KB guest page, then accesses RAM directly. |
 | `mmap` | Direct host addressing with `SIGSEGV` handling for out-of-region accesses through `src/util/platform/page_fault_handler.c`. |
+
+LUT accesses include byte, halfword and word transfers, unaligned word merges,
+discarded coprocessor loads and GTE memory transfers. Alignment and permission
+checks precede the access. Unmapped pages and isolated views use the bus handlers
+after fault recovery; known device accesses can select those handlers directly.
+Enabling checked memory exceptions disables fastmem and reports it as `off`.
+
+With `CUPID_CPU_STATS=1`, the `lut` report counts successful emitted loads and
+stores. A backpatched bus access skips that counter. Writes to protected code
+pages invalidate host blocks and retry the direct store, while preserving the
+emulated instruction-cache contents. See [memory mapping](../memory/mapping.md).
 
 ## Execution comparisons
 

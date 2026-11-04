@@ -1,4 +1,4 @@
- /*
+/*
  *
  * Byte-walk tests for the dispatcher prelude emitted by
  * src/core/cpu/backends/x64/x64_backend.c::emit_asm_functions.
@@ -17,6 +17,7 @@
 #include "tests/test_harness.h"
 
 #include "core/cpu/cpu_code_cache.h"
+#include "core/cpu/cpu_core_private.h"
 #include "core/cpu/backends/x64/x64_backend.h"
 
 #include <stdint.h>
@@ -44,18 +45,12 @@ TEST(X64Backend, dispatcher_prelude_emits_and_populates_globals) {
   const u8* const base = g_prelude_buf;
   const u8* const end  = base + size;
 
-  EXPECT_TRUE((const u8*)g_enter_recompiler            >= base &&
-              (const u8*)g_enter_recompiler            <  end);
-  EXPECT_TRUE((const u8*)g_run_events_and_dispatch     >= base &&
-              (const u8*)g_run_events_and_dispatch     <  end);
-  EXPECT_TRUE((const u8*)g_dispatcher                  >= base &&
-              (const u8*)g_dispatcher                  <  end);
-  EXPECT_TRUE((const u8*)g_compile_or_revalidate_block >= base &&
-              (const u8*)g_compile_or_revalidate_block <  end);
-  EXPECT_TRUE((const u8*)g_discard_and_recompile_block >= base &&
-              (const u8*)g_discard_and_recompile_block <  end);
-  EXPECT_TRUE((const u8*)g_interpret_block             >= base &&
-              (const u8*)g_interpret_block             <  end);
+  EXPECT_TRUE((const u8*)g_enter_recompiler >= base && (const u8*)g_enter_recompiler < end);
+  EXPECT_TRUE((const u8*)g_run_events_and_dispatch >= base && (const u8*)g_run_events_and_dispatch < end);
+  EXPECT_TRUE((const u8*)g_dispatcher >= base && (const u8*)g_dispatcher < end);
+  EXPECT_TRUE((const u8*)g_compile_or_revalidate_block >= base && (const u8*)g_compile_or_revalidate_block < end);
+  EXPECT_TRUE((const u8*)g_discard_and_recompile_block >= base && (const u8*)g_discard_and_recompile_block < end);
+  EXPECT_TRUE((const u8*)g_interpret_block >= base && (const u8*)g_interpret_block < end);
 
   /* g_enter_recompiler must start with REX.W + SUB r/m64, imm8 (= 48 83 EC 08). */
   const u8* enter = (const u8*)g_enter_recompiler;
@@ -68,16 +63,17 @@ TEST(X64Backend, dispatcher_prelude_emits_and_populates_globals) {
   EXPECT_EQ(run_evt[0], 0x48);
   EXPECT_EQ(run_evt[1], 0xB8);
 
-  /* g_dispatcher begins with `mov edi, [rbp + disp]`.
-   * disp != 0 → mod=01 (disp8) or mod=10 (disp32); reg=111 (RDI=7), rm=101 (RBP=5).
-   * So byte 0 = 0x8B (MOV r32, r/m32), byte 1 = 0x7D (mod01 reg111 rm101) for disp8
-   *                                          or 0xBD (mod10 reg111 rm101) for disp32.
-   * The pending_ticks/downcount/pc fields all sit at low offsets in
-   * cpu_state_t (well under 128 bytes), so disp8. */
+  /* Dispatch must prepare the real prefetch before looking up the next PC. */
   const u8* disp = (const u8*)g_dispatcher;
-  EXPECT_EQ(disp[0], 0x8B);
-  /* ModRM is one of the two forms above. */
-  EXPECT_TRUE(disp[1] == 0x7D || disp[1] == 0xBD);
+  EXPECT_EQ(disp[0], 0x48);
+  EXPECT_EQ(disp[1], 0xB8);
+  u64 prepare;
+  memcpy(&prepare, disp + 2, sizeof(prepare));
+  EXPECT_EQ(prepare, (u64)(uintptr_t)&cpu_native_prepare_dispatch);
+  EXPECT_EQ(disp[10], 0xFF);
+  EXPECT_EQ(disp[11], 0xD0);
+  EXPECT_EQ(disp[12], 0x8B);
+  EXPECT_TRUE(disp[13] == 0x7D || disp[13] == 0xBD);
 
   /* g_compile_or_revalidate_block / g_discard_and_recompile_block both
    * begin the same way (mov edi, [rbp+pc]). */
@@ -100,9 +96,9 @@ TEST(X64Backend, dispatcher_prelude_globals_are_distinct) {
   (void)x64_backend_emit_dispatcher_for_test(g_prelude_buf, sizeof(g_prelude_buf));
 
   /* Each entry point must occupy a distinct location. */
-  EXPECT_TRUE(g_enter_recompiler            != (void*)g_run_events_and_dispatch);
-  EXPECT_TRUE(g_run_events_and_dispatch     != g_dispatcher);
-  EXPECT_TRUE(g_dispatcher                  != g_compile_or_revalidate_block);
+  EXPECT_TRUE(g_enter_recompiler != (void*)g_run_events_and_dispatch);
+  EXPECT_TRUE(g_run_events_and_dispatch != g_dispatcher);
+  EXPECT_TRUE(g_dispatcher != g_compile_or_revalidate_block);
   EXPECT_TRUE(g_compile_or_revalidate_block != g_discard_and_recompile_block);
   EXPECT_TRUE(g_discard_and_recompile_block != g_interpret_block);
 }

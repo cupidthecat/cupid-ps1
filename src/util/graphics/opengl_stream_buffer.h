@@ -26,18 +26,18 @@ typedef enum {
 typedef struct {
   void* pointer;
   u32   buffer_offset;
-  u32   index_aligned;   /* offset / alignment, suitable for base vertex */
-  u32   space_aligned;   /* remaining space / alignment */
+  u32   index_aligned; /* offset / alignment, suitable for base vertex */
+  u32   space_aligned; /* remaining space / alignment */
 } opengl_stream_buffer_mapping_t;
 
 #define OPENGL_STREAM_BUFFER_NUM_SYNC_POINTS 16
 
 typedef struct opengl_stream_buffer opengl_stream_buffer_t;
 
-typedef opengl_stream_buffer_mapping_t (*opengl_stream_buffer_map_fn)(opengl_stream_buffer_t* self,
-                                                                     u32 alignment, u32 min_size);
-typedef u32  (*opengl_stream_buffer_unmap_fn)(opengl_stream_buffer_t* self, u32 used_size);
-typedef u32  (*opengl_stream_buffer_chunk_fn)(const opengl_stream_buffer_t* self);
+typedef opengl_stream_buffer_mapping_t (*opengl_stream_buffer_map_fn)(opengl_stream_buffer_t* self, u32 alignment,
+                                                                      u32 min_size);
+typedef u32 (*opengl_stream_buffer_unmap_fn)(opengl_stream_buffer_t* self, u32 used_size);
+typedef u32 (*opengl_stream_buffer_chunk_fn)(const opengl_stream_buffer_t* self);
 typedef void (*opengl_stream_buffer_dtor_fn)(opengl_stream_buffer_t* self);
 
 struct opengl_stream_buffer {
@@ -45,7 +45,7 @@ struct opengl_stream_buffer {
   GLuint buffer_id;
   u32    size;
 
-  opengl_stream_buffer_kind_t kind;
+  opengl_stream_buffer_kind_t   kind;
   opengl_stream_buffer_map_fn   map_fn;
   opengl_stream_buffer_unmap_fn unmap_fn;
   opengl_stream_buffer_chunk_fn chunk_fn;
@@ -73,18 +73,28 @@ struct opengl_stream_buffer {
 opengl_stream_buffer_t* opengl_stream_buffer_create(GLenum target, u32 size, Error* err);
 void                    opengl_stream_buffer_destroy(opengl_stream_buffer_t* sb);
 
-ALWAYS_INLINE GLuint opengl_stream_buffer_get_id    (const opengl_stream_buffer_t* sb) { return sb->buffer_id; }
-ALWAYS_INLINE GLenum opengl_stream_buffer_get_target(const opengl_stream_buffer_t* sb) { return sb->target;    }
-ALWAYS_INLINE u32    opengl_stream_buffer_get_size  (const opengl_stream_buffer_t* sb) { return sb->size;      }
+ALWAYS_INLINE GLuint opengl_stream_buffer_get_id(const opengl_stream_buffer_t* sb) {
+  return sb->buffer_id;
+}
+ALWAYS_INLINE GLenum opengl_stream_buffer_get_target(const opengl_stream_buffer_t* sb) {
+  return sb->target;
+}
+ALWAYS_INLINE u32 opengl_stream_buffer_get_size(const opengl_stream_buffer_t* sb) {
+  return sb->size;
+}
 
-void opengl_stream_buffer_bind  (opengl_stream_buffer_t* sb);
+void opengl_stream_buffer_bind(opengl_stream_buffer_t* sb);
 void opengl_stream_buffer_unbind(opengl_stream_buffer_t* sb);
 
-ALWAYS_INLINE opengl_stream_buffer_mapping_t opengl_stream_buffer_map(opengl_stream_buffer_t* sb, u32 align, u32 min_size)
-{ return sb->map_fn(sb, align, min_size); }
-ALWAYS_INLINE u32 opengl_stream_buffer_unmap(opengl_stream_buffer_t* sb, u32 used_size)
-{ return sb->unmap_fn(sb, used_size); }
-ALWAYS_INLINE u32 opengl_stream_buffer_chunk_size(const opengl_stream_buffer_t* sb)
-{ return sb->chunk_fn(sb); }
+ALWAYS_INLINE opengl_stream_buffer_mapping_t opengl_stream_buffer_map(opengl_stream_buffer_t* sb, u32 align,
+                                                                      u32 min_size) {
+  return sb->map_fn(sb, align, min_size);
+}
+ALWAYS_INLINE u32 opengl_stream_buffer_unmap(opengl_stream_buffer_t* sb, u32 used_size) {
+  return sb->unmap_fn(sb, used_size);
+}
+ALWAYS_INLINE u32 opengl_stream_buffer_chunk_size(const opengl_stream_buffer_t* sb) {
+  return sb->chunk_fn(sb);
+}
 
 #endif /* CUPID_UTIL_OPENGL_STREAM_BUFFER_H */

@@ -2,6 +2,16 @@
 
 Two backends, picked by `--gpu-renderer` or settings INI. Backend abstraction: `src/core/gpu/gpu_backend.h`.
 
+GPU command resets and interrupt acknowledgement are described in
+[GPU reset and interrupts](reset-and-irqs.md).
+See [VRAM uploads](vram-transfers.md) for transfer dimensions and data handling.
+[Mask history and restored VRAM](mask-history.md) describes the OpenGL
+destination-protection checks. [Palette cache](palette-cache.md) covers the
+latched color table and decoded-page sampling. [Texture pages](texture-pages.md)
+covers wrapped decoding and source-write invalidation.
+[Rendered texture coordinates](texture-coordinates.md) covers native sampling,
+rectangle flips, clipping and decoded-source ownership.
+
 ## Software renderer (`gpu_sw`)
 
 Source: `src/core/gpu/software/gpu_sw.c`, `src/core/gpu/software/gpu_sw_rasterizer.c`. Default rendering path.

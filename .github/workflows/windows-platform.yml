@@ -1,0 +1,80 @@
+name: Windows platform validation
+
+on:
+  push:
+    branches: [main, 'fix/native-*', 'feat/native-*']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  platform-components:
+    name: Windows platform components
+    runs-on: windows-2022
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: msys2/setup-msys2@ec48f7c5447b3140e2b088413ae3a55687bccb6e # v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-zstd
+            mingw-w64-x86_64-xz
+            mingw-w64-x86_64-python
+      - name: Build native platform components and isolated headers
+        run: |
+          cmake -S tests/platform/windows -B build/windows-platform -G Ninja -DCMAKE_C_COMPILER=gcc
+          cmake --build build/windows-platform --parallel 2
+      - name: Check memory, faults, clocks, threads and library loading
+        run: ctest --test-dir build/windows-platform --output-on-failure
+      - name: Build pinned audio dependency
+        run: python scripts/dependencies/build_soundtouch.py --output build/dependencies/soundtouch --compiler "$(cygpath -m /mingw64/bin/g++.exe)"
+      - name: Build native emulator and isolated headers
+        run: |
+          cmake -S . -B build/windows-native -G Ninja -DCMAKE_C_COMPILER=gcc -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCUPID_SOUNDTOUCH_ROOT="$(cygpath -m "$PWD/build/dependencies/soundtouch/build")"
+          cmake --build build/windows-native --parallel 2
+      - name: Check generated firmware, CPU paths, memory faults and restored states
+        run: |
+          export CUPID_TEST_BINARY="$(cygpath -m "$PWD/build/windows-native/cupid-ps1.exe")"
+          python -m unittest discover -s tests -p test_frontend_cli.py
+          python -m unittest discover -s tests -p test_compare_execution_live.py
+          python -m unittest discover -s tests -p test_memory_card_live.py
+          python -m unittest discover -s tests -p test_spu_noise_live.py
+          python -m unittest discover -s tests -p test_spu_volume_live.py
+          python -m unittest discover -s tests -p test_spu_state_live.py
+          python -m unittest discover -s tests -p test_state_recovery_live.py
+          python -m unittest discover -s tests -p test_mdec_commands_live.py
+          python -m unittest discover -s tests -p test_cdrom_identification_live.py
+          python -m unittest discover -s tests -p test_executable_stack_live.py
+          python -m unittest discover -s tests -p test_executable_memfill_live.py
+          python -m unittest discover -s tests -p test_mdec_spatial_live.py
+          python -m unittest discover -s tests -p test_partial_stores_live.py
+          python -m unittest discover -s tests -p test_gte_color_live.py
+          python -m unittest discover -s tests -p test_gpu_rectangle_live.py
+          python -m unittest discover -s tests -p test_gpu_information_live.py
+          python -m unittest discover -s tests -p test_gpu_polyline_live.py
+          python -m unittest discover -s tests -p test_gpu_upload_live.py
+          python -m unittest discover -s tests -p test_dma_otc_live.py
+          python -m unittest discover -s tests -p test_dma_bus_errors_live.py
+          python -m unittest discover -s tests -p test_dma_chopping_live.py
+          python -m unittest discover -s tests -p test_dma_priority_live.py
+          python -m unittest discover -s tests -p test_dma_forced_live.py
+          python -m unittest discover -s tests -p test_timer_gates_live.py
+          python -m unittest discover -s tests -p test_partial_loads_live.py
+          python -m unittest discover -s tests -p test_gpu_legacy_fixtures.py

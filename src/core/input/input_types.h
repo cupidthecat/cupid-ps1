@@ -14,11 +14,11 @@ typedef enum : u8 {
   INPUT_BINDING_TYPE_BUTTON,
   INPUT_BINDING_TYPE_AXIS,
   INPUT_BINDING_TYPE_HALF_AXIS,
-  INPUT_BINDING_TYPE_MOTOR,           /* vibration motors; generic_mapping selects motor */
-  INPUT_BINDING_TYPE_LED,             /* status LEDs (e.g. analog/digital indicator) */
-  INPUT_BINDING_TYPE_POINTER,         /* absolute pointer; queryable, no events */
-  INPUT_BINDING_TYPE_RELATIVE_POINTER,/* relative mouse motion; bind_index offset by axis */
-  INPUT_BINDING_TYPE_DEVICE,          /* special-purpose device select (e.g. force feedback) */
+  INPUT_BINDING_TYPE_MOTOR,            /* vibration motors; generic_mapping selects motor */
+  INPUT_BINDING_TYPE_LED,              /* status LEDs (e.g. analog/digital indicator) */
+  INPUT_BINDING_TYPE_POINTER,          /* absolute pointer; queryable, no events */
+  INPUT_BINDING_TYPE_RELATIVE_POINTER, /* relative mouse motion; bind_index offset by axis */
+  INPUT_BINDING_TYPE_DEVICE,           /* special-purpose device select (e.g. force feedback) */
   INPUT_BINDING_TYPE_MACRO,
 } input_binding_type_t;
 
@@ -47,19 +47,19 @@ typedef enum : u8 {
   GENERIC_INPUT_BINDING_CROSS,    /* A on Xbox pads */
   GENERIC_INPUT_BINDING_SQUARE,   /* X on Xbox pads */
 
-  GENERIC_INPUT_BINDING_SELECT,   /* Share on DS4, View on Xbox pads */
-  GENERIC_INPUT_BINDING_START,    /* Options on DS4, Menu on Xbox pads */
-  GENERIC_INPUT_BINDING_SYSTEM,   /* PS button on DS4, Guide on Xbox pads */
+  GENERIC_INPUT_BINDING_SELECT, /* Share on DS4, View on Xbox pads */
+  GENERIC_INPUT_BINDING_START,  /* Options on DS4, Menu on Xbox pads */
+  GENERIC_INPUT_BINDING_SYSTEM, /* PS button on DS4, Guide on Xbox pads */
 
-  GENERIC_INPUT_BINDING_L1,       /* LB on Xbox */
-  GENERIC_INPUT_BINDING_L2,       /* left trigger on Xbox */
-  GENERIC_INPUT_BINDING_R1,       /* RB on Xbox */
-  GENERIC_INPUT_BINDING_R2,       /* right trigger on Xbox */
+  GENERIC_INPUT_BINDING_L1, /* LB on Xbox */
+  GENERIC_INPUT_BINDING_L2, /* left trigger on Xbox */
+  GENERIC_INPUT_BINDING_R1, /* RB on Xbox */
+  GENERIC_INPUT_BINDING_R2, /* right trigger on Xbox */
 
   GENERIC_INPUT_BINDING_LARGE_MOTOR, /* low-frequency vibration */
   GENERIC_INPUT_BINDING_SMALL_MOTOR, /* high-frequency vibration */
 
-  GENERIC_INPUT_BINDING_MODE_LED,    /* digital/analog mode indicator */
+  GENERIC_INPUT_BINDING_MODE_LED, /* digital/analog mode indicator */
 
   GENERIC_INPUT_BINDING_COUNT,
 } generic_input_binding_t;
@@ -73,8 +73,7 @@ typedef struct {
 } input_binding_info_t;
 
 /* Effect types are MOTOR..LED inclusive (the device-feedback subset). */
-ALWAYS_INLINE bool input_binding_type_is_effect(input_binding_type_t t)
-{
+ALWAYS_INLINE bool input_binding_type_is_effect(input_binding_type_t t) {
   return t >= INPUT_BINDING_TYPE_MOTOR && t <= INPUT_BINDING_TYPE_LED;
 }
 
@@ -113,9 +112,7 @@ float       setting_info_float_min_value(const setting_info_t* si);
 float       setting_info_float_max_value(const setting_info_t* si);
 float       setting_info_float_step_value(const setting_info_t* si);
 
-void setting_info_copy_value(const setting_info_t* si,
-                             settings_interface_t* dest_si,
-                             const settings_interface_t* src_si,
-                             const char* section);
+void setting_info_copy_value(const setting_info_t* si, settings_interface_t* dest_si,
+                             const settings_interface_t* src_si, const char* section);
 
 #endif /* CUPID_CORE_INPUT_TYPES_H */

@@ -1,0 +1,48 @@
+{
+  "writer_revision": "f391d012b8736c91f8dac5a7e766a83decae1d87",
+  "writer_binary_sha256": "4417483497fe3a89c2e822abf3fc3761a627996069b42ae45523afbf813ba744",
+  "version": 93,
+  "synthetic_inputs_only": true,
+  "records": [
+    {
+      "name": "polyline_v93_flat_pending",
+      "compressed_bytes": 1134,
+      "uncompressed_bytes": 1049254,
+      "sha256": "f7dc7a4a39e409016e4c40718ab57264a048c0079673d0cf8cb4d9b0fbc2bef4",
+      "compressed_sha256": "c5a1c9a07b8ff4d1d2bcadf556e95b3d1d132e1dbc91e0da1af86a4d1c0e9567"
+    },
+    {
+      "name": "polyline_v93_flat_idle",
+      "compressed_bytes": 1153,
+      "uncompressed_bytes": 1049254,
+      "sha256": "979de1d592e0b10c3f87ad04a70fa5dc529a17977a5bd8bf3934be6cc8000666",
+      "compressed_sha256": "b53ab7aec69485ac7536a4f2e6fd3247ca3c59c78f2ddb44f3bf3c9eba2ddf44"
+    },
+    {
+      "name": "polyline_v93_shaded_pending",
+      "compressed_bytes": 1133,
+      "uncompressed_bytes": 1049254,
+      "sha256": "5cbb27d43c7671b8344d7a8bdc26195404a51ce6ef2776132908038a060eb8d0",
+      "compressed_sha256": "eb6207fc413cdde880808da3d054765504c2af5d7f3baf5eed53108e6cee0d03"
+    },
+    {
+      "name": "polyline_v93_shaded_idle",
+      "compressed_bytes": 1197,
+      "uncompressed_bytes": 1049254,
+      "sha256": "d755b4e81e5977f8055d53f7affea924cfb97e6d18c5df40b0360942d73c0b82",
+      "compressed_sha256": "7374f96bbdba6fe15d91cc43e9cae9950a97ae14bdc11acef3be22b3a2d2b0a2"
+    }
+  ],
+  "stimuli": [
+    {
+      "shaded": false,
+      "firmware_sha256": "993bd2b9a7eb3c80a6f2813b0bfe5176de6e4f8476f1ce1258c58709540a8861",
+      "executable_sha256": "eb75ba04e23d831d78cda4aeb2fa2698eaf858a10b450da7f31e68dc8dc9fa5b"
+    },
+    {
+      "shaded": true,
+      "firmware_sha256": "9c16ef6a225f5fb6397e04757a9ef238d51c2b4039ebe3b7e9cb34dbf5e8e84d",
+      "executable_sha256": "9e23d6d3c1b5abd280ec829f4da3d6a7206806455c20d903496eea43a3216255"
+    }
+  ]
+}

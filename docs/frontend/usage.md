@@ -17,7 +17,7 @@ cupid-ps1 [options] <game-path>
 | `--gpu-resolution-scale N` | Internal resolution multiplier for the HW backend. `1`..`16`. SW renderer ignores it. | `1` |
 | `--cdrom-precache` | Decompress the entire disc image into RAM at boot. Eliminates per-hunk decode for CHD. Auto-applied for CHD-backed `.m3u` entries. | off |
 | `--cpu-mode MODE` | `interp`/`interpreter`, `cached`/`cached-interpreter`, `recomp`/`recompiler`. | settings.ini default (`recompiler`). |
-| `--fastmem MODE` | `off`/`disabled`, `lut`, `mmap`/`hw`. Recompiler load/store strategy. Native LUT execution is unfinished and currently uses the slow path. | settings.ini default (typically `lut`). |
+| `--fastmem MODE` | `off`/`disabled` uses bus helpers, `lut` uses page lookups, and `mmap`/`hw` uses a mapped guest arena. | settings.ini default (mmap when unset). |
 | `--pgxp on\|off` | Enable PGXP subpixel-precision geometry. | settings.ini default (off). |
 | `--no-block-linking` | Disable recompiler block linking for diagnosis. | linking on |
 | `--no-icache` | Disable recompiler icache emulation for diagnosis. | icache on |

@@ -8,8 +8,7 @@
 #include <sys/resource.h>
 #include <unistd.h>
 
-static void trace_path(char* path)
-{
+static void trace_path(char* path) {
   strcpy(path, "/tmp/cupid-trace-test-XXXXXX");
   const int fd = mkstemp(path);
   EXPECT_TRUE(fd >= 0);
@@ -21,8 +20,7 @@ static void trace_path(char* path)
   g_settings.cpu_execution_mode = CPU_EXECUTION_MODE_INTERPRETER;
 }
 
-TEST(CpuTrace, refuses_existing_output_without_truncating)
-{
+TEST(CpuTrace, refuses_existing_output_without_truncating) {
   char path[64];
   trace_path(path);
   FILE* file = fopen(path, "w");
@@ -39,8 +37,7 @@ TEST(CpuTrace, refuses_existing_output_without_truncating)
   unlink(path);
 }
 
-TEST(CpuTrace, refuses_native_partial_instruction_traces)
-{
+TEST(CpuTrace, refuses_native_partial_instruction_traces) {
   char path[64];
   trace_path(path);
   g_settings.cpu_execution_mode = CPU_EXECUTION_MODE_RECOMPILER;
@@ -49,8 +46,7 @@ TEST(CpuTrace, refuses_native_partial_instruction_traces)
   EXPECT_TRUE(access(path, F_OK) != 0);
 }
 
-TEST(CpuTrace, completion_requires_the_requested_instruction)
-{
+TEST(CpuTrace, completion_requires_the_requested_instruction) {
   char path[64];
   trace_path(path);
   EXPECT_TRUE(cpu_diff_initialize());
@@ -70,8 +66,7 @@ TEST(CpuTrace, completion_requires_the_requested_instruction)
   unlink(path);
 }
 
-TEST(CpuTrace, incomplete_trace_fails)
-{
+TEST(CpuTrace, incomplete_trace_fails) {
   char path[64];
   trace_path(path);
   EXPECT_TRUE(cpu_diff_initialize());
@@ -79,8 +74,7 @@ TEST(CpuTrace, incomplete_trace_fails)
   unlink(path);
 }
 
-TEST(CpuTrace, buffered_write_or_close_failure_fails)
-{
+TEST(CpuTrace, buffered_write_or_close_failure_fails) {
   char path[64];
   trace_path(path);
   signal(SIGXFSZ, SIG_IGN);
@@ -93,8 +87,7 @@ TEST(CpuTrace, buffered_write_or_close_failure_fails)
   unlink(path);
 }
 
-TEST(CpuTrace, invalid_instruction_counts_fail_without_output)
-{
+TEST(CpuTrace, invalid_instruction_counts_fail_without_output) {
   char path[64];
   trace_path(path);
   const char* counts[] = {"0", "-1", "1tail", " 1", "18446744073709551616"};

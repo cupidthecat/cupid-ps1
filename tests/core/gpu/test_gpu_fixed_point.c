@@ -13,8 +13,7 @@ void gpu_sw_rasterizer_simd_draw_triangle(const gpu_backend_draw_cmd_t*, const g
 
 static u16 s_expected[VRAM_WIDTH * VRAM_HEIGHT];
 
-static void reset_drawing(void)
-{
+static void reset_drawing(void) {
   gpu_sw_rasterizer_init();
   gpu_sw_drawing_area.left = gpu_sw_drawing_area.top = 0;
   gpu_sw_drawing_area.right                          = VRAM_WIDTH - 1;
@@ -23,8 +22,7 @@ static void reset_drawing(void)
     g_vram[i] = 0x8000;
 }
 
-TEST(GpuFixedPoint, clipped_line_with_negative_slopes_and_colors)
-{
+TEST(GpuFixedPoint, clipped_line_with_negative_slopes_and_colors) {
   reset_drawing();
   gpu_backend_draw_cmd_t cmd        = {0};
   cmd.shading_enable                = true;
@@ -40,8 +38,7 @@ TEST(GpuFixedPoint, clipped_line_with_negative_slopes_and_colors)
   EXPECT_EQ(0, memcmp(s_expected, g_vram, sizeof(s_expected)));
 }
 
-TEST(GpuFixedPoint, negative_triangle_coordinates_all_vertex_orders)
-{
+TEST(GpuFixedPoint, negative_triangle_coordinates_all_vertex_orders) {
   const gpu_backend_polygon_vertex_t vertices[] = {
       {.x = -4, .y = -4, .color = 0x00FFFFFF},
       {.x = 8, .y = -4, .color = 0x00FFFFFF},
@@ -66,8 +63,7 @@ TEST(GpuFixedPoint, negative_triangle_coordinates_all_vertex_orders)
   }
 }
 
-TEST(GpuFixedPoint, clipped_triangle_wraps_attribute_offsets)
-{
+TEST(GpuFixedPoint, clipped_triangle_wraps_attribute_offsets) {
   const gpu_backend_polygon_vertex_t a   = {.x = -32, .y = -16, .color = 0x000000FF};
   const gpu_backend_polygon_vertex_t b   = {.x = 128, .y = 8, .color = 0x0000FF00};
   const gpu_backend_polygon_vertex_t c   = {.x = 16, .y = 96, .color = 0x00FF0000};
