@@ -681,12 +681,10 @@ bool bus_can_use_fastmem_for_address(virtual_memory_address_t address) {
 }
 
 static void hardware_write_word(virtual_memory_address_t address, u32 value);
+static u32 hardware_read_word(virtual_memory_address_t address);
+static u32 cache_control_read_any(virtual_memory_address_t address);
 
-bool bus_is_word_latch_address(virtual_memory_address_t address) {
-  const bus_memory_write_handler_t* handlers =
-      bus_offset_write_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
-  if (handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT] != hardware_write_word) return false;
-  const u32 physical = cpu_virtual_to_physical_address(address);
+static bool is_word_register_address(u32 physical) {
   return (physical >= BUS_MEMCTRL_BASE && physical < BUS_MEMCTRL_BASE + BUS_MEMCTRL_SIZE) ||
          (physical >= BUS_MEMCTRL2_BASE && physical < BUS_MEMCTRL2_BASE + BUS_MEMCTRL2_SIZE) ||
          (physical >= BUS_INTC_BASE && physical < BUS_INTC_BASE + BUS_INTC_SIZE) ||
@@ -694,6 +692,21 @@ bool bus_is_word_latch_address(virtual_memory_address_t address) {
          (physical >= BUS_DMA_BASE && physical < BUS_DMA_BASE + BUS_DMA_SIZE) ||
          (physical >= BUS_GPU_BASE && physical < BUS_GPU_BASE + BUS_GPU_SIZE) ||
          (physical >= BUS_MDEC_BASE && physical < BUS_MDEC_BASE + BUS_MDEC_SIZE);
+}
+
+bool bus_is_word_latch_address(virtual_memory_address_t address) {
+  const bus_memory_write_handler_t* handlers =
+      bus_offset_write_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
+  return handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT] == hardware_write_word &&
+         is_word_register_address(cpu_virtual_to_physical_address(address));
+}
+
+bool bus_is_word_read_address(virtual_memory_address_t address) {
+  const bus_memory_read_handler_t* handlers =
+      bus_offset_read_handler_array(g_cpu_state.memory_handlers, MEMORY_ACCESS_SIZE_WORD);
+  const bus_memory_read_handler_t handler = handlers[address >> BUS_MEMORY_LUT_PAGE_SHIFT];
+  return handler == cache_control_read_any ||
+         (handler == hardware_read_word && is_word_register_address(cpu_virtual_to_physical_address(address)));
 }
 
 void bus_set_ram_code_page(u32 index) {

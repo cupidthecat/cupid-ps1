@@ -1372,6 +1372,8 @@ void cpu_recompiler_compile_mfc0(cpu_recompiler_t* r, cpu_recomp_compile_flags_t
   }
   DebugAssert(cf.valid_host_t);
   if (r->v && r->v->load_host_reg_from_cpu_pointer) r->v->load_host_reg_from_cpu_pointer(r, cf.host_t, ptr);
+  if (r->v && r->v->cancel_load_delay_from_state)
+    r->v->cancel_load_delay_from_state(r, (cpu_reg_t)r->inst->r.rt);
 }
 
 void cpu_recompiler_compile_j(cpu_recompiler_t* r) {

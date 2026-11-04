@@ -236,6 +236,8 @@ bool cpu_recompiler_synth_pc_exception_if_invalid(u32 pc);
 u32  cpu_recompiler_thunk_read_memory_byte(u32 address);
 u32  cpu_recompiler_thunk_read_memory_halfword(u32 address);
 u32  cpu_recompiler_thunk_read_memory_word(u32 address);
+u32  cpu_recompiler_thunk_read_word_left(u32 address);
+u32  cpu_recompiler_thunk_read_word_right(u32 address);
 void cpu_recompiler_thunk_write_memory_byte(u32 address, u32 value);
 void cpu_recompiler_thunk_write_memory_halfword(u32 address, u32 value);
 void cpu_recompiler_thunk_write_memory_word(u32 address, u32 value);

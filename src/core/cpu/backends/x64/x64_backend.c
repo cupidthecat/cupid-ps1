@@ -1468,6 +1468,15 @@ static void emit_fastmem_store(cpu_recompiler_t* r, x64_reg_t address, x64_reg_t
                                      (u8)value, size, false, false);
 }
 
+static void cancel_incoming_load(cpu_recompiler_t* r, cpu_reg_t reg) {
+  if (!r->load_delay_dirty || reg == (cpu_reg_t)0) return;
+  x64_emit_t* e = current_emit(be_from(r));
+  x64_alu_m_imm(e, X64_ALU_CMP, X64_SZ_8, x64_mem(RSTATE, STATE_DISP(load_delay_reg)), (s32)reg);
+  u8* different = x64_jcc_rel32(e, X64_CC_NE);
+  x64_mov_m_imm32(e, X64_SZ_8, x64_mem(RSTATE, STATE_DISP(load_delay_reg)), (s32)CPU_REG_COUNT);
+  x64_patch_rel32(different, x64_emit_cursor(e));
+}
+
 /* Ordinary loads retain alignment checks and architectural load delays. */
 static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf, memory_access_size_t size, bool sign,
                              bool use_fastmem, const u32* known_addr) {
@@ -1488,6 +1497,7 @@ static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
     }
     emit_fastmem_load(r, addr, destination, size, sign);
     emit_memory_exception_exit(r);
+    cancel_incoming_load(r, mips_t);
     return;
   }
 
@@ -1499,6 +1509,7 @@ static void hook_compile_lxx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   emit_memory_exception_exit(r);
 
   if (mips_t == (cpu_reg_t)0) return;
+  cancel_incoming_load(r, mips_t);
 
   const u32 vreg = cpu_recompiler_allocate_host_reg(
       r, cpu_recompiler_get_flags_for_new_load_delayed_reg(r),
@@ -1614,15 +1625,29 @@ static void hook_compile_lwx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
   prepare_memory_access(r, &cf);
   compute_loadstore_address_into(r, cf, known_addr, addr);
 
-  if (r->load_delay_dirty) cpu_recompiler_update_load_delay(r);
-
-  /* Word-aligned load into RWRET. */
-  x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
-  x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, RWARG1, (s32)~0x3u);
-  if (use_fastmem)
+  u8* isolated = NULL;
+  u8* device = NULL;
+  u8* done_ram = NULL;
+  if (use_fastmem) {
+    x64_test_m_imm(e, X64_SZ_32, x64_mem(RSTATE, STATE_DISP(cop0_regs.sr.bits)), 0x10000);
+    isolated = x64_jcc_rel32(e, X64_CC_NE);
+    x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+    x64_call_abs64(e, (const void*)&bus_can_use_fastmem_for_address);
+    x64_test_r_imm(e, X64_SZ_8, RWRET, 1);
+    device = x64_jcc_rel32(e, X64_CC_E);
+    x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+    x64_alu_r_imm(e, X64_ALU_AND, X64_SZ_32, RWARG1, (s32)~0x3u);
     emit_fastmem_load(r, RWARG1, RWRET, MEMORY_ACCESS_SIZE_WORD, false);
-  else
-    x64_call_abs64(e, (const void*)&cpu_recompiler_thunk_read_memory_word);
+    done_ram = x64_jmp_rel32(e);
+  }
+  void* slow = x64_emit_cursor(e);
+  if (isolated) x64_patch_rel32(isolated, slow);
+  if (device) x64_patch_rel32(device, slow);
+  x64_mov_r_r(e, X64_SZ_32, RWARG1, addr);
+  x64_call_abs64(e, (const void*)((cpu_instruction_op_t)r->inst->any.op == CPU_OP_LWL
+                                      ? &cpu_recompiler_thunk_read_word_left
+                                      : &cpu_recompiler_thunk_read_word_right));
+  if (done_ram) x64_patch_rel32(done_ram, x64_emit_cursor(e));
   emit_memory_exception_exit(r);
 
   /* lwx with rt=$zero: still does the load (side-effect) but no merge. */
@@ -1632,43 +1657,19 @@ static void hook_compile_lwx(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf,
     return;
   }
 
-  /* An LWL+LWR pair (or LWR+LWL) on the same rt within one block relies
-   * on the second op merging with the first op's pending load-delay
-   * result, NOT with the stale CPU_REG copy.  Mirrors the interp's
-   *   existing = (rt == load_delay_reg) ? load_delay_value : reg[rt]
-   * (cpu_core.c:799-801).  Crash Bandicoot's CDROM driver hits this at
-   * 0x8002FB14 (lwl v0,0x5(s0); lwr v0,0x2(s0)); without the forward the
-   * LBA->MSF input is corrupt, the CDROM rejects every Setloc with non-BCD
-   * nibbles (40:BB:FC, 47:F7:9D), and the game freezes ~28 s in.
-   *
-   * After update_load_delay above, the pending value's host-reg type may
-   * be LOAD_DELAY_VALUE (current cycle, just shifted) or NEXT_LOAD_DELAY_VALUE
-   * (this cycle, newly set).  Check both. */
-  cpu_recomp_opt_u32_t pending_idx =
-      cpu_recompiler_check_host_reg(r, CPU_RC_HR_MODE_READ, CPU_RC_HRT_LOAD_DELAY_VALUE, rt);
-  if (!pending_idx.has) {
-    pending_idx = cpu_recompiler_check_host_reg(r, CPU_RC_HR_MODE_READ, CPU_RC_HRT_NEXT_LOAD_DELAY_VALUE, rt);
-  }
-  /* If the pending value was flushed to cpu_state (no host-reg cache hit
-   * but load_delay_register still tracks rt), read it from memory. */
-  bool pending_in_state = !pending_idx.has && (r->load_delay_register == rt || r->next_load_delay_register == rt);
-
   const u32 value_idx = cpu_recompiler_allocate_host_reg(
       r, cpu_recompiler_get_flags_for_lwx_value_reg(r),
       CPU_RECOMP_EMULATE_LOAD_DELAYS ? CPU_RC_HRT_NEXT_LOAD_DELAY_VALUE : CPU_RC_HRT_CPU_REG, rt);
   const x64_reg_t value = (x64_reg_t)value_idx;
-  if (pending_idx.has && (x64_reg_t)pending_idx.val != value) {
-    x64_mov_r_r(e, X64_SZ_32, value, (x64_reg_t)pending_idx.val);
-  } else if (pending_idx.has) {
-    /* allocator returned the same hreg the pending value was already in -
-     * nothing to do, value already holds the in-flight load result. */
-  } else if (pending_in_state) {
-    /* Pending load was flushed; pick it back up from cpu_state. */
-    x64_mov_r_m(e, X64_SZ_32, value,
-                x64_mem(RSTATE, (r->load_delay_register == rt) ? STATE_DISP(load_delay_value)
-                                                               : STATE_DISP(next_load_delay_value)));
-  } else {
-    emit_load_mips_to_reg(r, value, rt);
+  emit_load_mips_to_reg(r, value, rt);
+  if (r->load_delay_dirty) {
+    /* The merge uses an incoming load to rt without retiring it into the GPR.
+     * The following delay-slot instruction must still observe the old GPR. */
+    x64_alu_m_imm(e, X64_ALU_CMP, X64_SZ_8, x64_mem(RSTATE, STATE_DISP(load_delay_reg)), (s32)rt);
+    u8* different = x64_jcc_rel32(e, X64_CC_NE);
+    x64_mov_r_m(e, X64_SZ_32, value, x64_mem(RSTATE, STATE_DISP(load_delay_value)));
+    x64_mov_m_imm32(e, X64_SZ_8, x64_mem(RSTATE, STATE_DISP(load_delay_reg)), (s32)CPU_REG_COUNT);
+    x64_patch_rel32(different, x64_emit_cursor(e));
   }
 
   /* shift = (addr & 3) * 8;  RWARG2 = 24 - shift */
@@ -1899,6 +1900,7 @@ static void hook_compile_mfc2(cpu_recompiler_t* r, cpu_recomp_compile_flags_t cf
   } else {
     Panic("Unhandled GTE read action");
   }
+  cancel_incoming_load(r, rt);
   (void)cf;
 }
 
@@ -2337,6 +2339,7 @@ static const struct cpu_recompiler_vtable s_vtable = {
    * codepaths via hook_flush below. */
 
     .get_host_reg_name = x64_get_host_reg_name,
+    .cancel_load_delay_from_state = cancel_incoming_load,
 };
 
 void x64_backend_register(void) {

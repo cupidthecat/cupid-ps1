@@ -109,6 +109,7 @@ static bool cpu_do_alignment_check(memory_access_type_t type, memory_access_size
 static bool cpu_read_memory_byte(virtual_memory_address_t addr, u8* value);
 static bool cpu_read_memory_halfword(virtual_memory_address_t addr, u16* value);
 static bool cpu_read_memory_word(virtual_memory_address_t addr, u32* value);
+static bool cpu_read_memory_partial(virtual_memory_address_t addr, bool left, u32* value);
 static bool cpu_write_memory_byte(virtual_memory_address_t addr, u32 value);
 static bool cpu_write_memory_halfword(virtual_memory_address_t addr, u32 value);
 static bool cpu_write_memory_word(virtual_memory_address_t addr, u32 value);
@@ -783,9 +784,8 @@ static void cpu_execute_instruction(bool observe_tty) {
        * across two instructions; the second one bypasses load-delay so that
        * the partial value from the first one is observable. */
       const virtual_memory_address_t addr         = cpu_read_reg((cpu_reg_t)inst.i.rs) + cpu_instr_imm_sext32(inst);
-      const virtual_memory_address_t aligned_addr = addr & ~3u;
       u32                            aligned_value;
-      if (!cpu_read_memory_word(aligned_addr, &aligned_value)) return;
+      if (!cpu_read_memory_partial(addr, (cpu_instruction_op_t)inst.any.op == CPU_OP_LWL, &aligned_value)) return;
       const u32 existing_value = ((cpu_reg_t)inst.i.rt == g_cpu_state.load_delay_reg)
                                      ? g_cpu_state.load_delay_value
                                      : cpu_read_reg((cpu_reg_t)inst.i.rt);
@@ -1358,6 +1358,18 @@ u32 cpu_recompiler_thunk_read_memory_word(u32 address) {
   return v;
 }
 
+u32 cpu_recompiler_thunk_read_word_left(u32 address) {
+  u32 value = 0;
+  (void)cpu_read_memory_partial(address, true, &value);
+  return value;
+}
+
+u32 cpu_recompiler_thunk_read_word_right(u32 address) {
+  u32 value = 0;
+  (void)cpu_read_memory_partial(address, false, &value);
+  return value;
+}
+
 void cpu_recompiler_thunk_write_memory_byte(u32 address, u32 value) {
   (void)cpu_write_memory_byte(address, value);
 }
@@ -1883,6 +1895,30 @@ static bool cpu_read_memory_word(virtual_memory_address_t addr, u32* value) {
     return false;
   }
   return true;
+}
+
+static bool cpu_read_memory_partial(virtual_memory_address_t addr, bool left, u32* value) {
+  const u32 lane = addr & 3u;
+  const u32 first = left ? 0 : lane;
+  const u32 bytes = left ? lane + 1u : 4u - lane;
+  const u32 aligned = addr & ~3u;
+  /* Word registers retain their decoder's aligned address and read effect. */
+  if (bus_is_word_read_address(addr)) return cpu_read_memory_word(aligned, value);
+  if (bytes == 1) {
+    u8 part;
+    if (!cpu_read_memory_byte(aligned + first, &part)) return false;
+    *value = (u32)part << (first * 8u);
+    return true;
+  }
+  if (bytes == 2) {
+    u16 part;
+    if (!cpu_read_memory_halfword(aligned + first, &part)) return false;
+    *value = (u32)part << (first * 8u);
+    return true;
+  }
+  /* Three-byte external transfers retain the word path until their port
+   * mapping is qualified. Full-width transfers also use the word handler. */
+  return cpu_read_memory_word(aligned, value);
 }
 
 static bool cpu_write_memory_byte(virtual_memory_address_t addr, u32 value) {

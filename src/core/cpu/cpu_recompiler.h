@@ -381,6 +381,7 @@ struct cpu_recompiler_vtable {
   void (*compile_cop2)(cpu_recompiler_t*, cpu_recomp_compile_flags_t);
 
   const char* (*get_host_reg_name)(u32 reg);
+  void (*cancel_load_delay_from_state)(cpu_recompiler_t*, cpu_reg_t reg);
 };
 
 /* Release compiler-owned allocations before destroying the host backend. */
