@@ -20,6 +20,11 @@ without adding emulated cycles. This host action flag is not save-state data.
 
 State streams support **uncompressed**, **deflate**, and **zstd** compression. Format is versioned via `SAVE_STATE_VERSION` in `src/core/state/save_state_version.h`; load paths reject unknown versions or unsupported compression types with an error.
 
+SPU records are staged before replacing live sound RAM, voices, histories and
+transfers. Rejected records preserve that component and its event links;
+whole-machine failed-load rollback remains incomplete. See
+[SPU records and validation](../spu/state-records.md) for bounds and legacy behavior.
+
 Version 96 records the start cause of forced manual DMA transfers, including
 paused transfers whose trigger has cleared and whose device request is absent.
 Earlier records default to request-driven continuation. See

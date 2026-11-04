@@ -698,43 +698,66 @@ void spu_reset(void) {
   update_event_interval();
 }
 
-bool spu_do_state(state_wrapper_t* sw) {
-  state_wrapper_do_s32(sw, &s_state.ticks_carry);
-  state_wrapper_do_u16(sw, &s_state.SPUCNT.bits);
-  state_wrapper_do_u16(sw, &s_state.SPUSTAT.bits);
-  state_wrapper_do_u16(sw, &s_state.transfer_control.bits);
-  state_wrapper_do_u32(sw, &s_state.transfer_address);
-  state_wrapper_do_u16(sw, &s_state.transfer_address_reg);
-  state_wrapper_do_u16(sw, &s_state.irq_address);
-  state_wrapper_do_u16(sw, &s_state.capture_buffer_position);
-  state_wrapper_do_u16(sw, &s_state.main_volume_left_reg.bits);
-  state_wrapper_do_u16(sw, &s_state.main_volume_right_reg.bits);
-  state_wrapper_do_array(sw, &s_state.main_volume_left, sizeof(s_state.main_volume_left), 1);
-  state_wrapper_do_array(sw, &s_state.main_volume_right, sizeof(s_state.main_volume_right), 1);
-  state_wrapper_do_s16(sw, &s_state.cd_audio_volume_left);
-  state_wrapper_do_s16(sw, &s_state.cd_audio_volume_right);
-  state_wrapper_do_s16(sw, &s_state.external_volume_left);
-  state_wrapper_do_s16(sw, &s_state.external_volume_right);
-  state_wrapper_do_u32(sw, &s_state.key_on_register);
-  state_wrapper_do_u32(sw, &s_state.key_off_register);
-  state_wrapper_do_u32(sw, &s_state.endx_register);
-  state_wrapper_do_u32(sw, &s_state.pitch_modulation_enable_register);
-  state_wrapper_do_u32(sw, &s_state.noise_mode_register);
-  state_wrapper_do_u32(sw, &s_state.legacy_noise_count);
-  state_wrapper_do_u32(sw, &s_state.noise_level);
-  state_wrapper_do_u32(sw, &s_state.reverb_on_register);
-  state_wrapper_do_u32(sw, &s_state.reverb_base_address);
-  state_wrapper_do_u32(sw, &s_state.reverb_current_address);
-  state_wrapper_do_s16(sw, &s_state.reverb_registers.vLOUT);
-  state_wrapper_do_s16(sw, &s_state.reverb_registers.vROUT);
-  state_wrapper_do_u16(sw, &s_state.reverb_registers.mBASE);
-  state_wrapper_do_array(sw, s_state.reverb_registers.rev, sizeof(u16), NUM_REVERB_REGS);
-  state_wrapper_do_array(sw, s_state.reverb_downsample_buffer, sizeof(s_state.reverb_downsample_buffer), 1);
-  state_wrapper_do_array(sw, s_state.reverb_upsample_buffer, sizeof(s_state.reverb_upsample_buffer), 1);
-  state_wrapper_do_s32(sw, &s_state.reverb_resample_buffer_position);
+static bool spu_state_is_valid(const spu_state_t* state) {
+  const u32 sample_divider = g_settings.cpu_overclock_active ? (u32)state->cpu_tick_divider : SYSCLK_TICKS_PER_SPU_TICK;
+  if (state->ticks_carry < 0 || (u32)state->ticks_carry >= sample_divider || state->transfer_address >= SPU_RAM_SIZE ||
+      (state->transfer_address & 1u) != 0 || (u32)state->reverb_resample_buffer_position >= 64u ||
+      state->capture_buffer_position >= CAPTURE_BUFFER_SIZE_PER_CHANNEL || (state->capture_buffer_position & 1u) != 0 ||
+      state->noise_clock.divider >= 0x8000 || state->noise_clock.counter >= 8 || state->transfer_ticks_carry < 0 ||
+      state->transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD ||
+      state->transfer_fifo.head >= FIFO_SIZE_IN_HALFWORDS || state->transfer_fifo.tail >= FIFO_SIZE_IN_HALFWORDS ||
+      state->transfer_fifo.size > FIFO_SIZE_IN_HALFWORDS ||
+      (state->transfer_fifo.head + state->transfer_fifo.size) % FIFO_SIZE_IN_HALFWORDS != state->transfer_fifo.tail ||
+      !volume_sweep_state_is_valid(&state->main_volume_left) || !volume_sweep_state_is_valid(&state->main_volume_right))
+    return false;
 
   for (u32 i = 0; i < NUM_VOICES; i++) {
-    spu_voice_t* v = &s_state.voices[i];
+    const spu_voice_t* voice = &state->voices[i];
+    if (voice->counter.b.sample_index >= NUM_SAMPLES_PER_ADPCM_BLOCK || voice->adsr_phase > ADSR_PHASE_RELEASE ||
+        !volume_sweep_state_is_valid(&voice->left_volume) || !volume_sweep_state_is_valid(&voice->right_volume) ||
+        !volume_envelope_state_is_valid(&voice->adsr_envelope))
+      return false;
+  }
+  return true;
+}
+
+static bool spu_do_state_fields(state_wrapper_t* sw, spu_state_t* state, u8* ram) {
+  state_wrapper_do_s32(sw, &state->ticks_carry);
+  state_wrapper_do_u16(sw, &state->SPUCNT.bits);
+  state_wrapper_do_u16(sw, &state->SPUSTAT.bits);
+  state_wrapper_do_u16(sw, &state->transfer_control.bits);
+  state_wrapper_do_u32(sw, &state->transfer_address);
+  state_wrapper_do_u16(sw, &state->transfer_address_reg);
+  state_wrapper_do_u16(sw, &state->irq_address);
+  state_wrapper_do_u16(sw, &state->capture_buffer_position);
+  state_wrapper_do_u16(sw, &state->main_volume_left_reg.bits);
+  state_wrapper_do_u16(sw, &state->main_volume_right_reg.bits);
+  state_wrapper_do_array(sw, &state->main_volume_left, sizeof(state->main_volume_left), 1);
+  state_wrapper_do_array(sw, &state->main_volume_right, sizeof(state->main_volume_right), 1);
+  state_wrapper_do_s16(sw, &state->cd_audio_volume_left);
+  state_wrapper_do_s16(sw, &state->cd_audio_volume_right);
+  state_wrapper_do_s16(sw, &state->external_volume_left);
+  state_wrapper_do_s16(sw, &state->external_volume_right);
+  state_wrapper_do_u32(sw, &state->key_on_register);
+  state_wrapper_do_u32(sw, &state->key_off_register);
+  state_wrapper_do_u32(sw, &state->endx_register);
+  state_wrapper_do_u32(sw, &state->pitch_modulation_enable_register);
+  state_wrapper_do_u32(sw, &state->noise_mode_register);
+  state_wrapper_do_u32(sw, &state->legacy_noise_count);
+  state_wrapper_do_u32(sw, &state->noise_level);
+  state_wrapper_do_u32(sw, &state->reverb_on_register);
+  state_wrapper_do_u32(sw, &state->reverb_base_address);
+  state_wrapper_do_u32(sw, &state->reverb_current_address);
+  state_wrapper_do_s16(sw, &state->reverb_registers.vLOUT);
+  state_wrapper_do_s16(sw, &state->reverb_registers.vROUT);
+  state_wrapper_do_u16(sw, &state->reverb_registers.mBASE);
+  state_wrapper_do_array(sw, state->reverb_registers.rev, sizeof(u16), NUM_REVERB_REGS);
+  state_wrapper_do_array(sw, state->reverb_downsample_buffer, sizeof(state->reverb_downsample_buffer), 1);
+  state_wrapper_do_array(sw, state->reverb_upsample_buffer, sizeof(state->reverb_upsample_buffer), 1);
+  state_wrapper_do_s32(sw, &state->reverb_resample_buffer_position);
+
+  for (u32 i = 0; i < NUM_VOICES; i++) {
+    spu_voice_t* v = &state->voices[i];
     state_wrapper_do_u16(sw, &v->current_address);
     state_wrapper_do_array(sw, v->regs.index, sizeof(u16), NUM_VOICE_REGISTERS);
     state_wrapper_do_u32(sw, &v->counter.bits);
@@ -759,64 +782,71 @@ bool spu_do_state(state_wrapper_t* sw) {
   }
 
   if (state_wrapper_get_version(sw) >= 92) {
-    state_wrapper_do_u16(sw, &s_state.noise_clock.divider);
-    state_wrapper_do_u8(sw, &s_state.noise_clock.counter);
+    state_wrapper_do_u16(sw, &state->noise_clock.divider);
+    state_wrapper_do_u8(sw, &state->noise_clock.counter);
   } else if (state_wrapper_is_reading(sw)) {
     /* The old rate accumulator does not contain this divider/step phase.
      * Keep its LFSR value and restart the missing phase deterministically. */
-    s_state.noise_clock = (spu_noise_clock_t){0};
+    state->noise_clock = (spu_noise_clock_t){0};
   }
 
   if (state_wrapper_get_version(sw) >= 89)
-    state_wrapper_do_s32(sw, &s_state.transfer_ticks_carry);
+    state_wrapper_do_s32(sw, &state->transfer_ticks_carry);
   else if (state_wrapper_is_reading(sw))
-    s_state.transfer_ticks_carry = 0;
+    state->transfer_ticks_carry = 0;
 
   /* FIFO: serialize the contents and head/tail/size. */
-  state_wrapper_do_array(sw, s_state.transfer_fifo.data, sizeof(u16), FIFO_SIZE_IN_HALFWORDS);
-  state_wrapper_do_u32(sw, &s_state.transfer_fifo.head);
-  state_wrapper_do_u32(sw, &s_state.transfer_fifo.tail);
-  state_wrapper_do_u32(sw, &s_state.transfer_fifo.size);
+  state_wrapper_do_array(sw, state->transfer_fifo.data, sizeof(u16), FIFO_SIZE_IN_HALFWORDS);
+  state_wrapper_do_u32(sw, &state->transfer_fifo.head);
+  state_wrapper_do_u32(sw, &state->transfer_fifo.tail);
+  state_wrapper_do_u32(sw, &state->transfer_fifo.size);
 
-  state_wrapper_do_bytes(sw, s_ram, SPU_RAM_SIZE);
+  state_wrapper_do_bytes(sw, ram, SPU_RAM_SIZE);
 
-  if (state_wrapper_is_reading(sw)) {
-    bool valid_envelopes = volume_sweep_state_is_valid(&s_state.main_volume_left) &&
-                           volume_sweep_state_is_valid(&s_state.main_volume_right);
-    for (u32 voice = 0; voice < NUM_VOICES; voice++) {
-      valid_envelopes = valid_envelopes && volume_sweep_state_is_valid(&s_state.voices[voice].left_volume) &&
-                        volume_sweep_state_is_valid(&s_state.voices[voice].right_volume) &&
-                        volume_envelope_state_is_valid(&s_state.voices[voice].adsr_envelope);
-    }
-    if (!valid_envelopes) sw->error = true;
-  }
-
-  if (state_wrapper_is_reading(sw) &&
-      (s_state.noise_clock.divider >= 0x8000 || s_state.noise_clock.counter >= 8 || s_state.transfer_ticks_carry < 0 ||
-       s_state.transfer_ticks_carry >= TRANSFER_TICKS_PER_HALFWORD ||
-       s_state.transfer_fifo.head >= FIFO_SIZE_IN_HALFWORDS || s_state.transfer_fifo.tail >= FIFO_SIZE_IN_HALFWORDS ||
-       s_state.transfer_fifo.size > FIFO_SIZE_IN_HALFWORDS ||
-       (s_state.transfer_fifo.head + s_state.transfer_fifo.size) % FIFO_SIZE_IN_HALFWORDS !=
-           s_state.transfer_fifo.tail))
-    sw->error = true;
-
-  if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw)) {
-    volume_sweep_resume_if_needed(&s_state.main_volume_left, s_state.main_volume_left_reg);
-    volume_sweep_resume_if_needed(&s_state.main_volume_right, s_state.main_volume_right_reg);
-    for (u32 voice = 0; voice < NUM_VOICES; voice++) {
-      volume_sweep_resume_if_needed(&s_state.voices[voice].left_volume, s_state.voices[voice].regs.volume_left);
-      volume_sweep_resume_if_needed(&s_state.voices[voice].right_volume, s_state.voices[voice].regs.volume_right);
-    }
-    update_event_interval();
-    if (state_wrapper_get_version(sw) >= 90)
-      update_transfer_event();
-    else {
-      update_transfer_status();
-      timing_event_deactivate(&s_state.transfer_event);
-    }
-  }
+  if (state_wrapper_is_reading(sw) && !state_wrapper_has_error(sw) && !spu_state_is_valid(state)) sw->error = true;
 
   return !state_wrapper_has_error(sw);
+}
+
+bool spu_do_state(state_wrapper_t* sw) {
+  if (state_wrapper_has_error(sw)) return false;
+  if (state_wrapper_is_writing(sw)) return spu_do_state_fields(sw, &s_state, s_ram);
+
+  typedef struct {
+    spu_state_t state;
+    u8          ram[SPU_RAM_SIZE];
+  } staged_spu_t;
+  staged_spu_t* staged = malloc(sizeof(*staged));
+  if (!staged) {
+    sw->error = true;
+    return false;
+  }
+  /* Keep live RAM, voice state and event links intact until the whole record
+   * has been read and validated. Legacy fields start from their live values. */
+  staged->state = s_state;
+  memcpy(staged->ram, s_ram, SPU_RAM_SIZE);
+  if (!spu_do_state_fields(sw, &staged->state, staged->ram)) {
+    free(staged);
+    return false;
+  }
+  s_state = staged->state;
+  memcpy(s_ram, staged->ram, SPU_RAM_SIZE);
+  free(staged);
+
+  volume_sweep_resume_if_needed(&s_state.main_volume_left, s_state.main_volume_left_reg);
+  volume_sweep_resume_if_needed(&s_state.main_volume_right, s_state.main_volume_right_reg);
+  for (u32 voice = 0; voice < NUM_VOICES; voice++) {
+    volume_sweep_resume_if_needed(&s_state.voices[voice].left_volume, s_state.voices[voice].regs.volume_left);
+    volume_sweep_resume_if_needed(&s_state.voices[voice].right_volume, s_state.voices[voice].regs.volume_right);
+  }
+  update_event_interval();
+  if (state_wrapper_get_version(sw) >= 90)
+    update_transfer_event();
+  else {
+    update_transfer_status();
+    timing_event_deactivate(&s_state.transfer_event);
+  }
+  return true;
 }
 
 void spu_post_load_state(u32 version) {
